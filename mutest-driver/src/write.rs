@@ -239,23 +239,29 @@ pub fn write_mutations<'tcx, 'trg>(
         let mutation_id = json_mutations.next_index();
         assert_eq!(mutation_id, mutest_json::mutations::MutationId(mutation.id.index()), "mutations are not supplied in id order");
 
-        let origin_span = mutest_json::Span::from_rustc_span(tcx.sess, mutation.span).expect("invalid span");
+        // A span that still maps nowhere is located at the function it mutates, rather than
+        // aborting the whole compilation over one unrenderable entry.
+        let fallback_span = tcx.def_span(local_def_id);
+        let to_json_span = |span| {
+            mutest_json::Span::from_rustc_span(tcx.sess, span)
+                .or_else(|| mutest_json::Span::from_rustc_span(tcx.sess, fallback_span))
+                .expect("mutation target has no span in a real source file")
+        };
+
+        let origin_span = to_json_span(mutation.span);
 
         let substs = mutation.substs.iter()
             .map(|subst| {
                 mutest_json::mutations::Substitution {
                     location: match &subst.location {
                         SubstLoc::InsertBefore(_, span) => {
-                            let subst_span = mutest_json::Span::from_rustc_span(tcx.sess, *span).expect("invalid span");
-                            mutest_json::mutations::SubstitutionLocation::InsertBefore(subst_span)
+                            mutest_json::mutations::SubstitutionLocation::InsertBefore(to_json_span(*span))
                         }
                         SubstLoc::InsertAfter(_, span) => {
-                            let subst_span = mutest_json::Span::from_rustc_span(tcx.sess, *span).expect("invalid span");
-                            mutest_json::mutations::SubstitutionLocation::InsertAfter(subst_span)
+                            mutest_json::mutations::SubstitutionLocation::InsertAfter(to_json_span(*span))
                         }
                         SubstLoc::Replace(_, span) => {
-                            let subst_span = mutest_json::Span::from_rustc_span(tcx.sess, *span).expect("invalid span");
-                            mutest_json::mutations::SubstitutionLocation::Replace(subst_span)
+                            mutest_json::mutations::SubstitutionLocation::Replace(to_json_span(*span))
                         }
                     },
                     substitute: mutest_json::mutations::Substitute {
