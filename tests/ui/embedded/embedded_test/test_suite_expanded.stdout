@@ -19,7 +19,11 @@ targets: 1 total; 1 safe; 0 unsafe (0 tainted)
 
 @@@ mutations @@@
 
-[fn_return_default] return `Default::default()` without evaluating the function body in mutable_fn at tests/ui/embedded/embedded_test/test_suite_expanded.rs:31:1: 33:2
+[fn_return_default] return `0` without evaluating the function body in mutable_fn at tests/ui/embedded/embedded_test/test_suite_expanded.rs:31:1: 33:2
+  <-(0)- tests::simple_test
+  <-(0)- tests::test_taking_peripherals
+
+[fn_return_default] return `1` without evaluating the function body in mutable_fn at tests/ui/embedded/embedded_test/test_suite_expanded.rs:31:1: 33:2
   <-(0)- tests::simple_test
   <-(0)- tests::test_taking_peripherals
 
@@ -39,4 +43,4 @@ targets: 1 total; 1 safe; 0 unsafe (0 tainted)
   <-(0)- tests::simple_test
   <-(0)- tests::test_taking_peripherals
 
-5 mutations; 5 safe; 0 unsafe (0 tainted)
+6 mutations; 6 safe; 0 unsafe (0 tainted)

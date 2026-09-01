@@ -3,6 +3,7 @@
 #![feature(rustc_private)]
 extern crate rustc_data_structures;
 extern crate rustc_middle;
+extern crate rustc_span;
 
 mod arg_default_shadow;
 pub use arg_default_shadow::*;

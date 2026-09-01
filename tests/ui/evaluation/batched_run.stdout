@@ -1,9 +1,17 @@
 batch of 3 mutations
-  - [fn_return_default] return `Default::default()` without evaluating the function body in mutable_fn at tests/ui/evaluation/batched_run.rs:8:1: 10:2
+  - [fn_return_default] return `0` without evaluating the function body in mutable_fn at tests/ui/evaluation/batched_run.rs:8:1: 10:2
     <-(0)- test_mutable_fn
-  - [fn_return_default] return `Default::default()` without evaluating the function body in other_mutable_fn at tests/ui/evaluation/batched_run.rs:17:1: 19:2
+  - [fn_return_default] return `0` without evaluating the function body in other_mutable_fn at tests/ui/evaluation/batched_run.rs:17:1: 19:2
     <-(0)- test_other_mutable_fn
-  - [fn_return_default] return `Default::default()` without evaluating the function body in coupled_mutable_fn at tests/ui/evaluation/batched_run.rs:26:1: 28:2
+  - [fn_return_default] return `0` without evaluating the function body in coupled_mutable_fn at tests/ui/evaluation/batched_run.rs:26:1: 28:2
+    <-(0)- test_coupled_mutable_fns
+
+batch of 3 mutations
+  - [fn_return_default] return `1` without evaluating the function body in mutable_fn at tests/ui/evaluation/batched_run.rs:8:1: 10:2
+    <-(0)- test_mutable_fn
+  - [fn_return_default] return `1` without evaluating the function body in other_mutable_fn at tests/ui/evaluation/batched_run.rs:17:1: 19:2
+    <-(0)- test_other_mutable_fn
+  - [fn_return_default] return `1` without evaluating the function body in coupled_mutable_fn at tests/ui/evaluation/batched_run.rs:26:1: 28:2
     <-(0)- test_coupled_mutable_fns
 
 batch of 3 mutations
@@ -39,7 +47,11 @@ batch of 3 mutations
     <-(0)- test_coupled_mutable_fns
 
 batch of 1 mutation
-  - [fn_return_default] return `Default::default()` without evaluating the function body in other_coupled_mutable_fn at tests/ui/evaluation/batched_run.rs:30:1: 32:2
+  - [fn_return_default] return `0` without evaluating the function body in other_coupled_mutable_fn at tests/ui/evaluation/batched_run.rs:30:1: 32:2
+    <-(0)- test_coupled_mutable_fns
+
+batch of 1 mutation
+  - [fn_return_default] return `1` without evaluating the function body in other_coupled_mutable_fn at tests/ui/evaluation/batched_run.rs:30:1: 32:2
     <-(0)- test_coupled_mutable_fns
 
 batch of 1 mutation
@@ -58,17 +70,24 @@ batch of 1 mutation
   - [math_op_mul_div_swap] swap operator `*` for `/` in other_coupled_mutable_fn at tests/ui/evaluation/batched_run.rs:31:5: 31:10
     <-(0)- test_coupled_mutable_fns
 
-20 mutations; 20 safe; 0 unsafe (0 tainted)
-10 batches; 15 batched; 5 unbatched
+24 mutations; 24 safe; 0 unsafe (0 tainted)
+12 batches; 18 batched; 6 unbatched
 
 ---
 
 profiling reference test run
 
 applying batch of 3 mutations:
-- [fn_return_default] return `Default::default()` without evaluating the function body at tests/ui/evaluation/batched_run.rs:8:1: 10:2
-- [fn_return_default] return `Default::default()` without evaluating the function body at tests/ui/evaluation/batched_run.rs:17:1: 19:2
-- [fn_return_default] return `Default::default()` without evaluating the function body at tests/ui/evaluation/batched_run.rs:26:1: 28:2
+- [fn_return_default] return `0` without evaluating the function body at tests/ui/evaluation/batched_run.rs:8:1: 10:2
+- [fn_return_default] return `0` without evaluating the function body at tests/ui/evaluation/batched_run.rs:17:1: 19:2
+- [fn_return_default] return `0` without evaluating the function body at tests/ui/evaluation/batched_run.rs:26:1: 28:2
+
+ran 3 out of 3 tests
+
+applying batch of 3 mutations:
+- [fn_return_default] return `1` without evaluating the function body at tests/ui/evaluation/batched_run.rs:8:1: 10:2
+- [fn_return_default] return `1` without evaluating the function body at tests/ui/evaluation/batched_run.rs:17:1: 19:2
+- [fn_return_default] return `1` without evaluating the function body at tests/ui/evaluation/batched_run.rs:26:1: 28:2
 
 ran 3 out of 3 tests
 
@@ -101,7 +120,12 @@ applying batch of 3 mutations:
 ran 3 out of 3 tests
 
 applying batch of 1 mutation:
-- [fn_return_default] return `Default::default()` without evaluating the function body at tests/ui/evaluation/batched_run.rs:30:1: 32:2
+- [fn_return_default] return `0` without evaluating the function body at tests/ui/evaluation/batched_run.rs:30:1: 32:2
+
+ran 1 out of 1 test
+
+applying batch of 1 mutation:
+- [fn_return_default] return `1` without evaluating the function body at tests/ui/evaluation/batched_run.rs:30:1: 32:2
 
 ran 1 out of 1 test
 
@@ -125,6 +149,6 @@ applying batch of 1 mutation:
 
 ran 1 out of 1 test
 
-mutations: 100.00%. 20 detected (0 timed out; 0 crashed); 0 undetected; 20 total
-     safe: 100.00%. 20 detected (0 timed out; 0 crashed); 0 undetected; 20 total
+mutations: 100.00%. 24 detected (0 timed out; 0 crashed); 0 undetected; 24 total
+     safe: 100.00%. 24 detected (0 timed out; 0 crashed); 0 undetected; 24 total
    unsafe: none. 0 detected (0 timed out; 0 crashed); 0 undetected; 0 total

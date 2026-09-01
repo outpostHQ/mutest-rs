@@ -1,4 +1,7 @@
-[fn_return_default] return `Default::default()` without evaluating the function body in mutable_fn at tests/ui/evaluation/parallel_run.rs:9:1: 11:2
+[fn_return_default] return `0` without evaluating the function body in mutable_fn at tests/ui/evaluation/parallel_run.rs:9:1: 11:2
+  <-(0)- test
+
+[fn_return_default] return `1` without evaluating the function body in mutable_fn at tests/ui/evaluation/parallel_run.rs:9:1: 11:2
   <-(0)- test
 
 [arg_default_shadow] ignore `a` argument by shadowing it with `Default::default()` in mutable_fn at tests/ui/evaluation/parallel_run.rs:9:15: 9:21
@@ -13,7 +16,7 @@
 [math_op_add_sub_swap] swap operator `+` for `-` in mutable_fn at tests/ui/evaluation/parallel_run.rs:10:5: 10:10
   <-(0)- test
 
-5 mutations; 5 safe; 0 unsafe (0 tainted)
+6 mutations; 6 safe; 0 unsafe (0 tainted)
 
 ---
 
@@ -22,7 +25,12 @@ profiling reference test run
 using thread pool of size 2 for running tests
 
 applying mutation:
-- [fn_return_default] return `Default::default()` without evaluating the function body at tests/ui/evaluation/parallel_run.rs:9:1: 11:2
+- [fn_return_default] return `0` without evaluating the function body at tests/ui/evaluation/parallel_run.rs:9:1: 11:2
+
+ran 1 out of 1 test
+
+applying mutation:
+- [fn_return_default] return `1` without evaluating the function body at tests/ui/evaluation/parallel_run.rs:9:1: 11:2
 
 ran 1 out of 1 test
 
@@ -46,6 +54,6 @@ applying mutation:
 
 ran 1 out of 1 test
 
-mutations: 100.00%. 5 detected (0 timed out; 0 crashed); 0 undetected; 5 total
-     safe: 100.00%. 5 detected (0 timed out; 0 crashed); 0 undetected; 5 total
+mutations: 100.00%. 6 detected (0 timed out; 0 crashed); 0 undetected; 6 total
+     safe: 100.00%. 6 detected (0 timed out; 0 crashed); 0 undetected; 6 total
    unsafe: none. 0 detected (0 timed out; 0 crashed); 0 undetected; 0 total

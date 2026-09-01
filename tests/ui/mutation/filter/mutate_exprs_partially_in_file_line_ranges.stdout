@@ -9,27 +9,30 @@ tests -(0)-> mutable_fn at tests/ui/mutation/filter/mutate_exprs_partially_in_fi
 
 targets: 1 total; 1 safe; 0 unsafe (0 tainted)
 
-generated 6 mutations in 50.00% of functions (1 out of 2 functions)
-found 15 conflicts (15 excluding unsafe mutations), 0 compatibilities
+generated 7 mutations in 50.00% of functions (1 out of 2 functions)
+found 21 conflicts (21 excluding unsafe mutations), 0 compatibilities
 
 @@@ mutations @@@
 
-1: [fn_return_default] return `Default::default()` without evaluating the function body in mutable_fn at tests/ui/mutation/filter/mutate_exprs_partially_in_file_line_ranges.rs:11:1: 16:2
+1: [fn_return_default] return `false` without evaluating the function body in mutable_fn at tests/ui/mutation/filter/mutate_exprs_partially_in_file_line_ranges.rs:11:1: 16:2
   <-(0)- test
 
-2: [bool_expr_negate] negate boolean expression in mutable_fn at tests/ui/mutation/filter/mutate_exprs_partially_in_file_line_ranges.rs:12:5: 15:6
+2: [fn_return_default] return `true` without evaluating the function body in mutable_fn at tests/ui/mutation/filter/mutate_exprs_partially_in_file_line_ranges.rs:11:1: 16:2
   <-(0)- test
 
-3: [call_delete] delete call to `other_mutable_fn` and replace it with `Default::default()` in mutable_fn at tests/ui/mutation/filter/mutate_exprs_partially_in_file_line_ranges.rs:12:5: 15:6
+3: [bool_expr_negate] negate boolean expression in mutable_fn at tests/ui/mutation/filter/mutate_exprs_partially_in_file_line_ranges.rs:12:5: 15:6
   <-(0)- test
 
-4: [call_value_default_shadow] ignore return value of call to `other_mutable_fn` by shadowing it with `Default::default()` in mutable_fn at tests/ui/mutation/filter/mutate_exprs_partially_in_file_line_ranges.rs:12:5: 15:6
+4: [call_delete] delete call to `other_mutable_fn` and replace it with `Default::default()` in mutable_fn at tests/ui/mutation/filter/mutate_exprs_partially_in_file_line_ranges.rs:12:5: 15:6
   <-(0)- test
 
-5: [bool_expr_negate] negate boolean expression in mutable_fn at tests/ui/mutation/filter/mutate_exprs_partially_in_file_line_ranges.rs:13:9: 13:15
+5: [call_value_default_shadow] ignore return value of call to `other_mutable_fn` by shadowing it with `Default::default()` in mutable_fn at tests/ui/mutation/filter/mutate_exprs_partially_in_file_line_ranges.rs:12:5: 15:6
   <-(0)- test
 
-6: [eq_op_invert] invert equality operator `==` to `!=` in mutable_fn at tests/ui/mutation/filter/mutate_exprs_partially_in_file_line_ranges.rs:13:9: 13:15
+6: [bool_expr_negate] negate boolean expression in mutable_fn at tests/ui/mutation/filter/mutate_exprs_partially_in_file_line_ranges.rs:13:9: 13:15
+  <-(0)- test
+
+7: [eq_op_invert] invert equality operator `==` to `!=` in mutable_fn at tests/ui/mutation/filter/mutate_exprs_partially_in_file_line_ranges.rs:13:9: 13:15
   <-(0)- test
 
        arg_default_shadow:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
@@ -37,16 +40,16 @@ found 15 conflicts (15 excluding unsafe mutations), 0 compatibilities
        bit_op_or_xor_swap:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
     bit_op_shift_dir_swap:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
       bit_op_xor_and_swap:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
-         bool_expr_negate: 33.33%. 2 mutations; 2 safe; 0 unsafe (0 tainted)
-        fn_return_default: 16.67%. 1 mutations; 1 safe; 0 unsafe (0 tainted)
+         bool_expr_negate: 28.57%. 2 mutations; 2 safe; 0 unsafe (0 tainted)
+        fn_return_default: 28.57%. 2 mutations; 2 safe; 0 unsafe (0 tainted)
          match_arm_delete:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
         match_guard_value:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
       struct_field_delete:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
           unary_op_delete:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
-              call_delete: 16.67%. 1 mutations; 1 safe; 0 unsafe (0 tainted)
-call_value_default_shadow: 16.67%. 1 mutations; 1 safe; 0 unsafe (0 tainted)
+              call_delete: 14.29%. 1 mutations; 1 safe; 0 unsafe (0 tainted)
+call_value_default_shadow: 14.29%. 1 mutations; 1 safe; 0 unsafe (0 tainted)
       continue_break_swap:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
-             eq_op_invert: 16.67%. 1 mutations; 1 safe; 0 unsafe (0 tainted)
+             eq_op_invert: 14.29%. 1 mutations; 1 safe; 0 unsafe (0 tainted)
    logical_op_and_or_swap:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
      math_op_add_mul_swap:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
      math_op_add_sub_swap:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
@@ -56,4 +59,4 @@ call_value_default_shadow: 16.67%. 1 mutations; 1 safe; 0 unsafe (0 tainted)
     relational_op_eq_swap:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
      relational_op_invert:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
 
-6 mutations; 6 safe; 0 unsafe (0 tainted)
+7 mutations; 7 safe; 0 unsafe (0 tainted)

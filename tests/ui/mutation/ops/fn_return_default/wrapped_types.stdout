@@ -1,0 +1,34 @@
+[fn_return_default] return `Ok(0)` without evaluating the function body in a_result at tests/ui/mutation/ops/fn_return_default/wrapped_types.rs:9:1: 11:2
+  <-(0)- test
+
+[fn_return_default] return `Ok(1)` without evaluating the function body in a_result at tests/ui/mutation/ops/fn_return_default/wrapped_types.rs:9:1: 11:2
+  <-(0)- test
+
+[fn_return_default] return `Ok(())` without evaluating the function body in a_unit_result at tests/ui/mutation/ops/fn_return_default/wrapped_types.rs:13:1: 16:2
+  <-(0)- test
+
+[fn_return_default] return `Ok(false)` without evaluating the function body in a_result_bool at tests/ui/mutation/ops/fn_return_default/wrapped_types.rs:19:1: 21:2
+  <-(0)- test
+
+[fn_return_default] return `Ok(true)` without evaluating the function body in a_result_bool at tests/ui/mutation/ops/fn_return_default/wrapped_types.rs:19:1: 21:2
+  <-(0)- test
+
+[fn_return_default] return `None` without evaluating the function body in an_option at tests/ui/mutation/ops/fn_return_default/wrapped_types.rs:23:1: 25:2
+  <-(0)- test
+
+[fn_return_default] return `Some(0)` without evaluating the function body in an_option at tests/ui/mutation/ops/fn_return_default/wrapped_types.rs:23:1: 25:2
+  <-(0)- test
+
+[fn_return_default] return `Some(1)` without evaluating the function body in an_option at tests/ui/mutation/ops/fn_return_default/wrapped_types.rs:23:1: 25:2
+  <-(0)- test
+
+[fn_return_default] return `Vec::new()` without evaluating the function body in a_vec at tests/ui/mutation/ops/fn_return_default/wrapped_types.rs:27:1: 29:2
+  <-(0)- test
+
+[fn_return_default] return `Vec::from([0])` without evaluating the function body in a_vec at tests/ui/mutation/ops/fn_return_default/wrapped_types.rs:27:1: 29:2
+  <-(0)- test
+
+[fn_return_default] return `Vec::from([1])` without evaluating the function body in a_vec at tests/ui/mutation/ops/fn_return_default/wrapped_types.rs:27:1: 29:2
+  <-(0)- test
+
+11 mutations; 11 safe; 0 unsafe (0 tainted)

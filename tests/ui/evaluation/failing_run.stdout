@@ -1,4 +1,7 @@
-[fn_return_default] return `Default::default()` without evaluating the function body in mutable_fn at tests/ui/evaluation/failing_run.rs:7:1: 9:2
+[fn_return_default] return `0` without evaluating the function body in mutable_fn at tests/ui/evaluation/failing_run.rs:7:1: 9:2
+  <-(0)- non_asserting_test
+
+[fn_return_default] return `1` without evaluating the function body in mutable_fn at tests/ui/evaluation/failing_run.rs:7:1: 9:2
   <-(0)- non_asserting_test
 
 [arg_default_shadow] ignore `a` argument by shadowing it with `Default::default()` in mutable_fn at tests/ui/evaluation/failing_run.rs:7:15: 7:21
@@ -13,14 +16,14 @@
 [math_op_add_sub_swap] swap operator `+` for `-` in mutable_fn at tests/ui/evaluation/failing_run.rs:8:5: 8:10
   <-(0)- non_asserting_test
 
-5 mutations; 5 safe; 0 unsafe (0 tainted)
+6 mutations; 6 safe; 0 unsafe (0 tainted)
 
 ---
 
 profiling reference test run
 
 applying mutation:
-- [fn_return_default] return `Default::default()` without evaluating the function body at tests/ui/evaluation/failing_run.rs:7:1: 9:2
+- [fn_return_default] return `0` without evaluating the function body at tests/ui/evaluation/failing_run.rs:7:1: 9:2
 
 ran 1 out of 1 test
 
@@ -30,9 +33,24 @@ warning: [fn_return_default] mutation was not detected
 7 | / fn mutable_fn(a: u32, b: u32) -> u32 {
 8 | |     a + b
 9 | | }
-  | |_^ return `Default::default()` without evaluating the function body
+  | |_^ return `0` without evaluating the function body
   |
-  = note: statement inserted: `return ::core::default::Default::default();`
+  = note: statement inserted: `return 0;`
+
+applying mutation:
+- [fn_return_default] return `1` without evaluating the function body at tests/ui/evaluation/failing_run.rs:7:1: 9:2
+
+ran 1 out of 1 test
+
+warning: [fn_return_default] mutation was not detected
+ --> tests/ui/evaluation/failing_run.rs:7:1
+  |
+7 | / fn mutable_fn(a: u32, b: u32) -> u32 {
+8 | |     a + b
+9 | | }
+  | |_^ return `1` without evaluating the function body
+  |
+  = note: statement inserted: `return 1;`
 
 applying mutation:
 - [arg_default_shadow] ignore `a` argument by shadowing it with `Default::default()` at tests/ui/evaluation/failing_run.rs:7:15: 7:21
@@ -78,6 +96,6 @@ applying mutation:
 
 ran 1 out of 1 test
 
-mutations: 20.00%. 1 detected (0 timed out; 0 crashed); 4 undetected; 5 total
-     safe: 20.00%. 1 detected (0 timed out; 0 crashed); 4 undetected; 5 total
+mutations: 16.67%. 1 detected (0 timed out; 0 crashed); 5 undetected; 6 total
+     safe: 16.67%. 1 detected (0 timed out; 0 crashed); 5 undetected; 6 total
    unsafe: none. 0 detected (0 timed out; 0 crashed); 0 undetected; 0 total

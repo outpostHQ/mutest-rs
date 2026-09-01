@@ -1,4 +1,4 @@
-[fn_return_default] return `Default::default()` without evaluating the function body in mutable_fn at tests/ui/mutation/codegen/avoid_mutating_let_chain_ops.rs:9:1: 24:2
+[fn_return_default] return `()` without evaluating the function body in mutable_fn at tests/ui/mutation/codegen/avoid_mutating_let_chain_ops.rs:9:1: 24:2
   <-(0)- test
 
 [bool_expr_negate] negate boolean expression in mutable_fn at tests/ui/mutation/codegen/avoid_mutating_let_chain_ops.rs:10:16: 10:20
