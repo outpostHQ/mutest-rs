@@ -49,7 +49,7 @@ pub mod print {
     use rustc_infer::infer::TyCtxtInferExt;
     use rustc_middle::mir;
     use rustc_middle::ty::{self, Ty, TyCtxt};
-    use rustc_session::cstore::{ExternCrate, ExternCrateSource};
+    use rustc_crate_store::{ExternCrate, ExternCrateSource};
 
     use crate::analysis::ast_lowering;
     use crate::analysis::hir::{self, LOCAL_CRATE};
@@ -736,7 +736,11 @@ pub mod print {
                 ty::TyKind::Dynamic(predicates, region) => {
                     let mut dyn_existential = self.print_dyn_existential(predicates)?;
                     let ast::TyKind::TraitObject(bounds, _syntax) = &mut dyn_existential.kind else { unreachable!() };
-                    if let Some(lifetime) = self.print_region(region)? {
+                    // `'_` is not valid everywhere a re-emitted type lands — a `fn()` pointer's
+                    // return type, for one. Omitting it defers to the object lifetime defaults.
+                    if !matches!(region.kind(), ty::RegionKind::ReErased)
+                        && let Some(lifetime) = self.print_region(region)?
+                    {
                         bounds.push(ast::mk::lifetime_bound(lifetime));
                     }
                     // NOTE: `dyn` trait objects of multiple bounds are syntactically ambiguous in some positions

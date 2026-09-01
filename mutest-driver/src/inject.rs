@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rustc_interface::Config as CompilerConfig;
 use rustc_session::EarlyDiagCtxt;
@@ -41,7 +41,70 @@ pub fn extract_runtime_crate_and_deps(target_dir_root_path: &Path) {
 const COMPILETIME_ARTIFACTS_DIR: &str = env!("COMPILETIME_ARTIFACTS_DIR");
 const COMPILETIME_DEPS_DIR: &str = env!("COMPILETIME_DEPS_DIR");
 
+/// Every dependency artifact, across `deps/` and each `build/<crate>/<hash>/out` Cargo now writes.
+fn dependency_dir_entries(deps_dir: &Path) -> Vec<PathBuf> {
+    let mut dirs = vec![deps_dir.to_owned()];
+    if let Some(profile_dir) = deps_dir.parent()
+        && let Ok(crates) = std::fs::read_dir(profile_dir.join("build"))
+    {
+        for krate in crates.filter_map(|entry| entry.ok()) {
+            let Ok(hashes) = std::fs::read_dir(krate.path()) else { continue };
+            dirs.extend(hashes.filter_map(|entry| entry.ok()).map(|hash| hash.path().join("out")));
+        }
+    }
+
+    dirs.iter()
+        .filter_map(|dir| std::fs::read_dir(dir).ok())
+        .flat_map(|entries| entries.filter_map(|entry| entry.ok()).map(|entry| entry.path()))
+        .collect()
+}
+
+/// Where `file_name` actually is: `deps/` if Cargo still collects artifacts there, otherwise the
+/// `build/<crate>/<hash>/out` holding it. Falls back to the `deps/` path so the error names it.
+fn locate_dependency(deps_dir: &Path, file_name: &str) -> PathBuf {
+    let in_deps = deps_dir.join(file_name);
+    if in_deps.exists() {
+        return in_deps;
+    }
+
+    let Some(profile_dir) = deps_dir.parent() else { return in_deps };
+    let Ok(crates) = std::fs::read_dir(profile_dir.join("build")) else { return in_deps };
+    for krate in crates.filter_map(|entry| entry.ok()) {
+        let Ok(hashes) = std::fs::read_dir(krate.path()) else { continue };
+        for hash in hashes.filter_map(|entry| entry.ok()) {
+            let candidate = hash.path().join("out").join(file_name);
+            if candidate.exists() {
+                return candidate;
+            }
+        }
+    }
+    in_deps
+}
+
+/// Add `deps_dir` and, beside it, every `build/<crate>/<hash>/out` Cargo now writes instead of
+/// collecting artifacts into a single `deps/`.
+fn push_dependency_search_paths(search_paths: &mut Vec<SearchPath>, deps_dir: &Path) {
+    search_paths.push(SearchPath { kind: PathKind::Dependency, dir: deps_dir.to_owned().into() });
+
+    let Some(profile_dir) = deps_dir.parent() else { return };
+    let Ok(crates) = std::fs::read_dir(profile_dir.join("build")) else { return };
+    for krate in crates.filter_map(|entry| entry.ok()) {
+        let Ok(hashes) = std::fs::read_dir(krate.path()) else { continue };
+        for hash in hashes.filter_map(|entry| entry.ok()) {
+            let out = hash.path().join("out");
+            if out.is_dir() {
+                search_paths.push(SearchPath { kind: PathKind::Dependency, dir: out.into() });
+            }
+        }
+    }
+}
+
 pub fn inject_runtime_crate_and_deps(config: &Config, compiler_config: &mut CompilerConfig, specialized_external_mutant_crate: Option<&(String, SpecializedMutantCrateCompilationResult)>) {
+    // `mutest_runtime`'s `StaticBitMatrix` needs `generic_const_exprs`, which the next-generation
+    // trait solver does not support. rustc reverts it for that crate; the generated harness that
+    // names those types gets no such treatment, so revert it here too.
+    compiler_config.opts.unstable_opts.next_solver.globally = false;
+
     let early_dcx = EarlyDiagCtxt::new(compiler_config.opts.error_format);
 
     let host_triple = host_tuple();
@@ -84,10 +147,10 @@ pub fn inject_runtime_crate_and_deps(config: &Config, compiler_config: &mut Comp
     };
 
     if target_triple != host_triple {
-        compiler_config.opts.search_paths.push(SearchPath::new(PathKind::Dependency, mutest_target_deps_dir_path.to_owned()));
+        push_dependency_search_paths(&mut compiler_config.opts.search_paths, mutest_target_deps_dir_path);
     }
     // NOTE: We need the host dependencies for procedural macro crate dependencies, as these run on the host, during compilation.
-    compiler_config.opts.search_paths.push(SearchPath::new(PathKind::Dependency, mutest_host_deps_dir_path.to_owned()));
+    push_dependency_search_paths(&mut compiler_config.opts.search_paths, mutest_host_deps_dir_path);
 
     // The externs (paths to dependencies) of the `mutest_runtime` crate are baked into it at compile time.
     // These must be propagated to any crate which depends on it.
@@ -149,7 +212,7 @@ pub fn inject_runtime_crate_and_deps(config: &Config, compiler_config: &mut Comp
         // FIXME: Use the actual public dependency list of the injected embedded runtime crate,
         //        rather than piggy-backing off the main mutest-runtime crate.
         if !config.opts.unstable_flags.embedded {
-            dep_file_paths.insert(CanonicalizedPath::new(mutest_target_deps_dir_path.join(dep_file_name)));
+            dep_file_paths.insert(CanonicalizedPath::new(locate_dependency(mutest_target_deps_dir_path, dep_file_name)));
         } else {
             let dep_file_name_root = match dep_file_name.split_once("-") {
                 // lib<NAME>-<HASH>.<EXTENSION>
@@ -160,10 +223,9 @@ pub fn inject_runtime_crate_and_deps(config: &Config, compiler_config: &mut Comp
                     None => dep_file_name,
                 },
             };
-            fs::read_dir(mutest_target_deps_dir_path).expect(&format!("cannot read directory: `{}`", mutest_target_deps_dir_path.display()))
+            dependency_dir_entries(mutest_target_deps_dir_path).into_iter()
                 .filter_map(|dir_entry| {
-                    let dir_entry = dir_entry.ok()?;
-                    let file_name = dir_entry.file_name().into_string().ok()?;
+                    let file_name = dir_entry.file_name()?.to_str()?.to_owned();
                     let file_name_root = match file_name.split_once("-") {
                         // lib<NAME>-<HASH>.<EXTENSION>
                         Some((file_name_root, _)) => file_name_root,
@@ -174,7 +236,7 @@ pub fn inject_runtime_crate_and_deps(config: &Config, compiler_config: &mut Comp
                         },
                     };
                     if file_name_root != dep_file_name_root { return None; }
-                    Some(CanonicalizedPath::new(dir_entry.path()))
+                    Some(CanonicalizedPath::new(dir_entry))
                 })
                 .collect_into(&mut dep_file_paths);
         }

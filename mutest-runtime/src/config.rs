@@ -46,4 +46,6 @@ pub struct Options {
     pub test_timeout: TestTimeout,
     pub mutation_isolation: MutationIsolation,
     pub use_thread_pool: bool,
+    /// Substrings naming tests to leave out of every run.
+    pub excluded_tests: Vec<String>,
 }

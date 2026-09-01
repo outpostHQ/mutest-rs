@@ -1,2 +1,7 @@
 [alias]
 ui-test = "run -p mutest-tests --"
+
+[build]
+# Cargo defaults to `-Zembed-metadata=no`, leaving a stub in the rlib. mutest embeds the runtime
+# rlib itself, so the metadata has to live inside it.
+rustflags = ["-Zembed-metadata=yes"]

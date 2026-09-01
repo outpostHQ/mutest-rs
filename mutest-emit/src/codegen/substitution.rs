@@ -19,8 +19,10 @@ pub fn conflicting_substs(a: &SubstDef, b: &SubstDef) -> bool {
 }
 
 fn mk_subst_match_expr(sp: Span, subst_loc_idx: usize, default: Option<Box<ast::Expr>>, substs: Vec<(MutId, Box<ast::Expr>)>) -> Box<ast::Expr> {
+    let mut arm_idx = 0;
     let mut arms = substs.into_iter()
         .map(|(mut_id, subst)| {
+            let subst = super_let_block(sp, subst_loc_idx, &mut arm_idx, subst);
             // Some(subst) if subst.mutation.id == crate::mutest_generated::mutations::$mut_id.id => $subst,
             let subst_ident = Ident::new(Symbol::intern("subst"), sp);
             let pat_some_subst = ast::mk::pat_tuple_struct(sp, path::Some(sp), thin_vec![*ast::mk::pat_ident(sp, subst_ident)]);
@@ -42,7 +44,7 @@ fn mk_subst_match_expr(sp: Span, subst_loc_idx: usize, default: Option<Box<ast::
 
     // _ => $default
     arms.push(ast::mk::arm(sp, ast::mk::pat_wild(sp), None, match default {
-        Some(expr) => Some(expr),
+        Some(expr) => Some(super_let_block(sp, subst_loc_idx, &mut arm_idx, expr)),
         None => Some(ast::mk::expr_noop(sp)),
     }));
 
@@ -55,6 +57,24 @@ fn mk_subst_match_expr(sp: Span, subst_loc_idx: usize, default: Option<Box<ast::
 
     // match unsafe { crate::mutest_generated::ACTIVE_MUTANT_HANDLE.subst_at_unchecked($subst_loc_idx) } { ... }
     ast::mk::expr_paren(sp, ast::mk::expr_match(sp, subst_lookup_expr, arms))
+}
+
+/// An arm evaluating to a borrow, rewritten as `{ super let $binding = $expr; $binding }`.
+///
+/// A match arm is its own temporary scope, so the borrowed temporary would otherwise be dropped
+/// before the expression the match stands in can read it (E0716). Only a borrow is rewritten:
+/// temporary lifetime extension is syntactic, so binding any other form shortens its temporaries
+/// rather than extending them, and pins a type that would otherwise coerce.
+fn super_let_block(sp: Span, subst_loc_idx: usize, arm_idx: &mut usize, expr: Box<ast::Expr>) -> Box<ast::Expr> {
+    if !matches!(expr.kind, ast::ExprKind::AddrOf(..)) { return expr; }
+
+    let binding = Ident::new(Symbol::intern(&format!("subst_{subst_loc_idx}_{arm_idx}")), sp);
+    *arm_idx += 1;
+
+    ast::mk::expr_block(ast::mk::block(sp, thin_vec![
+        ast::mk::stmt_super_let(sp, binding, expr),
+        ast::mk::stmt_expr(ast::mk::expr_ident(sp, binding)),
+    ]))
 }
 
 pub fn expand_subst_match_expr(sp: Span, subst_loc_idx: usize, original: Option<Box<ast::Expr>>, substs: Vec<(MutId, &Subst)>) -> Box<ast::Expr> {
@@ -232,7 +252,7 @@ pub fn write_substitutions<'tcx>(tcx: TyCtxt<'tcx>, mutations: &[Mut], krate: &m
     let expn_id = tcx.expansion_for_ast_pass(
         AstPass::TestHarness,
         DUMMY_SP,
-        &[sym::rustc_attrs],
+        &[sym::rustc_attrs, sym::super_let],
     );
     let def_site = DUMMY_SP.with_def_site_ctxt(expn_id.to_expn_id());
 

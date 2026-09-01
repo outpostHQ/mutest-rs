@@ -1,3 +1,6 @@
+[fn_return_default] return `Default::default()` without evaluating the function body in mutated_fn at tests/ui/warn_on_edition_2015.rs:7:1: 9:2
+  <-(0)- test
+
 [arg_default_shadow] ignore `a` argument by shadowing it with `Default::default()` in mutated_fn at tests/ui/warn_on_edition_2015.rs:7:15: 7:21
   <-(0)- test
 
@@ -10,4 +13,4 @@
 [math_op_add_sub_swap] swap operator `+` for `-` in mutated_fn at tests/ui/warn_on_edition_2015.rs:8:5: 8:10
   <-(0)- test
 
-4 mutations; 4 safe; 0 unsafe (0 tainted)
+5 mutations; 5 safe; 0 unsafe (0 tainted)

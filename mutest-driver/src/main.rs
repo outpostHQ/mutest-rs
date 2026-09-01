@@ -5,6 +5,7 @@ extern crate rustc_data_structures;
 extern crate rustc_driver;
 extern crate rustc_interface;
 extern crate rustc_session;
+extern crate rustc_structures;
 extern crate rustc_span;
 
 use std::collections::BTreeSet;
@@ -22,7 +23,8 @@ use mutest_emit::codegen::mutation::{OperatorRef, UnsafeTargeting};
 use rustc_data_structures::fx::FxHashSet;
 use rustc_interface::Config as CompilerConfig;
 use rustc_session::EarlyDiagCtxt;
-use rustc_session::config::{CrateType, ErrorOutputType, Input};
+use rustc_structures::CrateType;
+use rustc_session::config::{ErrorOutputType, Input};
 
 struct DefaultCallbacks;
 impl rustc_driver::Callbacks for DefaultCallbacks {}
@@ -83,7 +85,15 @@ fn fetch_cargo_target_kind(input: &Input) -> Option<config::CargoTargetKind> {
     let input_file_path = input.opt_path().expect("cannot get input file path").to_owned();
     let input_file_path = input_file_path.canonicalize().expect("cannot canonicalize input file path");
 
-    let Some(target) = package.targets.iter().find(|target| target.name.replace("-", "_") == cargo_crate_name && target.src_path == input_file_path) else {
+    // Both sides canonicalized: the input path is, and cargo's `src_path` is not, so plain equality
+    // misses whenever they spell the same file differently (a symlink, or Windows' `\\?\` prefix).
+    let Some(target) = package.targets.iter().find(|target| {
+        target.name.replace("-", "_") == cargo_crate_name
+            && std::path::Path::new(target.src_path.as_str())
+                .canonicalize()
+                .map(|p| p == input_file_path)
+                .unwrap_or(false)
+    }) else {
         panic!("cannot find target in Cargo package metadata");
     };
 
@@ -461,6 +471,11 @@ pub fn main() -> process::ExitCode {
                         opts::CALL_VALUE_DEFAULT_SHADOW => const_op_ref!(mutest_operators::CallValueDefaultShadow { limit_scope_to_local_callees: false }),
                         opts::CONTINUE_BREAK_SWAP => const_op_ref!(mutest_operators::ContinueBreakSwap),
                         opts::EQ_OP_INVERT => const_op_ref!(mutest_operators::EqOpInvert),
+                        opts::FN_RETURN_DEFAULT => const_op_ref!(mutest_operators::FnReturnDefault),
+                        opts::MATCH_ARM_DELETE => const_op_ref!(mutest_operators::MatchArmDelete),
+                        opts::MATCH_GUARD_VALUE => const_op_ref!(mutest_operators::MatchGuardValue),
+                        opts::STRUCT_FIELD_DELETE => const_op_ref!(mutest_operators::StructFieldDelete),
+                        opts::UNARY_OP_DELETE => const_op_ref!(mutest_operators::UnaryOpDelete),
                         opts::LOGICAL_OP_AND_OR_SWAP => const_op_ref!(mutest_operators::LogicalOpAndOrSwap),
                         opts::MATH_OP_ADD_MUL_SWAP => const_op_ref!(mutest_operators::OpAddMulSwap),
                         opts::MATH_OP_ADD_SUB_SWAP => const_op_ref!(mutest_operators::OpAddSubSwap),

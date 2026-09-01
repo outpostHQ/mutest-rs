@@ -9,21 +9,30 @@ tests -(0)-> mutable_fn at tests/ui/mutation/filter/filter_by_file_line_range.rs
 
 targets: 1 total; 1 safe; 0 unsafe (0 tainted)
 
-generated 4 mutations in 50.00% of functions (1 out of 2 functions)
-found 6 conflicts (6 excluding unsafe mutations), 0 compatibilities
+generated 7 mutations in 50.00% of functions (1 out of 2 functions)
+found 21 conflicts (21 excluding unsafe mutations), 0 compatibilities
 
 @@@ mutations @@@
 
-1: [bool_expr_negate] negate boolean expression in mutable_fn at tests/ui/mutation/filter/filter_by_file_line_range.rs:8:8: 8:14
+1: [fn_return_default] return `Default::default()` without evaluating the function body in mutable_fn at tests/ui/mutation/filter/filter_by_file_line_range.rs:7:1: 11:2
   <-(0)- test
 
-2: [eq_op_invert] invert equality operator `==` to `!=` in mutable_fn at tests/ui/mutation/filter/filter_by_file_line_range.rs:8:8: 8:14
+2: [bool_expr_negate] negate boolean expression in mutable_fn at tests/ui/mutation/filter/filter_by_file_line_range.rs:8:8: 8:14
   <-(0)- test
 
-3: [bool_expr_negate] negate boolean expression in mutable_fn at tests/ui/mutation/filter/filter_by_file_line_range.rs:9:8: 9:14
+3: [eq_op_invert] invert equality operator `==` to `!=` in mutable_fn at tests/ui/mutation/filter/filter_by_file_line_range.rs:8:8: 8:14
   <-(0)- test
 
-4: [eq_op_invert] invert equality operator `==` to `!=` in mutable_fn at tests/ui/mutation/filter/filter_by_file_line_range.rs:9:8: 9:14
+4: [unary_op_delete] delete unary operator `-` in mutable_fn at tests/ui/mutation/filter/filter_by_file_line_range.rs:8:24: 8:26
+  <-(0)- test
+
+5: [bool_expr_negate] negate boolean expression in mutable_fn at tests/ui/mutation/filter/filter_by_file_line_range.rs:9:8: 9:14
+  <-(0)- test
+
+6: [eq_op_invert] invert equality operator `==` to `!=` in mutable_fn at tests/ui/mutation/filter/filter_by_file_line_range.rs:9:8: 9:14
+  <-(0)- test
+
+7: [unary_op_delete] delete unary operator `-` in mutable_fn at tests/ui/mutation/filter/filter_by_file_line_range.rs:9:24: 9:26
   <-(0)- test
 
        arg_default_shadow:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
@@ -31,11 +40,16 @@ found 6 conflicts (6 excluding unsafe mutations), 0 compatibilities
        bit_op_or_xor_swap:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
     bit_op_shift_dir_swap:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
       bit_op_xor_and_swap:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
-         bool_expr_negate: 50.00%. 2 mutations; 2 safe; 0 unsafe (0 tainted)
+         bool_expr_negate: 28.57%. 2 mutations; 2 safe; 0 unsafe (0 tainted)
+        fn_return_default: 14.29%. 1 mutations; 1 safe; 0 unsafe (0 tainted)
+         match_arm_delete:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
+        match_guard_value:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
+      struct_field_delete:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
+          unary_op_delete: 28.57%. 2 mutations; 2 safe; 0 unsafe (0 tainted)
               call_delete:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
 call_value_default_shadow:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
       continue_break_swap:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
-             eq_op_invert: 50.00%. 2 mutations; 2 safe; 0 unsafe (0 tainted)
+             eq_op_invert: 28.57%. 2 mutations; 2 safe; 0 unsafe (0 tainted)
    logical_op_and_or_swap:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
      math_op_add_mul_swap:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
      math_op_add_sub_swap:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
@@ -45,4 +59,4 @@ call_value_default_shadow:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
     relational_op_eq_swap:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
      relational_op_invert:  0.00%. 0 mutations; 0 safe; 0 unsafe (0 tainted)
 
-4 mutations; 4 safe; 0 unsafe (0 tainted)
+7 mutations; 7 safe; 0 unsafe (0 tainted)

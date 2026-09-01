@@ -52,6 +52,27 @@ impl<'ast, 'a> MutLoc<'ast, 'a> {
     }
 }
 
+/// Whether the expression reads through a temporary it creates itself, e.g. `f().as_bytes()`.
+///
+/// A match arm is its own temporary scope, so such an expression cannot be an arm value.
+pub fn borrows_own_temporary(expr: &ast::Expr) -> bool {
+    let base = match &expr.kind {
+        ast::ExprKind::MethodCall(call) => &call.receiver,
+        ast::ExprKind::Field(base, _) | ast::ExprKind::Index(base, _, _) | ast::ExprKind::AddrOf(_, _, base) => base,
+        _ => return false,
+    };
+    produces_temporary(base) || borrows_own_temporary(base)
+}
+
+/// A call's result is a fresh temporary, and `?` and `.await` carry one through.
+fn produces_temporary(expr: &ast::Expr) -> bool {
+    match &expr.kind {
+        ast::ExprKind::Call(..) | ast::ExprKind::MethodCall(..) => true,
+        ast::ExprKind::Try(inner) | ast::ExprKind::Await(inner, _) | ast::ExprKind::Paren(inner) => produces_temporary(inner),
+        _ => false,
+    }
+}
+
 pub struct MutCtxt<'tcx, 'ast, 'op> {
     pub opts: &'op Options,
     pub tcx: TyCtxt<'tcx>,
@@ -61,6 +82,8 @@ pub struct MutCtxt<'tcx, 'ast, 'op> {
     pub def_site: Span,
     pub item_hir: &'op hir::FnItem<'tcx>,
     pub location: MutLoc<'ast, 'op>,
+    /// The parent borrows from this value, so it may not be replaced by an owned temporary.
+    pub value_is_borrowed: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -324,6 +347,7 @@ struct MutationCollector<'tcx, 'ast, 'op, 'trg, 'm> {
     target: Option<&'trg Target>,
     current_fn: Option<(ast::FnItem<'ast>, hir::FnItem<'tcx>)>,
     current_closure: Option<hir::BodyId>,
+    value_is_borrowed: bool,
     is_in_unsafe_block: bool,
     next_mut_index: u32,
     mutations: Vec<Mut<'trg, 'm>>,
@@ -370,6 +394,17 @@ fn report_unmatched_ast_node<'tcx>(tcx: TyCtxt<'tcx>, node_kind: &str, def_id: h
     diagnostic.emit();
 }
 
+impl<'tcx, 'ast, 'op, 'trg, 'm> MutationCollector<'tcx, 'ast, 'op, 'trg, 'm> {
+    /// Visit an expression the parent reads through, so it is not replaced by an owned temporary:
+    /// temporary lifetime extension is syntactic, and a receiver or base is not an extending position.
+    fn visit_borrowed_expr(&mut self, expr: &'ast ast::Expr) {
+        use ast::visit::Visitor as _;
+        self.value_is_borrowed = true;
+        self.visit_expr(expr);
+        self.value_is_borrowed = false;
+    }
+}
+
 impl<'tcx, 'ast, 'op, 'trg, 'm> ast::visit::Visitor<'ast> for MutationCollector<'tcx, 'ast, 'op, 'trg, 'm> {
     fn visit_fn(&mut self, kind: ast::visit::FnKind<'ast>, _attrs: &ThinVec<ast::Attribute>, span: Span, id: ast::NodeId) {
         let ast::visit::FnKind::Fn(ctx, vis, fn_item) = kind else { return; };
@@ -387,6 +422,7 @@ impl<'tcx, 'ast, 'op, 'trg, 'm> ast::visit::Visitor<'ast> for MutationCollector<
             def_site: self.def_site,
             item_hir: &fn_hir,
             location: MutLoc::Fn(&fn_ast),
+            value_is_borrowed: false,
         });
 
         self.current_fn = Some((fn_ast, fn_hir));
@@ -419,6 +455,7 @@ impl<'tcx, 'ast, 'op, 'trg, 'm> ast::visit::Visitor<'ast> for MutationCollector<
             def_site: self.def_site,
             item_hir: fn_hir,
             location: MutLoc::FnParam(param, fn_ast),
+            value_is_borrowed: false,
         });
 
         ast::visit::walk_param(self, param);
@@ -478,6 +515,7 @@ impl<'tcx, 'ast, 'op, 'trg, 'm> ast::visit::Visitor<'ast> for MutationCollector<
             def_site: self.def_site,
             item_hir: fn_hir,
             location: MutLoc::FnBodyStmt(stmt, fn_ast),
+            value_is_borrowed: false,
         });
 
         ast::visit::walk_stmt(self, stmt);
@@ -546,10 +584,14 @@ impl<'tcx, 'ast, 'op, 'trg, 'm> ast::visit::Visitor<'ast> for MutationCollector<
             def_site: self.def_site,
             item_hir: fn_hir,
             location: MutLoc::FnBodyExpr(expr, fn_ast),
+            value_is_borrowed: self.value_is_borrowed,
         });
 
         let current_closure = self.current_closure;
         if let hir::ExprKind::Closure(&hir::Closure { body, .. }) = expr_hir.kind { self.current_closure = Some(body); }
+
+        let value_is_borrowed = self.value_is_borrowed;
+        self.value_is_borrowed = false;
 
         match &expr.kind {
             // The left-hand side of assignment expressions only supports a strict subset of expressions, not including
@@ -584,9 +626,21 @@ impl<'tcx, 'ast, 'op, 'trg, 'm> ast::visit::Visitor<'ast> for MutationCollector<
 
                 inner_visit_if(self, expr);
             }
+            // Only the receiver or base is read through; the arguments and the index are not.
+            ast::ExprKind::MethodCall(call) => {
+                self.visit_borrowed_expr(&call.receiver);
+                for arg in &call.args { self.visit_expr(arg); }
+            }
+            ast::ExprKind::Field(base, _) => self.visit_borrowed_expr(base),
+            ast::ExprKind::Index(base, index, _) => {
+                self.visit_borrowed_expr(base);
+                self.visit_expr(index);
+            }
+            ast::ExprKind::AddrOf(_, _, inner) => self.visit_borrowed_expr(inner),
             _ => ast::visit::walk_expr(self, expr),
         }
 
+        self.value_is_borrowed = value_is_borrowed;
         if let hir::ExprKind::Closure(_) = expr_hir.kind { self.current_closure = current_closure; }
     }
 
@@ -645,6 +699,7 @@ pub fn apply_mutation_operators<'ast, 'tcx, 'trg, 'm>(
         target: None,
         current_fn: None,
         current_closure: None,
+        value_is_borrowed: false,
         is_in_unsafe_block: false,
         next_mut_index: 1,
         mutations: vec![],

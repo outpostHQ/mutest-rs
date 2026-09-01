@@ -96,9 +96,12 @@ impl<'a> Operator<'a> for CallValueDefaultShadow {
     type Mutation = CallValueDefaultShadowMutation;
 
     fn try_apply(&self, mcx: &MutCtxt) -> Mutations<Self::Mutation> {
-        let MutCtxt { opts, tcx, crate_res, def_res, def_site: def, item_hir: f_hir, body_res, location } = *mcx;
+        let MutCtxt { opts, tcx, crate_res, def_res, def_site: def, item_hir: f_hir, body_res, location, value_is_borrowed } = *mcx;
 
         let MutLoc::FnBodyExpr(expr, _f) = location else { return Mutations::none(); };
+        // An owned value cannot stand where the parent reads through it, nor where the original
+        // arm would read through a temporary of its own: a match arm is its own temporary scope.
+        if value_is_borrowed || mutest_emit::codegen::mutation::borrows_own_temporary(expr) { return Mutations::none(); }
         let Some(body_hir) = f_hir.body else { return Mutations::none(); };
 
         let (ast::ExprKind::Call(..) | ast::ExprKind::MethodCall(..)) = expr.kind else { return Mutations::none(); };
@@ -170,9 +173,12 @@ impl<'a> Operator<'a> for CallDelete {
     type Mutation = CallDeleteMutation;
 
     fn try_apply(&self, mcx: &MutCtxt) -> Mutations<Self::Mutation> {
-        let MutCtxt { opts: _, tcx, crate_res: _, def_res: _, def_site: def, item_hir: f_hir, body_res, location } = *mcx;
+        let MutCtxt { opts: _, tcx, crate_res: _, def_res: _, def_site: def, item_hir: f_hir, body_res, location, value_is_borrowed } = *mcx;
 
         let MutLoc::FnBodyExpr(expr, _f) = location else { return Mutations::none(); };
+        // An owned value cannot stand where the parent reads through it, nor where the original
+        // arm would read through a temporary of its own: a match arm is its own temporary scope.
+        if value_is_borrowed || mutest_emit::codegen::mutation::borrows_own_temporary(expr) { return Mutations::none(); }
         let Some(body_hir) = f_hir.body else { return Mutations::none(); };
 
         let (ast::ExprKind::Call(..) | ast::ExprKind::MethodCall(..)) = expr.kind else { return Mutations::none(); };

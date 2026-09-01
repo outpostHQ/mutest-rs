@@ -7,6 +7,16 @@ use mutest_emit::codegen::symbols::{Ident, path};
 use rustc_data_structures::smallvec::{SmallVec, smallvec};
 use rustc_data_structures::thin_vec::thin_vec;
 
+fn mentions_impl_trait(ty: &ast::Ty) -> bool {
+    match &ty.kind {
+        ast::TyKind::ImplTrait(..) => true,
+        ast::TyKind::Slice(inner) | ast::TyKind::Array(inner, _) | ast::TyKind::Paren(inner) => mentions_impl_trait(inner),
+        ast::TyKind::Ref(_, mut_ty) | ast::TyKind::Ptr(mut_ty) => mentions_impl_trait(&mut_ty.ty),
+        ast::TyKind::Tup(tys) => tys.iter().any(|ty| mentions_impl_trait(ty)),
+        _ => false,
+    }
+}
+
 fn find_ident_pats<'ast>(pat: &'ast ast::Pat) -> Vec<&'ast ast::Pat> {
     fn find_ident_pats_impl<'ast>(pat: &'ast ast::Pat, ident_pats: &mut Vec<&'ast ast::Pat>) {
         if let ast::PatKind::Ident(..) = &pat.kind {
@@ -28,7 +38,6 @@ fn find_ident_pats<'ast>(pat: &'ast ast::Pat) -> Vec<&'ast ast::Pat> {
 
             | ast::PatKind::Paren(inner_pat)
             | ast::PatKind::Ident(_, _, Some(inner_pat))
-            | ast::PatKind::Box(inner_pat)
             | ast::PatKind::Ref(inner_pat, _, _)
             | ast::PatKind::Deref(inner_pat)
             | ast::PatKind::Guard(inner_pat, _)
@@ -87,7 +96,7 @@ impl<'a> Operator<'a> for ArgDefaultShadow {
     type Mutation = ArgDefaultShadowMutation;
 
     fn try_apply(&self, mcx: &MutCtxt) -> Mutations<Self::Mutation> {
-        let MutCtxt { opts, tcx, crate_res, def_res, def_site: def, item_hir: f_hir, body_res, location } = *mcx;
+        let MutCtxt { opts, tcx, crate_res, def_res, def_site: def, item_hir: f_hir, body_res, location, value_is_borrowed: _ } = *mcx;
 
         let MutLoc::FnParam(param, f) = location else { return Mutations::none(); };
 
@@ -126,6 +135,9 @@ impl<'a> Operator<'a> for ArgDefaultShadow {
                 let opaque_ty_handling = ty::print::OpaqueTyHandling::Infer;
                 ty::ast_repr(tcx, crate_res, def_res, Some(scope), def, param_ty, def_path_handling, opaque_ty_handling, opts.sanitize_macro_expns, f_hir.owner_id.to_def_id())
             }) else { continue; };
+
+            // `impl Trait` is legal in a parameter and not in a binding, at any depth.
+            if mentions_impl_trait(&param_ty_ast) { continue; }
 
             // Default::default();
             let default = ast::mk::expr_call_path(def, path::default(def), thin_vec![]);

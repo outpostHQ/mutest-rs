@@ -669,6 +669,9 @@ pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
             Flow::Continue(pass_result)
         });
 
+        // `create_and_enter_global_ctxt` now also yields the incremental session, which this pass
+        // does not link and so does not need.
+        let (result, _incr_comp_session) = result;
         result.into()
     })?;
 

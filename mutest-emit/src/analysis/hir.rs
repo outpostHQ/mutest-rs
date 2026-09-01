@@ -2,6 +2,7 @@ pub use rustc_hir::*;
 pub use rustc_hir::def::*;
 pub use rustc_hir::def_id::*;
 pub use rustc_hir::definitions::*;
+pub use rustc_hir::attrs::lang_items::LangItem;
 
 use rustc_ast as ast;
 use rustc_hir as hir;
@@ -238,7 +239,8 @@ impl<'hir> Descr for hir::ItemKind<'hir> {
             hir::ItemKind::Trait { .. } => "trait",
             hir::ItemKind::TraitAlias(..) => "trait alias",
             hir::ItemKind::Impl(..) => "impl",
-            hir::ItemKind::GlobalAsm { .. } => "global asm item",
+            hir::ItemKind::TestBinderConstraints { .. }
+        | hir::ItemKind::GlobalAsm { .. } => "global asm item",
             hir::ItemKind::Macro(..) => "macro definition",
         }
     }
@@ -307,7 +309,6 @@ impl<'hir> Descr for hir::PatKind<'hir> {
             hir::PatKind::Tuple(..) => "tuple",
             hir::PatKind::Struct(..) => "struct",
             hir::PatKind::TupleStruct(..) => "tuple struct",
-            hir::PatKind::Box(..) => "box",
             hir::PatKind::Ref(..) => "reference",
             hir::PatKind::Deref(..) => "deref",
             hir::PatKind::Or(..) => "or",

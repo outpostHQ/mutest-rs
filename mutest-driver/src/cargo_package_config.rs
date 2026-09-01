@@ -42,6 +42,11 @@ struct MutationOperators {
     call_value_default_shadow: Option<MutationOperatorWithOptions<CallIgnoreOptions>>,
     continue_break_swap: Option<bool>,
     eq_op_invert: Option<bool>,
+    fn_return_default: Option<bool>,
+    match_arm_delete: Option<bool>,
+    match_guard_value: Option<bool>,
+    struct_field_delete: Option<bool>,
+    unary_op_delete: Option<bool>,
     logical_op_and_or_swap: Option<bool>,
     math_op_add_mul_swap: Option<bool>,
     math_op_add_sub_swap: Option<bool>,
@@ -109,6 +114,21 @@ impl MutationOperators {
         }
         if let Some(true) = &self.eq_op_invert {
             ops.push(Box::leak(Box::new(mutest_operators::EqOpInvert)))
+        }
+        if let Some(true) = &self.fn_return_default {
+            ops.push(Box::leak(Box::new(mutest_operators::FnReturnDefault)))
+        }
+        if let Some(true) = &self.match_arm_delete {
+            ops.push(Box::leak(Box::new(mutest_operators::MatchArmDelete)))
+        }
+        if let Some(true) = &self.match_guard_value {
+            ops.push(Box::leak(Box::new(mutest_operators::MatchGuardValue)))
+        }
+        if let Some(true) = &self.struct_field_delete {
+            ops.push(Box::leak(Box::new(mutest_operators::StructFieldDelete)))
+        }
+        if let Some(true) = &self.unary_op_delete {
+            ops.push(Box::leak(Box::new(mutest_operators::UnaryOpDelete)))
         }
         if let Some(true) = &self.logical_op_and_or_swap {
             ops.push(Box::leak(Box::new(mutest_operators::LogicalOpAndOrSwap)))

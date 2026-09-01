@@ -914,6 +914,12 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
             Some(arg) => panic!("unexpected option: --isolate={arg}"),
         },
         use_thread_pool: args.contains(&"--use-thread-pool"),
+        excluded_tests: args.iter()
+            .flat_map(|arg| arg.strip_prefix("--exclude-tests="))
+            .flat_map(|list| list.split(','))
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .collect(),
     };
 
     let t_start = Instant::now();
@@ -924,6 +930,21 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
             Some(EvaluationStreamWriter::new(&write_opts.out_dir.join("evaluation.jsonl"), t_start))
         }
         _ => None,
+    };
+
+    // Dropped before the reference run, so an excluded test is neither profiled nor evaluated.
+    let tests = match opts.excluded_tests.as_slice() {
+        [] => tests,
+        excluded => {
+            let kept = tests.into_iter()
+                .filter(|test| {
+                    let name = test.desc.name.as_slice();
+                    !excluded.iter().any(|pattern| name.contains(pattern.as_str()))
+                })
+                .collect::<Vec<_>>();
+            println!("excluding tests matching {excluded:?}: {} left", kept.len());
+            kept
+        }
     };
 
     println!("profiling reference test run");

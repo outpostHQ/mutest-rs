@@ -19,6 +19,15 @@ pub use continue_break_swap::*;
 mod eq_op_invert;
 pub use eq_op_invert::*;
 
+mod fn_return_default;
+pub use fn_return_default::*;
+
+mod match_arm_delete;
+pub use match_arm_delete::*;
+
+mod match_guard_value;
+pub use match_guard_value::*;
+
 mod op_swap;
 pub use op_swap::*;
 
@@ -31,6 +40,12 @@ pub use relational_op_eq_swap::*;
 mod relational_op_invert;
 pub use relational_op_invert::*;
 
+mod struct_field_delete;
+pub use struct_field_delete::*;
+
+mod unary_op_delete;
+pub use unary_op_delete::*;
+
 pub const ALL: &[&str] = &[
     ARG_DEFAULT_SHADOW,
     BIT_OP_OR_AND_SWAP,
@@ -38,6 +53,11 @@ pub const ALL: &[&str] = &[
     BIT_OP_SHIFT_DIR_SWAP,
     BIT_OP_XOR_AND_SWAP,
     BOOL_EXPR_NEGATE,
+    FN_RETURN_DEFAULT,
+    MATCH_ARM_DELETE,
+    MATCH_GUARD_VALUE,
+    STRUCT_FIELD_DELETE,
+    UNARY_OP_DELETE,
     CALL_DELETE,
     CALL_VALUE_DEFAULT_SHADOW,
     CONTINUE_BREAK_SWAP,

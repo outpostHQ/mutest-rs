@@ -7,23 +7,18 @@ use crate::codegen::symbols::{DUMMY_SP, Ident, sym};
 pub fn register(sess: &Session, krate: &mut ast::Crate) {
     let g = &sess.psess.attr_id_generator;
 
-    // #![feature(register_tool)]
-    let feature_register_tool_attr = ast::mk::attr_inner(g, DUMMY_SP,
-        Ident::new(sym::feature, DUMMY_SP),
+    // #![$name($arg)]
+    let word_attr = |name, arg| ast::mk::attr_inner(g, DUMMY_SP,
+        Ident::new(name, DUMMY_SP),
         ast::mk::attr_args_delimited(DUMMY_SP, ast::token::Delimiter::Parenthesis, ast::mk::token_stream(vec![
-            ast::mk::tt_token_joint(DUMMY_SP, ast::TokenKind::Ident(sym::register_tool, ast::token::IdentIsRaw::No)),
-        ])),
-    );
-    // #![register_tool(mutest)]
-    let register_tool_mutest_attr = ast::mk::attr_inner(g, DUMMY_SP,
-        Ident::new(sym::register_tool, DUMMY_SP),
-        ast::mk::attr_args_delimited(DUMMY_SP, ast::token::Delimiter::Parenthesis, ast::mk::token_stream(vec![
-            ast::mk::tt_token_joint(DUMMY_SP, ast::TokenKind::Ident(sym::mutest, ast::token::IdentIsRaw::No)),
+            ast::mk::tt_token_joint(DUMMY_SP, ast::TokenKind::Ident(arg, ast::token::IdentIsRaw::No)),
         ])),
     );
 
-    krate.attrs.push(feature_register_tool_attr);
-    krate.attrs.push(register_tool_mutest_attr);
+    krate.attrs.push(word_attr(sym::feature, sym::register_tool));
+    krate.attrs.push(word_attr(sym::register_tool, sym::mutest));
+    // Substitutions bind arm values with `super let` so their temporaries outlive the arm's scope.
+    krate.attrs.push(word_attr(sym::feature, sym::super_let));
 }
 
 pub fn ignore<'tcx, I>(attrs: I) -> bool

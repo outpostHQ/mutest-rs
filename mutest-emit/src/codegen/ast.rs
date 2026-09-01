@@ -50,6 +50,7 @@ pub enum DefItemKind<'ast> {
     TraitAlias(&'ast ast::TraitAlias),
     Impl(&'ast ast::Impl),
     MacCall(&'ast ast::MacCall),
+    TestBinderConstraints(&'ast ast::TestBinderConstraints),
     MacroDef(Ident, &'ast ast::MacroDef),
     Delegation(&'ast ast::Delegation),
     DelegationMac(&'ast ast::DelegationMac),
@@ -60,6 +61,7 @@ impl<'ast> DefItemKind<'ast> {
         match item_kind {
             ast::ItemKind::ExternCrate(symbol, ident) => Self::ExternCrate(*symbol, *ident),
             ast::ItemKind::Use(use_tree) => Self::Use(use_tree),
+            ast::ItemKind::TestBinderConstraints(constraints) => Self::TestBinderConstraints(constraints),
             ast::ItemKind::Static(static_item) => Self::Static(static_item),
             ast::ItemKind::Const(const_item) => Self::Const(const_item),
             ast::ItemKind::ConstBlock(const_block_item) => Self::ConstBlock(const_block_item),
@@ -168,6 +170,17 @@ pub mod mk {
     }
 
     pub fn parenthesized_args(sp: Span, inputs: ThinVec<Box<ast::Ty>>, output: Option<Box<ast::Ty>>) -> Box<ast::GenericArgs> {
+        // `Fn(A, B)` sugar carries full params now; the pattern is unused, so a wildcard stands in.
+        let inputs = inputs.into_iter()
+            .map(|ty| ast::Param {
+                attrs: ast::AttrVec::new(),
+                ty,
+                pat: self::pat_wild(sp),
+                id: ast::DUMMY_NODE_ID,
+                span: sp,
+                is_placeholder: false,
+            })
+            .collect::<ThinVec<_>>();
         Box::new(ast::GenericArgs::Parenthesized(ast::ParenthesizedArgs {
             span: sp,
             inputs,
@@ -564,7 +577,7 @@ pub mod mk {
             binder: ast::ClosureBinder::NotPresent,
             capture_clause: ast::CaptureBy::Ref,
             constness: ast::Const::No,
-            coroutine_kind: None,
+            coroutine_marker: None,
             movability: ast::Movability::Movable,
             fn_decl,
             body,
@@ -661,7 +674,9 @@ pub mod mk {
     }
 
     pub fn expr_str(sp: Span, str: &str) -> Box<ast::Expr> {
-        self::expr_lit(sp, ast::token::LitKind::Str, Symbol::intern(str), None)
+        // rustc prints a literal's symbol unescaped, so escape here rather than at every caller.
+        let escaped = crate::analysis::diagnostic::escape_literal(str);
+        self::expr_lit(sp, ast::token::LitKind::Str, Symbol::intern(&escaped), None)
     }
 
     pub fn expr_tuple(sp: Span, exprs: ThinVec<Box<ast::Expr>>) -> Box<ast::Expr> {
@@ -740,7 +755,7 @@ pub mod mk {
             mutability: mutbl,
             expr: Some(expr),
             define_opaque: None,
-            eii_impls: ThinVec::new(),
+            eii_impl: None,
         })))
     }
 
@@ -758,7 +773,8 @@ pub mod mk {
                 span: sp,
             },
             ty,
-            rhs_kind: ast::ConstItemRhsKind::Body { rhs: Some(expr) },
+            kind: ast::ConstItemKind::Body,
+            body: Some(expr),
             define_opaque: None,
         })))
     }
@@ -788,7 +804,7 @@ pub mod mk {
             contract: None,
             define_opaque: None,
             body,
-            eii_impls: ThinVec::new(),
+            eii_impl: None,
         })))
     }
 
@@ -798,11 +814,9 @@ pub mod mk {
             span: sp,
             attrs: ast::AttrVec::new(),
             vis,
-            mut_restriction: ast::MutRestriction { kind: ast::RestrictionKind::Unrestricted, span: sp },
-            safety: ast::Safety::Default,
+            extras: None,
             ident,
             ty,
-            default: None,
             is_placeholder: false,
         }
     }
@@ -868,6 +882,15 @@ pub mod mk {
         self::stmt_local(sp, mutbl, ident, ty, ast::LocalKind::Init(expr))
     }
 
+    // `super let $ident = $expr;`
+    pub fn stmt_super_let(sp: Span, ident: Ident, expr: Box<ast::Expr>) -> ast::Stmt {
+        let ast::StmtKind::Let(mut local) = self::stmt_let(sp, false, ident, None, expr).kind else {
+            unreachable!("stmt_let produces a let statement");
+        };
+        local.super_ = Some(sp);
+        self::stmt(sp, ast::StmtKind::Let(local))
+    }
+
     pub fn stmt_let_else(sp: Span, mutbl: bool, ident: Ident, ty: Option<Box<ast::Ty>>, expr: Box<ast::Expr>, els: Box<ast::Block>) -> ast::Stmt {
         self::stmt_local(sp, mutbl, ident, ty, ast::LocalKind::InitElse(expr, els))
     }
@@ -877,11 +900,11 @@ pub mod mk {
     }
 
     pub fn attr_inner_path(g: &ast::attr::AttrIdGenerator, sp: Span, path: ast::Path, args: ast::AttrArgs) -> ast::Attribute {
-        ast::attr::mk_attr_from_item(g, ast::AttrItem { unsafety: ast::Safety::Default, path, args }, None, ast::AttrStyle::Inner, sp)
+        ast::attr::mk_attr_from_item(g, ast::AttrItem { unsafety: ast::Safety::Default, path, args, span: sp }, None, ast::AttrStyle::Inner, sp)
     }
 
     pub fn attr_outer_path(g: &ast::attr::AttrIdGenerator, sp: Span, path: ast::Path, args: ast::AttrArgs) -> ast::Attribute {
-        ast::attr::mk_attr_from_item(g, ast::AttrItem { unsafety: ast::Safety::Default, path, args }, None, ast::AttrStyle::Outer, sp)
+        ast::attr::mk_attr_from_item(g, ast::AttrItem { unsafety: ast::Safety::Default, path, args, span: sp }, None, ast::AttrStyle::Outer, sp)
     }
 
     pub fn attr_inner(g: &ast::attr::AttrIdGenerator, sp: Span, ident: Ident, args: ast::AttrArgs) -> ast::Attribute {
@@ -889,7 +912,7 @@ pub mod mk {
     }
 
     pub fn attr_outer(g: &ast::attr::AttrIdGenerator, sp: Span, unsafety: ast::Safety, ident: Ident, args: ast::AttrArgs) -> ast::Attribute {
-        ast::attr::mk_attr_from_item(g, ast::AttrItem { unsafety, path: ast::Path::from_ident(ident), args }, None, ast::AttrStyle::Outer, sp)
+        ast::attr::mk_attr_from_item(g, ast::AttrItem { unsafety, path: ast::Path::from_ident(ident), args, span: sp }, None, ast::AttrStyle::Outer, sp)
     }
 
     pub fn attr_args_delimited(sp: Span, delimiter: ast::token::Delimiter, tokens: ast::tokenstream::TokenStream) -> ast::AttrArgs {
@@ -1007,9 +1030,9 @@ impl Descr for ast::ExprKind {
             ast::ExprKind::Match(..) => "match",
             ast::ExprKind::Closure(..) => "closure",
             ast::ExprKind::Block(..) => "block",
-            ast::ExprKind::Gen(_, _, ast::GenBlockKind::Async, _) => "async block",
-            ast::ExprKind::Gen(_, _, ast::GenBlockKind::Gen, _) => "generator block",
-            ast::ExprKind::Gen(_, _, ast::GenBlockKind::AsyncGen, _) => "async generator block",
+            ast::ExprKind::Gen(_, _, ast::CoroutineKind::Async, _) => "async block",
+            ast::ExprKind::Gen(_, _, ast::CoroutineKind::Gen, _) => "generator block",
+            ast::ExprKind::Gen(_, _, ast::CoroutineKind::AsyncGen, _) => "async generator block",
             ast::ExprKind::Await(..) => "await",
             ast::ExprKind::TryBlock(..) => "try block",
             ast::ExprKind::Use(..) => "use",
@@ -1056,7 +1079,6 @@ impl Descr for ast::PatKind {
             ast::PatKind::Struct(..) => "struct",
             ast::PatKind::TupleStruct(..) => "tuple struct",
             ast::PatKind::Rest => "..",
-            ast::PatKind::Box(..) => "box",
             ast::PatKind::Ref(..) => "reference",
             ast::PatKind::Deref(..) => "deref",
             ast::PatKind::Or(..) => "or",

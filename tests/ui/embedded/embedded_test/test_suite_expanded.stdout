@@ -19,6 +19,10 @@ targets: 1 total; 1 safe; 0 unsafe (0 tainted)
 
 @@@ mutations @@@
 
+[fn_return_default] return `Default::default()` without evaluating the function body in mutable_fn at tests/ui/embedded/embedded_test/test_suite_expanded.rs:31:1: 33:2
+  <-(0)- tests::simple_test
+  <-(0)- tests::test_taking_peripherals
+
 [arg_default_shadow] ignore `a` argument by shadowing it with `Default::default()` in mutable_fn at tests/ui/embedded/embedded_test/test_suite_expanded.rs:31:15: 31:21
   <-(0)- tests::simple_test
   <-(0)- tests::test_taking_peripherals
@@ -35,4 +39,4 @@ targets: 1 total; 1 safe; 0 unsafe (0 tainted)
   <-(0)- tests::simple_test
   <-(0)- tests::test_taking_peripherals
 
-4 mutations; 4 safe; 0 unsafe (0 tainted)
+5 mutations; 5 safe; 0 unsafe (0 tainted)

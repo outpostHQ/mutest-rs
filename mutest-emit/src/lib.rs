@@ -5,7 +5,6 @@
 #![feature(iter_intersperse)]
 #![feature(iterator_try_collect)]
 #![feature(macro_metavar_expr)]
-#![feature(never_type)]
 #![feature(smart_pointer_try_map)]
 
 #![feature(rustc_private)]
@@ -15,6 +14,7 @@ extern crate rustc_ast;
 extern crate rustc_ast_lowering;
 extern crate rustc_ast_pretty;
 extern crate rustc_const_eval;
+extern crate rustc_crate_store;
 extern crate rustc_data_structures;
 extern crate rustc_driver;
 extern crate rustc_error_messages;

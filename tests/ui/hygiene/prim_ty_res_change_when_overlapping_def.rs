@@ -1,6 +1,8 @@
 //@ build
 //@ stderr: empty
 
+// The primitive-named modules are deprecated but still resolve, which is the overlap under test.
+#![allow(deprecated)]
 #![feature(decl_macro)]
 #![feature(f16)]
 #![feature(f128)]
