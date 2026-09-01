@@ -7,7 +7,7 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader};
 use std::iter;
-use std::path::{self, Path};
+use std::path::{self, Path, PathBuf};
 use std::process::{self, Command, Stdio};
 use std::str;
 use std::time::Instant;
@@ -123,6 +123,9 @@ struct Opts {
     pub bless: bool,
     pub dry_run: bool,
     pub verbosity: u8,
+    /// Asked of Cargo rather than assumed to be `target/`, which is wrong whenever a build
+    /// directory, a `CARGO_TARGET_DIR`, or an outer `.cargo/config.toml` moves it.
+    pub driver: PathBuf,
 }
 
 struct TestRunResults {
@@ -433,7 +436,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         let edition = edition.unwrap_or("2018");
 
         // Run mutest-driver in rustc mode, disabling mutations.
-        let mut cmd = Command::new("target/release/mutest-driver");
+        let mut cmd = Command::new(&opts.driver);
         cmd.arg("--rustc");
 
         cmd.arg(&aux_path);
@@ -490,7 +493,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         }
     }
 
-    let mut cmd = Command::new("target/release/mutest-driver");
+    let mut cmd = Command::new(&opts.driver);
     cmd.arg(&path);
     cmd.args(["--crate-name", &test_crate_name]);
     cmd.arg(format!("--edition={edition}"));
@@ -752,11 +755,17 @@ fn main() {
 
     let filters = matches.get_one::<String>("filter").map(|s| s.split(",").map(|f| f.trim().to_owned()).collect::<Vec<_>>());
 
+    let target_dir = cargo_metadata::MetadataCommand::new().no_deps().exec()
+        .expect("could not retrieve Cargo metadata")
+        .target_directory
+        .into_std_path_buf();
+
     let opts = Opts {
         filters,
         bless,
         dry_run,
         verbosity,
+        driver: target_dir.join("release").join(format!("mutest-driver{}", env::consts::EXE_SUFFIX)),
     };
 
     // Ensure we are testing latest mutest-driver.
