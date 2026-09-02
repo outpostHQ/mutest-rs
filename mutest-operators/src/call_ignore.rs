@@ -27,6 +27,15 @@ fn non_default_call<'tcx>(tcx: TyCtxt<'tcx>, f: hir::LocalDefId, body: hir::Body
     if expr_ty == tcx.types.unit || expr_ty == tcx.types.never { return None; }
     if !ty::impls_trait(tcx, f, expr_ty, res::traits::Default(tcx), vec![]) { return None; }
 
+    // The replacement is type-checked where the expression sits, so an unsize coercion such as
+    // `Arc::new(Concrete)` in an `Arc<dyn Trait>` argument makes the concrete type's `Default` moot.
+    let expr_ty_adjusted = typeck.expr_ty_adjusted(expr);
+    if expr_ty_adjusted != expr_ty
+        && !ty::impls_trait(tcx, f, expr_ty_adjusted, res::traits::Default(tcx), vec![])
+    {
+        return None;
+    }
+
     let Some((callee, _)) = res::callee(typeck, expr) else { return None; };
     if limit_scope_to_local_callees && !callee.is_local() { return None; }
     if callee == res::fns::default(tcx) { return None; }
