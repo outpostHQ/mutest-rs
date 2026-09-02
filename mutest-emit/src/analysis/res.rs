@@ -721,7 +721,10 @@ pub fn visible_def_paths<'tcx>(tcx: TyCtxt<'tcx>, crate_res: &CrateResolutions<'
                 }
             }
 
-            span_bug!(span, "expected `{}` to be reached through another crate either through the extern prelude or an `extern crate` item", tcx.def_path_str(def_id));
+            // A transitive dependency that nothing re-exports has no visible parent and is not a
+            // direct dependency, so no path names it here. That is the same "cannot be written"
+            // answer the `Some(None)` arms give, not a compiler invariant being violated.
+            return smallvec![];
         }
     };
 
