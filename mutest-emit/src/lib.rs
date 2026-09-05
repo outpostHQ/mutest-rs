@@ -5,7 +5,6 @@
 #![feature(iter_intersperse)]
 #![feature(iterator_try_collect)]
 #![feature(macro_metavar_expr)]
-#![feature(smart_pointer_try_map)]
 
 #![feature(rustc_private)]
 extern crate rustc_abi;
