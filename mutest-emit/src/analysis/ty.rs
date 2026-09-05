@@ -124,7 +124,7 @@ pub mod print {
                     }
                 }
 
-                if let Some(visible_def_path) = res::visible_def_path(printer.tcx(), printer.crate_res(), def_id, scope, None, DUMMY_SP) {
+                if let Some(visible_def_path) = res::visible_def_path(printer.tcx(), printer.crate_res(), def_id, scope, None) {
                     return Some(printer.print_res_def_path(visible_def_path)).transpose();
                 }
                 if let Some(scope) = scope {
