@@ -5,10 +5,10 @@ use std::iter;
 
 use rustc_data_structures::fx::{FxHashSet, FxHashMap};
 use rustc_data_structures::smallvec::{SmallVec, smallvec};
-use rustc_middle::bug;
 use rustc_middle::middle::codegen_fn_attrs::CodegenFnAttrFlags;
 use rustc_middle::mir;
 use rustc_middle::ty::TyCtxt;
+use rustc_span::bug;
 
 use crate::analysis::ast_lowering;
 use crate::analysis::hir;

@@ -71,6 +71,6 @@ impl<S: SubstMap> Debug for ActiveMutantHandle<S> {
     }
 }
 
-pub fn mutest_main_static(_test_suite: TestSuite, _meta_mutant: &'static MetaMutant<impl SubstMap>) {
+pub fn mutest_main_static(_test_suite: TestSuite<'_>, _meta_mutant: &'static MetaMutant<impl SubstMap>) {
     todo!("mutest_runtime_embedded_target_stub::mutest_main_static");
 }

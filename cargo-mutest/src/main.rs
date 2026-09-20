@@ -1,5 +1,3 @@
-#![feature(trim_prefix_suffix)]
-
 use std::collections::HashSet;
 use std::env;
 use std::fs;

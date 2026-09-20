@@ -1,8 +1,8 @@
 use std::iter;
 
 use rustc_data_structures::thin_vec::{ThinVec, thin_vec};
-use rustc_middle::bug;
 use rustc_middle::ty::TyCtxt;
+use rustc_span::bug;
 
 use crate::analysis::call_graph::{EntryPoints, TargetReachability, Unsafety};
 use crate::analysis::hir;
@@ -487,20 +487,21 @@ fn mk_harness_fn(sp: Span, embedded: bool, external_meta_mutant: Option<Symbol>)
 
     let body = ast::mk::block(sp, thin_vec![call_test_main]);
 
-    // pub(crate) fn harness(tests: &'static [&'static test::TestDescAndFn]) { ... }
+    // pub(crate) fn harness(tests: &[&'static test::TestDescAndFn]) { ... }
     let vis = ast::mk::vis_pub_crate(sp);
     let ident = Ident::new(sym::harness, sp);
     let inputs = thin_vec![ast::mk::param_ident(sp, Ident::new(sym::tests, sp), {
         let static_lifetime = ast::mk::lifetime(sp, Ident::new(kw::StaticLifetime, sp));
 
-        // &'static [...]
         let element_ty = match embedded {
             // &'static test::TestDescAndFn
             false => ast::mk::ty_ref(sp, ast::mk::ty_path(None, ast::mk::path_local(path::TestDescAndFn(sp))), Some(static_lifetime)),
             // &'static mutest_runtime::EmbeddedTestDescAndFn
             true => ast::mk::ty_ref(sp, ast::mk::ty_path(None, ast::mk::path_local(path::EmbeddedTestDescAndFn(sp))), Some(static_lifetime)),
         };
-        ast::mk::ty_ref(sp, ast::mk::ty_slice(sp, element_ty), Some(static_lifetime))
+        // NOTE: rustc's test harness emits the test cases as statics, so the slice it builds to
+        //       hand to the test runner is a temporary which cannot be promoted.
+        ast::mk::ty_ref(sp, ast::mk::ty_slice(sp, element_ty), None)
     })];
     ast::mk::item_fn(sp, vis, ident, None, None, inputs, None, Some(body))
 }

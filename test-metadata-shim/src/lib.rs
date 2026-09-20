@@ -57,6 +57,10 @@ pub fn assert_test_result(_result: ()) -> Result<(), ()> {
     Ok(())
 }
 
-pub fn test_main_static(_tests: &'static [&'static TestDescAndFn]) {
-    panic!("test_metadata_shim::test_main_static: dummy definition for rustc test code generation");
+/// Stands in for `std::process::ExitCode`, which libtest returns from its entry points
+/// but which is out of reach in a `no_std` environment.
+pub struct ExitCode;
+
+pub fn test_main_env_args(_tests: &[&TestDescAndFn]) -> ExitCode {
+    panic!("test_metadata_shim::test_main_env_args: dummy definition for rustc test code generation");
 }

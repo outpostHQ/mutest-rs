@@ -9,10 +9,10 @@ use mutest_emit::codegen::symbols::{Symbol, span_diagnostic_ord};
 use rustc_data_structures::fx::{FxHashSet, FxHashMap};
 use rustc_interface::{create_and_enter_global_ctxt, passes, run_compiler};
 use rustc_interface::interface::Result as CompilerResult;
-use rustc_middle::bug;
 use rustc_middle::ty::TyCtxt;
 use rustc_session::config::OptLevel;
 use rustc_span::{ErrorGuaranteed, FileName};
+use rustc_span::bug;
 use rustc_span::edition::Edition;
 use rustc_span::fatal_error::FatalError;
 

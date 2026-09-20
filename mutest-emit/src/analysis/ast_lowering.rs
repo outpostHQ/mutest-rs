@@ -7,8 +7,9 @@ use rustc_data_structures::fx::FxHashMap;
 use rustc_data_structures::sync::HashMapExt;
 use rustc_data_structures::thin_vec::ThinVec;
 use rustc_data_structures::unord::UnordItems;
-use rustc_middle::span_bug;
-use rustc_middle::ty::{TyCtxt, ResolverAstLowering};
+use rustc_middle::middle::resolve::{PartialRes, ResolverAstLowering};
+use rustc_middle::ty::TyCtxt;
+use rustc_span::span_bug;
 
 use crate::analysis::hir;
 use crate::analysis::res;
@@ -17,7 +18,7 @@ use crate::codegen::symbols::{DUMMY_SP, Span};
 
 pub struct DefResolutions {
     pub node_id_to_def_id: ast::node_id::NodeMap<hir::LocalDefId>,
-    pub partial_res_map: ast::node_id::NodeMap<hir::PartialRes>,
+    pub partial_res_map: ast::node_id::NodeMap<PartialRes>,
     pub import_res_map: ast::node_id::NodeMap<hir::PerNS<Option<hir::Res<ast::NodeId>>>>,
 }
 
@@ -484,9 +485,13 @@ pub mod visit {
             visitor.visit_generics(&const_ast.generics, None, generics_hir);
         }
         if let Some(const_item_rhs_hir) = const_hir.rhs {
-            match (const_ast.kind, const_item_rhs_hir) {
-                (ast::ConstItemKind::TypeConst, hir::ConstItemRhs::TypeConst(_const_arg_hir)) => {}
-                (ast::ConstItemKind::Body, &hir::ConstItemRhs::Body(body_id)) => {
+            // NOTE: The AST does not distinguish the two right-hand side forms; lowering picks
+            //       between them based on the feature gates and the shape of the body expression.
+            match const_item_rhs_hir {
+                // The body expression is lowered into a const argument instead of a body,
+                // leaving no corresponding HIR expression to match it against.
+                hir::ConstItemRhs::Direct(_const_arg_hir) => {}
+                &hir::ConstItemRhs::Body(body_id) => {
                     if let Some(expr_ast) = &const_ast.body {
                         let body_hir = visitor.nested_body(body_id);
                         if let Some(body_hir) = body_hir {
@@ -494,7 +499,6 @@ pub mod visit {
                         }
                     }
                 }
-                _ => unreachable!(),
             }
         }
     }

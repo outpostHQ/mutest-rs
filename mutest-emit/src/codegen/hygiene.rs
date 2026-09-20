@@ -10,8 +10,8 @@ use rustc_data_structures::thin_vec::{ThinVec, thin_vec};
 use rustc_expand::base::{SyntaxExtension, SyntaxExtensionKind};
 use rustc_infer::infer::TyCtxtInferExt;
 use rustc_metadata::creader::{CStore, LoadedMacro};
-use rustc_middle::span_bug;
 use rustc_middle::ty::{TyCtxt, TypingMode};
+use rustc_span::span_bug;
 use rustc_span::edition::Edition;
 use rustc_trait_selection::traits::{ImplSource, Obligation, ObligationCause, SelectionContext};
 
@@ -1261,7 +1261,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                 }
 
                 ast::UseTreeKind::Nested { items, span: _ } => {
-                    for (nested_use_tree, inner_node_id) in items {
+                    for ast::UseTreeAndId { inner: nested_use_tree, id: inner_node_id } in items {
                         extract_imports_from_use_tree(tcx, def_res, imports, path_segments.clone(), nested_use_tree, *inner_node_id);
                     }
                 }
@@ -1333,7 +1333,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                     },
                 };
 
-                (nested_use_tree, ast::DUMMY_NODE_ID)
+                ast::UseTreeAndId { inner: nested_use_tree, id: ast::DUMMY_NODE_ID }
             })
             .collect::<ThinVec<_>>();
         use_tree.kind = ast::UseTreeKind::Nested { items: use_tree_items, span };

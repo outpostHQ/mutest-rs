@@ -20,8 +20,8 @@ pub struct ExternalTestsExtra {
 }
 
 #[derive(Debug)]
-pub enum TestSuite {
-    Tests(&'static [&'static ::test::TestDescAndFn], Option<&'static ExternalTestsExtra>),
+pub enum TestSuite<'a> {
+    Tests(&'a [&'static ::test::TestDescAndFn], Option<&'static ExternalTestsExtra>),
 }
 
 pub fn reachable_tests(mutation: &MutationMeta, external_tests_extra: Option<&ExternalTestsExtra>) -> HashSet<TestPath> {

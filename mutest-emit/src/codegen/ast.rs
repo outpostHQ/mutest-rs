@@ -773,7 +773,6 @@ pub mod mk {
                 span: sp,
             },
             ty,
-            kind: ast::ConstItemKind::Body,
             body: Some(expr),
             define_opaque: None,
         })))

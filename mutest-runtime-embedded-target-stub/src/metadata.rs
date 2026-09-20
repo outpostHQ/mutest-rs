@@ -30,8 +30,8 @@ pub struct ExternalTestsExtra {
 }
 
 #[derive(Debug)]
-pub enum TestSuite {
-    Tests(&'static [&'static EmbeddedTestDescAndFn], Option<&'static ExternalTestsExtra>),
+pub enum TestSuite<'a> {
+    Tests(&'a [&'static EmbeddedTestDescAndFn], Option<&'static ExternalTestsExtra>),
 }
 
 pub fn reachable_tests_count(mutation: &MutationMeta, external_tests_extra: Option<&ExternalTestsExtra>) -> usize {

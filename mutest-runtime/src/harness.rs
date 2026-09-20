@@ -1251,7 +1251,7 @@ fn mutest_simulate_main<S: SubstMap>(args: &[&str], tests: Vec<test::TestDescAnd
     }
 }
 
-pub fn mutest_main_static(test_suite: TestSuite, meta_mutant: &'static MetaMutant<impl SubstMap + Sync>) {
+pub fn mutest_main_static(test_suite: TestSuite<'_>, meta_mutant: &'static MetaMutant<impl SubstMap + Sync>) {
     if let Ok(test_name) = env::var(test_runner::TEST_SUBPROCESS_INVOCATION) {
         // SAFETY: No other thread is running.
         unsafe { env::remove_var(test_runner::TEST_SUBPROCESS_INVOCATION) };
