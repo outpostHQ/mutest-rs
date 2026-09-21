@@ -22,6 +22,7 @@ extern crate rustc_target;
 
 extern crate itertools;
 
+pub mod build_status;
 pub mod cargo_package_config;
 pub mod config;
 pub mod inject;

@@ -20,6 +20,7 @@ use crate::codegen::ast::visit::Visitor;
 use crate::codegen::mutation::UnsafeTargeting;
 use crate::codegen::symbols::{DUMMY_SP, Span, Symbol, span_diagnostic_ord, sym};
 use crate::codegen::tool_attr;
+use crate::stop;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum UnsafeSource {
@@ -693,6 +694,8 @@ pub fn reachable_fns<'ast, 'tcx, 'ent>(
         let mut callers_to_be_recorded: FxHashSet<Callee<'tcx>> = Default::default();
 
         for caller in callers {
+            stop::abort_if_requested(tcx);
+
             // `const` functions, like other `const` scopes, cannot be mutated.
             if tcx.is_const_fn(caller.def_id) { continue; }
 
@@ -838,6 +841,8 @@ pub fn reachable_fns<'ast, 'tcx, 'ent>(
         targets: &mut FxHashMap<hir::DefId, Target>,
         trace_length_limit: Option<usize>,
     ) {
+        stop::abort_if_requested(tcx);
+
         let &[.., caller] = &call_trace.nested_calls[..] else { return; };
 
         let distance = call_trace.nested_calls.len() - 1;

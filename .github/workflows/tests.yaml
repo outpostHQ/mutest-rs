@@ -55,6 +55,8 @@ jobs:
       - name: Run unit tests
         run: |
           cargo test -p cargo-mutest --no-fail-fast -- --color=always
+          cargo test --release -p mutest-driver --no-fail-fast -- --color=always
+          cargo test --release -p mutest-emit --no-fail-fast -- --color=always
           cargo test -p mutest-runtime --no-fail-fast -- --color=always
           cargo test -p mutest-inspector --no-fail-fast -- --color=always
           cargo test -p mutest-tests --no-fail-fast -- --color=always

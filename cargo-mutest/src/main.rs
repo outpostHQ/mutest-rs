@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 
 use mutest_driver_cli::{UnstableFlag, UnstableOption};
@@ -431,6 +431,20 @@ fn process_cargo_args<'a>(args: &'a [String], matches: &'a clap::ArgMatches) -> 
     CargoInvocation { cargo_args, non_cargo_args, target_dir, explicit_targetings_count }
 }
 
+/// Named after the run, so that neither a marker left behind by an earlier run nor one belonging to a
+/// concurrent run can stop the drivers of this one.
+fn build_failure_marker_path(target_dir: &Path, run_id: u32) -> PathBuf {
+    target_dir.join(format!("build-failure-{run_id}"))
+}
+
+#[test]
+fn each_run_gets_its_own_build_failure_marker_inside_the_target_directory() {
+    let target_dir = Path::new("target/mutest");
+
+    assert_eq!(build_failure_marker_path(target_dir, 4321), PathBuf::from("target/mutest/build-failure-4321"));
+    assert_ne!(build_failure_marker_path(target_dir, 4321), build_failure_marker_path(target_dir, 8765));
+}
+
 fn run_cargo_with_mutest_driver(cargo_invocation: &CargoInvocation, matches: &clap::ArgMatches, unstable_flags: &[&str]) {
     let mut mutest_args = cargo_invocation.non_cargo_args.clone();
 
@@ -524,6 +538,12 @@ fn run_cargo_with_mutest_driver(cargo_invocation: &CargoInvocation, matches: &cl
     cmd.arg(&cargo_invocation.target_dir);
     cmd.env("MUTEST_TARGET_DIR_ROOT", &cargo_invocation.target_dir);
 
+    // Cargo lets the rustc invocations it has already spawned run to completion after one of them has
+    // failed, so the drivers of this run need somewhere to tell each other that it is over.
+    let build_failure_marker_path = build_failure_marker_path(&cargo_invocation.target_dir, process::id());
+    let _ = fs::remove_file(&build_failure_marker_path);
+    cmd.env("MUTEST_BUILD_FAILURE_MARKER", &build_failure_marker_path);
+
     cmd.args(&cargo_invocation.cargo_args);
 
     // Explicitly specify supported targets if none was selected.
@@ -605,6 +625,8 @@ fn run_cargo_with_mutest_driver(cargo_invocation: &CargoInvocation, matches: &cl
     let exit_status = cmd
         .spawn().expect("failed to run Cargo")
         .wait().expect("failed to run Cargo");
+
+    let _ = fs::remove_file(&build_failure_marker_path);
 
     let exit_code = exit_status.code();
     if exit_code != Some(0) && exit_code != Some(101) {

@@ -14,6 +14,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 
+use mutest_driver::build_status;
 use mutest_driver::cargo_package_config;
 use mutest_driver::config::{self, Config};
 use mutest_driver::passes::external_mutant::RustcInvocation;
@@ -154,6 +155,20 @@ const UNSTABLE_OPTIONS: &[UnstableOption] = mutest_driver_cli::extend_const_slic
 
 const BUG_REPORT_URL: &str = "https://github.com/zalanlevai/mutest-rs/issues/new";
 
+/// Leave the failure where the sibling drivers of this build can see it, so that they can stop
+/// instead of finishing work that Cargo is going to discard.
+fn run_recording_build_failure(f: impl FnOnce()) -> process::ExitCode {
+    match rustc_driver::catch_fatal_errors(f) {
+        Ok(()) => process::ExitCode::SUCCESS,
+        Err(_) => {
+            if let Some(marker_path) = build_status::marker_path() {
+                build_status::record_failure(&marker_path);
+            }
+            process::ExitCode::FAILURE
+        }
+    }
+}
+
 pub fn main() -> process::ExitCode {
     let early_dcx = EarlyDiagCtxt::new(ErrorOutputType::default());
     let mut args = rustc_driver::args::raw_args(&early_dcx);
@@ -237,7 +252,7 @@ pub fn main() -> process::ExitCode {
 
     // Fall back to a rustc invocation if mutest is not "enabled" for the given crate based on invocation.
     if info_query || (cargo_invocation && !primary_package) || proc_macro_target || (bin_target && !test_target) {
-        return rustc_driver::catch_with_exit_code(|| {
+        return run_recording_build_failure(|| {
             rustc_driver::run_compiler(&args, &mut RustcCallbacks { mutest_args: mutest_args_str })
         });
     }
@@ -254,7 +269,7 @@ pub fn main() -> process::ExitCode {
         mutest_driver_cli::check_unstable_options(&mutest_arg_matches, UNSTABLE_OPTIONS);
     }
 
-    rustc_driver::catch_with_exit_code(|| {
+    run_recording_build_failure(|| {
         let (Some(compiler_config), crate_types) = mutest_driver::passes::parse_compiler_args(&args) else {
             early_dcx.early_fatal("no compiler configuration was generated");
         };
@@ -268,6 +283,10 @@ pub fn main() -> process::ExitCode {
         }
 
         let early_dcx = EarlyDiagCtxt::new(compiler_config.opts.error_format);
+
+        if let Some(marker_path) = build_status::marker_path() {
+            build_status::stop_once_the_build_has_failed(marker_path);
+        }
 
         let cargo_target_kind = fetch_cargo_target_kind(&compiler_config.input);
 
