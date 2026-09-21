@@ -141,10 +141,10 @@ where
                 all_mutations_detection_stats: mutest_json::evaluation::MutationDetectionStats {
                     mutation_score: match run_results.total_mutations_count {
                         0 => None,
-                        _ => Some((run_results.total_mutations_count - run_results.undetected_mutations_count) as f64 / run_results.total_mutations_count as f64),
+                        _ => Some(run_results.detected_mutations_count() as f64 / run_results.resolved_mutations_count().max(1) as f64),
                     },
                     total_mutations_count: run_results.total_mutations_count,
-                    detected_mutations_count: run_results.total_mutations_count - run_results.undetected_mutations_count,
+                    detected_mutations_count: run_results.detected_mutations_count(),
                     timed_out_mutations_count: run_results.timed_out_mutations_count,
                     crashed_mutations_count: run_results.crashed_mutations_count,
                     undetected_mutations_count: run_results.undetected_mutations_count,
@@ -163,10 +163,10 @@ where
                 unsafe_mutations_detection_stats: mutest_json::evaluation::MutationDetectionStats {
                     mutation_score: match run_results.total_mutations_count - run_results.total_safe_mutations_count {
                         0 => None,
-                        _ => Some(((run_results.total_mutations_count - run_results.total_safe_mutations_count) - (run_results.undetected_mutations_count - run_results.undetected_safe_mutations_count)) as f64 / (run_results.total_mutations_count - run_results.total_safe_mutations_count) as f64),
+                        _ => Some((run_results.detected_mutations_count() - run_results.detected_safe_mutations_count()) as f64 / (run_results.resolved_mutations_count() - run_results.resolved_safe_mutations_count()).max(1) as f64),
                     },
                     total_mutations_count: run_results.total_mutations_count - run_results.total_safe_mutations_count,
-                    detected_mutations_count: (run_results.total_mutations_count - run_results.total_safe_mutations_count) - (run_results.undetected_mutations_count - run_results.undetected_safe_mutations_count),
+                    detected_mutations_count: run_results.detected_mutations_count() - run_results.detected_safe_mutations_count(),
                     timed_out_mutations_count: run_results.timed_out_mutations_count - run_results.timed_out_safe_mutations_count,
                     crashed_mutations_count: run_results.crashed_mutations_count - run_results.crashed_safe_mutations_count,
                     undetected_mutations_count: run_results.undetected_mutations_count - run_results.undetected_safe_mutations_count,
@@ -176,10 +176,10 @@ where
                         let op_mutation_detection_stats = mutest_json::evaluation::MutationDetectionStats {
                             mutation_score: match op_stats.total_mutations_count {
                                 0 => None,
-                                _ => Some((op_stats.total_mutations_count - op_stats.undetected_mutations_count) as f64 / op_stats.total_mutations_count as f64),
+                                _ => Some(op_stats.detected_mutations_count() as f64 / op_stats.resolved_mutations_count().max(1) as f64),
                             },
                             total_mutations_count: op_stats.total_mutations_count,
-                            detected_mutations_count: op_stats.total_mutations_count - op_stats.undetected_mutations_count,
+                            detected_mutations_count: op_stats.detected_mutations_count(),
                             timed_out_mutations_count: op_stats.timed_out_mutations_count,
                             crashed_mutations_count: op_stats.crashed_mutations_count,
                             undetected_mutations_count: op_stats.undetected_mutations_count,
