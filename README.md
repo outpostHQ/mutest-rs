@@ -50,11 +50,12 @@ cargo build --release -p mutest-runtime
 Install `mutest-driver` and the Cargo subcommand `cargo-mutest` locally.
 
 ```sh
+cargo build --profile=release -p mutest-runtime
 cargo install --force --path mutest-driver
 cargo install --force --path cargo-mutest
 ```
 
-> The release build of `mutest-driver` looks for a release build of `mutest-runtime`. A local install with `cargo install` will produce a release build.
+> `mutest-driver` embeds a release build of `mutest-runtime`, so the runtime has to exist before the driver is built. On a machine that has built this workspace before it already does, which is why the first line is easy to leave out and then miss; on a clean checkout its absence stops the install with "cannot find mutest-runtime rlib file for embedding".
 
 ## Usage
 
