@@ -4,4 +4,9 @@ ui-test = "run -p mutest-tests --"
 [build]
 # Cargo defaults to `-Zembed-metadata=no`, leaving a stub in the rlib. mutest embeds the runtime
 # rlib itself, so the metadata has to live inside it.
+#
+# A RUSTFLAGS environment variable REPLACES this rather than adding to it, so any CI that sets one
+# — `actions-rust-lang/setup-rust-toolchain` sets `-D warnings` — silently drops the flag and the
+# build fails with "only metadata stub found for rlib dependency mutest_runtime". Such a job has to
+# put `-Zembed-metadata=yes` back into RUSTFLAGS itself.
 rustflags = ["-Zembed-metadata=yes"]

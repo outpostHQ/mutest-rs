@@ -55,6 +55,8 @@ cargo install --force --path mutest-driver
 cargo install --force --path cargo-mutest
 ```
 
+> Building in CI? A `RUSTFLAGS` environment variable replaces `[build] rustflags` from `.cargo/config.toml` rather than adding to it, and that is where `-Zembed-metadata=yes` lives. If your workflow sets `RUSTFLAGS` at all — `actions-rust-lang/setup-rust-toolchain` sets `-D warnings` by default — put `-Zembed-metadata=yes` back, or the build stops with "only metadata stub found for `rlib` dependency `mutest_runtime`".
+
 > `mutest-driver` embeds a release build of `mutest-runtime`, so the runtime has to exist before the driver is built. On a machine that has built this workspace before it already does, which is why the first line is easy to leave out and then miss; on a clean checkout its absence stops the install with "cannot find mutest-runtime rlib file for embedding".
 
 ## Usage
