@@ -75,7 +75,7 @@ impl Idx for MutationId {
 }
 
 /// The location of a mutation's code substitution, describing
-/// where in the original code, and how must the code substiution be applied.
+/// where in the original code, and how must the code substitution be applied.
 #[derive(Clone, Eq, PartialEq, Hash, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[serde(tag = "kind", content = "span")]

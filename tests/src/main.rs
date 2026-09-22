@@ -50,7 +50,7 @@ impl Expectation {
                 let (out_name, out, out_path) = match self {
                     Expectation::StdOut { .. } => ("stdout", stdout, path.with_extension("stdout")),
                     Expectation::StdErr { .. } => ("stderr", stderr, path.with_extension("stderr")),
-                    #[expect(unreachable_patterns)]
+                    #[expect(unreachable_patterns, reason = "the outer arm has already narrowed `self` to these two variants")]
                     _ => unreachable!(),
                 };
 
@@ -89,7 +89,7 @@ impl Expectation {
                 let (_out_name, out, out_path) = match self {
                     Expectation::StdOut { .. } => ("stdout", stdout, path.with_extension("stdout")),
                     Expectation::StdErr { .. } => ("stderr", stderr, path.with_extension("stderr")),
-                    #[expect(unreachable_patterns)]
+                    #[expect(unreachable_patterns, reason = "the outer arm has already narrowed `self` to these two variants")]
                     _ => unreachable!(),
                 };
 

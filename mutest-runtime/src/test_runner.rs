@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use crate::thread_pool::{self, ThreadPool};
 
 mod test {
-    #![allow(unused_imports)]
+    #![allow(unused_imports, reason = "a glob shim over the unstable `test` crate, of which this crate uses only a part")]
 
     pub use ::test::*;
     pub use ::test::test::*;

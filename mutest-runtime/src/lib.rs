@@ -7,7 +7,7 @@
 #![feature(test)]
 #![feature(internal_output_capture)]
 
-#![allow(incomplete_features)]
+#![allow(incomplete_features, reason = "`generic_const_exprs` is incomplete, and the static bit matrix is sized by it")]
 
 extern crate test;
 

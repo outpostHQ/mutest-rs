@@ -23,7 +23,7 @@ use crate::thread_pool::ThreadPool;
 use crate::write::{EvaluationStreamWriter, write_evaluation};
 
 mod test {
-    #![allow(unused_imports)]
+    #![allow(unused_imports, reason = "a glob shim over the unstable `test` crate, of which this crate uses only a part")]
 
     pub use ::test::*;
     pub use ::test::test::*;
@@ -269,7 +269,7 @@ impl LingeringTestMonitoringThread {
                         Err(e) => test_runner::TestResult::from_task(completed_running_test.desc.should_panic, Err(e.as_ref()), completed_running_test.timeout, Some(exec_time)),
                     };
 
-                    // TODO: Retreive "real" completed test by keeping around the test_rx used to send it, along with the running test.
+                    // TODO: Retrieve "real" completed test by keeping around the test_rx used to send it, along with the running test.
                     let completed_test = test_runner::CompletedTest {
                         // FIXME: Retrieve real test ID, or use consistent test IDs everywhere.
                         id: test::TestId(0),

@@ -15,3 +15,6 @@ edition = "2024"
 [dependencies]
 clap = { version = "4", features = ["cargo"] }
 color-print = "0.3"
+
+[lints]
+workspace = true

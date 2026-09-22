@@ -82,7 +82,7 @@ fn test_strip_arg() {
 }
 
 #[test]
-fn test_strip_arg_value_occurences() {
+fn test_strip_arg_value_occurrences() {
     let mut args = vec!["-Z".to_owned(), "write-json-eval-stream".to_owned()];
     strip_arg_value_occurrences(&mut args, Some("Z"), None, "write-json-eval-stream");
     assert_eq!(&[] as &[String], &args[..]);
@@ -550,7 +550,7 @@ fn run_cargo_with_mutest_driver(cargo_invocation: &CargoInvocation, matches: &cl
     if cargo_invocation.explicit_targetings_count == 0 {
         // NOTE: We specifically do not target the following:
         //       * `--bench`/`--benches`: Benchmarks, for two reasons.
-        //         First, the `#[bench]` attribute is currently a nigthly-only feature.
+        //         First, the `#[bench]` attribute is currently a nightly-only feature.
         //         Second, the semantics of running benchmarks under mutation testing
         //         are not fully clear.
         //       * `--doc`: Documentation tests, as they require a completely different

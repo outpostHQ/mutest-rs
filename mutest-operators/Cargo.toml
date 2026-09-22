@@ -17,3 +17,6 @@ rustc_private = true
 
 [dependencies]
 mutest-emit = { path = "../mutest-emit" }
+
+[lints]
+workspace = true

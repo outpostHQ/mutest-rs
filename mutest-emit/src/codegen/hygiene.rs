@@ -148,7 +148,7 @@ struct MacroExpansionSanitizer<'tcx, 'op> {
     /// Keep track of the current type checking context for type-dependent name resolution.
     current_typeck_ctx: Option<&'tcx ty::TypeckResults<'tcx>>,
 
-    /// In macros 2.0 scopes, relative paths get resolved in the scope of the macro definining module,
+    /// In macros 2.0 scopes, relative paths get resolved in the scope of the macro defining module,
     /// but only at the top-level within the macro expansion.
     /// HACK: We use a marker to determine whether we are in a macros 2.0 scope, but not in a module nested inside.
     /// NOTE: This is because rustc currently does not accept (and correctly resolve) relative paths
@@ -162,7 +162,7 @@ struct MacroExpansionSanitizer<'tcx, 'op> {
     /// This is unset by `visit_vis`.
     next_vis_owner: Option<ast::NodeId>,
     /// We do not want to sanitize some idents (mostly temporarily) in the AST.
-    /// During the visit we keep track of these so that they can be exluded from sanitization.
+    /// During the visit we keep track of these so that they can be excluded from sanitization.
     protected_idents: FxHashSet<Ident>,
 
     /// Keep track of the seen expansions.
@@ -904,7 +904,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                                         // `T:Assoc` items cannot be directly resolved to any one impl assoc item.
                                         Some(hir::Res::Def(hir::DefKind::TyParam, _)) => {}
 
-                                        // Qualifed path with explicit trait qualification.
+                                        // Qualified path with explicit trait qualification.
                                         Some(hir::Res::Def(hir::DefKind::Trait, _)) => {
                                             // let user_provided_ty = typeck.user_provided_types().get(node_hir_id);
                                             // println!("  user_provided_ty = {user_provided_ty:?}");
@@ -1300,7 +1300,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
             // Dedupe imports based on idents introduced into namespaces.
             .dedup_by(|a, b| {
                 match (a, b) {
-                    // NOTE: Dublicate glob imports of the same module are already invalid before sanitization.
+                    // NOTE: Duplicate glob imports of the same module are already invalid before sanitization.
                     ((_, UseKind::Glob), (_, UseKind::Glob)) => false,
 
                     ((path, UseKind::Single { ident, namespace, .. }), (next_path, UseKind::Single{ ident: next_ident, namespace: next_namespace, .. })) => {

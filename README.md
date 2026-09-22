@@ -107,7 +107,7 @@ This attribute can be applied to
   #[cfg_attr(mutest, mutest::ignore)]
   let buff_len = mem::size_of::<u16>() * 1024;
   ```
-* expressions ([wherever the compiler supports attrbiutes on expressions](https://doc.rust-lang.org/reference/expressions.html#expression-attributes)):
+* expressions ([wherever the compiler supports attributes on expressions](https://doc.rust-lang.org/reference/expressions.html#expression-attributes)):
   ```rs
       #[cfg_attr(mutest, mutest::ignore)]
       Some(body)

@@ -820,7 +820,7 @@ macro interned {
     },
 }
 
-#[allow(non_snake_case)]
+#[allow(non_snake_case, reason = "the generated functions keep the spelling of the definitions they resolve")]
 pub mod traits {
     super::interned! {
         trait Default (::core::default::Default),

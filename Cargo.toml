@@ -14,3 +14,19 @@ members = [
     "test-metadata-shim",
     "tests",
 ]
+
+# Clippy has never run over this tree, so only a narrow set is switched on; the default
+# groups still apply at their own levels.
+[workspace.lints.clippy]
+allow_attributes_without_reason = "warn"
+dbg_macro = "warn"
+debug_assert_with_mut_call = "warn"
+inefficient_to_string = "warn"
+mem_forget = "warn"
+rc_buffer = "warn"
+
+[profile.release]
+# No `strip`: the driver installs an ICE hook and the runtime is linked into users' test
+# binaries, so both need their frames to survive into a backtrace.
+lto = true
+codegen-units = 1

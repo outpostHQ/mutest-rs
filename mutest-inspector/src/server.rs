@@ -338,7 +338,7 @@ async fn handle_source_request(State(state): State<Arc<ServerState>>, Path(path_
                             write!(body, "<tr class=\"line\"><td class=\"line-no\">{}</td><td class=\"diff-marker\"></td><td class=\"line-content\">{}</td></tr>", line_no, line_content).unwrap();
                         }
                     }
-                    // Write out the original lines that this mutation subsitution modifies.
+                    // Write out the original lines that this mutation substitution modifies.
                     for (line_no, highlighted_line_html) in iter::zip(subst_start_line.0.., &subst_html.original_lines_html) {
                         let line_content = source_code_line_content(highlighted_line_html.as_str());
                         write!(body, "<tr class=\"line original\"><td class=\"line-no\">{}</td><td class=\"diff-marker\">-</td><td class=\"line-content\">{}</td></tr>", line_no, line_content).unwrap();
@@ -579,7 +579,7 @@ async fn handle_mutation_request(State(state): State<Arc<ServerState>>, Path((pa
             let line_content = source_code_line_content(highlighted_line_html.as_str());
             write!(body, "<tr class=\"line\"><td class=\"line-no\">{}</td><td class=\"diff-marker\"></td><td class=\"line-content\">{}</td></tr>", line_no, line_content).unwrap();
         }
-        // Write out the original lines that this mutation subsitution modifies.
+        // Write out the original lines that this mutation substitution modifies.
         for (line_no, highlighted_line_html) in iter::zip(subst_start_line.0.., &subst_html.original_lines_html) {
             let line_content = source_code_line_content(highlighted_line_html.as_str());
             write!(body, "<tr class=\"line original\"><td class=\"line-no\">{}</td><td class=\"diff-marker\">-</td><td class=\"line-content\">{}</td></tr>", line_no, line_content).unwrap();
@@ -944,7 +944,7 @@ async fn handle_trace_request(State(state): State<Arc<ServerState>>, Path((packa
                         let line_content = source_code_line_content(highlighted_line_html.as_str());
                         write!(body, "<tr class=\"line\"><td class=\"line-no\">{}</td><td class=\"diff-marker\"></td><td class=\"line-content\">{}</td></tr>", line_no, line_content).unwrap();
                     }
-                    // Write out the original lines that this mutation subsitution modifies.
+                    // Write out the original lines that this mutation substitution modifies.
                     for (line_no, highlighted_line_html) in iter::zip(subst_start_line.0.., &subst_html.original_lines_html) {
                         let def_line_region = line_region_byte_offsets_within_span(LineNo(line_no), &source_file.lines[LineNo(line_no)], def_span);
                         let mut highlighted_line_html = Cow::Borrowed(highlighted_line_html);

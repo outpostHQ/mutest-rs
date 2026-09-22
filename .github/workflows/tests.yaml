@@ -13,6 +13,27 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  lints:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      # Install Rust toolchain specified in rust-toolchain.toml.
+      - name: Install Rust toolchain
+        run: rustc --version
+
+      - name: Install clippy
+        run: rustup component add clippy
+
+      # The driver's build script embeds the runtime rlib, which has to exist first.
+      - name: Build mutest-runtime
+        run: cargo build -p mutest-runtime
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets
+
   tests:
     strategy:
       fail-fast: false

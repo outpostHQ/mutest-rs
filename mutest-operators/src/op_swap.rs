@@ -108,7 +108,7 @@ macro define_op_swap_operator(
             };
 
             let caller_def_id = f_hir.owner_id.def_id;
-            #[allow(unused_variables)]
+            #[allow(unused_variables, reason = "only the optional guard arms call this closure, and an expansion may have none")]
             let expr_impls_matching_op = |op_trait| impls_matching_op(tcx, caller_def_id, lhs_ty, rhs_ty, expr_ty, op_trait, op_kind);
 
             let mapped_op_kind = match op_kind {
