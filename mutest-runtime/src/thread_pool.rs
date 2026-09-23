@@ -67,6 +67,8 @@ impl fmt::Debug for JobHandle {
 impl JobHandle {
     pub fn thread_id(&self) -> ThreadId {
         self.allocated.wait();
+        // SAFETY: `allocated` is only woken after the worker has written the id below, so the
+        //         write happens-before this read and the worker never touches the packet again.
         unsafe { (*self.thread_id_packet.data.get()).unwrap() }
     }
 
@@ -145,11 +147,15 @@ fn spawn_in_pool(data: Arc<ThreadPoolData>) {
 
             data.queued_count.fetch_sub(1, atomic::Ordering::SeqCst);
             data.active_threads_count.fetch_add(1, atomic::Ordering::SeqCst);
+            // SAFETY: This worker holds the only reference until the wake below, so no reader
+            //         can observe the packet while it is being written.
             unsafe { *thread_id_packet.data.get() = Some(thread::current().id()) };
             drop(thread_id_packet);
             allocated.wake_all();
 
             let result = panic::catch_unwind(panic::AssertUnwindSafe(|| __rust_begin_short_backtrace(job)));
+            // SAFETY: As above: the reader waits on `finished`, which is woken only after this
+            //         write and after the packet reference is dropped.
             unsafe { *result_packet.data.get() = Some(result) };
             drop(result_packet);
             finished.wake_all();

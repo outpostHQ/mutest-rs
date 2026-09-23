@@ -202,6 +202,8 @@ thread_local! {
 
 pub fn is_test_thread_active() -> bool {
     TEST_THREAD_ACTIVE.with(|cell| {
+        // SAFETY: The cell is thread-local, so no other thread can reach it, and nothing between
+        //         here and the load below sets it, so no `&mut` to its contents can exist.
         let value = (unsafe { &*cell.as_ptr() }).as_ref();
         value.load(atomic::Ordering::SeqCst)
     })
