@@ -945,7 +945,8 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
     let mode = match () {
         _ if let Some(flakes_arg) = args.iter().flat_map(|arg| arg.strip_prefix("--flakes=")).next() => {
             let Some(iterations_count) = flakes_arg.parse::<usize>().ok() else {
-                panic!("flaky analysis iterations count must be a valid integer");
+                println!("invalid flakiness iterations count `{flakes_arg}`: expected a whole number");
+                process::exit(exit_code::USAGE);
             };
             config::Mode::Flakes { iterations_count }
         }
@@ -1000,7 +1001,10 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
         mutation_isolation: match args.iter().flat_map(|arg| arg.strip_prefix("--isolate=")).next() {
             None | Some("unsafe") => config::MutationIsolation::Unsafe,
             Some("all") => config::MutationIsolation::All,
-            Some(arg) => panic!("unexpected option: --isolate={arg}"),
+            Some(arg) => {
+                println!("invalid isolation mode `{arg}`: expected `unsafe` or `all`");
+                process::exit(exit_code::USAGE);
+            }
         },
         use_thread_pool: args.contains(&"--use-thread-pool"),
         excluded_tests: args.iter()
