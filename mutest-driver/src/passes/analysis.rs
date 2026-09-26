@@ -223,9 +223,16 @@ pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
                     .collect::<Vec<_>>();
 
                 match &extern_crates_with_mutest_harnesses[..] {
-                    &[cnum] => cnum,
+                    &[cnum] => Some(cnum),
 
-                    [] => tcx.dcx().fatal("missing extern mutant crate for integration test"),
+                    // A test that names nothing from its package's library does not link it. No mutation
+                    // can reach such a test, which is no reason to stop every other target's run.
+                    [] => {
+                        let mut diagnostic = tcx.dcx().struct_warn(format!("integration test `{}` links no mutant crate, so no mutation can reach its tests", tcx.crate_name(hir::LOCAL_CRATE)));
+                        diagnostic.note("its tests are skipped");
+                        diagnostic.emit();
+                        None
+                    }
                     cnums => {
                         let mut diagnostic = tcx.dcx().struct_fatal("found multiple extern mutant crate candidates");
 
@@ -236,7 +243,7 @@ pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
 
                             if let Some((cnum, _crate_name)) = crate_matching_cargo_package_name {
                                 diagnostic.cancel();
-                                return cnum;
+                                return Some(cnum);
                             }
 
                             diagnostic.note("the `CARGO_PKG_NAME` environment variable does not match any of the crate candidates");
@@ -248,7 +255,8 @@ pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
                         diagnostic.emit_fatal();
                     }
                 }
-            });
+            }).flatten();
+            let skipped_integration_test = !opts.crate_kind.produces_mutations() && external_meta_mutant_crate.is_none();
 
             let all_mutable_fns_count = mutest_emit::analysis::call_graph::all_mutable_fns(tcx, external_meta_mutant_crate, &tests).count();
 
@@ -263,7 +271,11 @@ pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
                     (entry_points, targets, external_targets.json_definitions.clone())
                 }
                 _ => {
-                    let entry_points = EntryPoints::Tests(&tests);
+                    // A skipped test is no entry point, or its own helpers would be mutated.
+                    let entry_points = match skipped_integration_test {
+                        false => EntryPoints::Tests(&tests),
+                        true => EntryPoints::Tests(&[]),
+                    };
 
                     let targeting = match external_meta_mutant_crate {
                         None => Targeting::LocalMutables,
@@ -407,7 +419,11 @@ pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
                 //       using the built-in codegen mechanism.
                 if !opts.unstable_flags.embedded {
                     // Undo `#[test]` macro expansions, since these are only valid with hygiene information.
-                    mutest_emit::codegen::expansion::clean_up_test_cases(sess, &tests, &mut generated_crate_ast);
+                    match skipped_integration_test {
+                        false => mutest_emit::codegen::expansion::clean_up_test_cases(sess, &tests, &mut generated_crate_ast),
+                        // No mutation reaches these tests, so the harness is built without them.
+                        true => mutest_emit::codegen::expansion::strip_test_cases(sess, &tests, &mut generated_crate_ast),
+                    }
                 }
             }
 

@@ -465,6 +465,8 @@ fn ensure_test_scope(items: &mut ThinVec<Box<ast::Item>>) {
 struct TestCaseCleaner<'tcx, 'tst> {
     sess: &'tcx Session,
     tests: &'tst [Test],
+    /// Mark the test functions as tests again, rather than leaving them plain functions.
+    keep_tests: bool,
 }
 
 impl<'tcx, 'tst> ast::mut_visit::MutVisitor for TestCaseCleaner<'tcx, 'tst> {
@@ -490,13 +492,21 @@ impl<'tcx, 'tst> ast::mut_visit::MutVisitor for TestCaseCleaner<'tcx, 'tst> {
         if let Some(_test) = self.tests.iter().find(|&test| test.item.id == item.id) {
             let g = &self.sess.psess.attr_id_generator;
 
-            // #[test]
-            let test_attr = ast::mk::attr_outer(g, item.span, ast::Safety::Default, Ident::new(sym::test, item.span), ast::AttrArgs::Empty);
+            let replacement_attr = match self.keep_tests {
+                // #[test]
+                true => ast::mk::attr_outer(g, item.span, ast::Safety::Default, Ident::new(sym::test, item.span), ast::AttrArgs::Empty),
+                // #[allow(dead_code)]
+                false => ast::mk::attr_outer(g, item.span, ast::Safety::Default, Ident::new(sym::allow, item.span),
+                    ast::mk::attr_args_delimited(item.span, ast::token::Delimiter::Parenthesis, ast::mk::token_stream(vec![
+                        ast::mk::tt_token_joint(item.span, ast::TokenKind::Ident(sym::dead_code, ast::token::IdentKind::Normal)),
+                    ])),
+                ),
+            };
 
             item.attrs = item.attrs.into_iter()
                 .filter(|attr| !attr.has_name(sym::rustc_test_marker))
                 .filter(|attr| !attr.has_name(sym::test))
-                .chain(iter::once(test_attr))
+                .chain(iter::once(replacement_attr))
                 .collect();
         }
 
@@ -505,6 +515,13 @@ impl<'tcx, 'tst> ast::mut_visit::MutVisitor for TestCaseCleaner<'tcx, 'tst> {
 }
 
 pub fn clean_up_test_cases(sess: &Session, tests: &[Test], krate: &mut ast::Crate) {
-    let mut cleaner = TestCaseCleaner { sess, tests };
+    let mut cleaner = TestCaseCleaner { sess, tests, keep_tests: true };
+    cleaner.visit_crate(krate);
+}
+
+/// Undoes the `#[test]` expansions like `clean_up_test_cases`, but leaves the test functions plain
+/// functions, so the harness is built with none of them.
+pub fn strip_test_cases(sess: &Session, tests: &[Test], krate: &mut ast::Crate) {
+    let mut cleaner = TestCaseCleaner { sess, tests, keep_tests: false };
     cleaner.visit_crate(krate);
 }

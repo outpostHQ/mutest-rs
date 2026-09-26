@@ -934,11 +934,9 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
                         out_dir.push(meta_mutant.crate_name);
                     }
                     Some(CargoTargetKind::Test) => {
-                        let Some(external_tests_extra) = external_tests_extra else {
-                            panic!("encountered meta-mutant compiled for `test` Cargo target being run without external test metadata");
-                        };
                         out_dir.push("tests");
-                        out_dir.push(external_tests_extra.test_crate_name);
+                        // An integration test that links no mutant crate is built as its own, empty meta-mutant.
+                        out_dir.push(external_tests_extra.map_or(meta_mutant.crate_name, |extra| extra.test_crate_name));
                     }
                 }
             }
