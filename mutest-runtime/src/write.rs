@@ -252,7 +252,6 @@ mod tests {
     /// A run of safe mutations only, as `evaluation.json` records it.
     fn written_run(total: usize, undetected: usize, crashed: usize) -> serde_json::Value {
         let results = MutationAnalysisResults {
-            all_test_runs_failed_successfully: undetected == 0,
             total_mutations_count: total,
             total_safe_mutations_count: total,
             undetected_mutations_count: undetected,

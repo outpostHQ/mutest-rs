@@ -508,7 +508,6 @@ impl MutationOpStats {
 }
 
 pub struct MutationAnalysisResults {
-    pub all_test_runs_failed_successfully: bool,
     pub total_mutations_count: usize,
     pub total_safe_mutations_count: usize,
     pub undetected_mutations_count: usize,
@@ -558,8 +557,6 @@ impl MutationAnalysisResults {
 
         match mutation_result.result {
             MutationTestResult::Undetected => {
-                self.all_test_runs_failed_successfully = false;
-
                 self.undetected_mutations_count += 1;
                 op_stats.undetected_mutations_count += 1;
                 if let MutationSafety::Safe = mutation.safety {
@@ -608,7 +605,6 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
     let &MutationAnalysis { opts, tests, external_tests_extra, meta_mutant } = analysis;
 
     let mut results = MutationAnalysisResults {
-        all_test_runs_failed_successfully: true,
         total_mutations_count: 0,
         total_safe_mutations_count: 0,
         undetected_mutations_count: 0,
