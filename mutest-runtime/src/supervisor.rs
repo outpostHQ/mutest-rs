@@ -293,7 +293,7 @@ mod sys {
             // The supervisor may have died before the flag was set.
             // SAFETY: `getppid` cannot fail.
             if supervisor_pid.is_some_and(|supervisor_pid| unsafe { libc::getppid() } != supervisor_pid) {
-                process::exit(101);
+                process::exit(mutest_exit_code::PANIC);
             }
         }
 
