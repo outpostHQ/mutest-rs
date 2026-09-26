@@ -693,6 +693,8 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
     if exec_build_artifact {
         let build_artifact_path = Path::new(BUILD_OUT_DIR).join(&test_crate_name);
         let mut cmd = Command::new(&build_artifact_path);
+        // As `cargo mutest` runs it.
+        cmd.env("MUTEST_HARNESS", "1");
 
         // Into a directory of the test's own, which is removed once the stream has been read.
         let eval_stream_dir = expectations.contains(&Expectation::EvalStream).then(|| {

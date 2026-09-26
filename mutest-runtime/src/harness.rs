@@ -1345,18 +1345,17 @@ fn mutest_simulate_main<S: SubstMap>(args: &[&str], tests: Vec<test::TestDescAnd
     }
 }
 
-/// Whether the arguments name tests, or ask for a list of them, as only libtest's do: every option
-/// of this harness is a flag.
-fn is_libtest_invocation(args: &[&str]) -> bool {
-    args.iter().skip(1).any(|&arg| !arg.starts_with('-') || arg == "--list")
-}
+/// Set by `cargo mutest` for the test binaries it runs, which are to run the mutation analysis.
+const HARNESS_VAR: &str = "MUTEST_HARNESS";
 
-#[test]
-fn test_is_libtest_invocation() {
-    assert!(is_libtest_invocation(&["harness", "durable::runs_until_killed", "--exact", "--nocapture"]));
-    assert!(is_libtest_invocation(&["harness", "--list", "--format", "terse"]));
-    assert!(!is_libtest_invocation(&["harness"]));
-    assert!(!is_libtest_invocation(&["harness", "--isolate=unsafe", "--metadata-out-root-dir=/tmp/json", "-v", "--exhaustive"]));
+/// Whether `cargo mutest` started this process to run the mutation analysis. It must be called
+/// before any thread is started: it removes the marker, so that no process a test starts from
+/// this binary is taken for the harness too.
+fn started_as_harness() -> bool {
+    let started_as_harness = env::var_os(HARNESS_VAR).is_some();
+    // SAFETY: No other thread is running yet.
+    unsafe { env::remove_var(HARNESS_VAR) };
+    started_as_harness
 }
 
 pub fn mutest_main_static(test_suite: TestSuite<'_>, meta_mutant: &'static MetaMutant<impl SubstMap + Sync>) {
@@ -1382,17 +1381,19 @@ pub fn mutest_main_static(test_suite: TestSuite<'_>, meta_mutant: &'static MetaM
         TestSuite::Tests(tests, external_tests_extra) => (tests, external_tests_extra),
     };
 
-    // A test that runs this binary again, to run one of its tests in a child process, names that
-    // test the way libtest takes it. Run it as libtest would, with no mutation active: a mutation
-    // analysis would run the test that started the child, which would start another child.
-    if is_libtest_invocation(&args) {
+    // A test may run this binary again, to run one of its tests in a child process, naming that test
+    // the way libtest takes it. Only the process `cargo mutest` started, and the worker it starts,
+    // run the mutation analysis; anything else runs as libtest would, with no mutation active. A
+    // mutation analysis would run the test that started the child, which would start another child.
+    let worker = supervisor::is_worker();
+    if !started_as_harness() && !worker {
         let args = args.iter().map(|&arg| arg.to_owned()).collect::<Vec<_>>();
         let exit_code = test::test_main(&args, tests);
         process::exit(if exit_code == process::ExitCode::SUCCESS { 0 } else { ERROR_EXIT_CODE });
     }
 
     // The analysis runs in a second process, so that this one can clean up after it.
-    if cfg!(any(unix, windows)) && !supervisor::is_worker() {
+    if cfg!(any(unix, windows)) && !worker {
         supervisor::supervise();
     }
     journal::open_for_worker();
