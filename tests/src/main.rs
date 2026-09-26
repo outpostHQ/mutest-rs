@@ -809,6 +809,10 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         full_stderr.push_str(&stderr);
     }
 
+    // The test's crate name holds a `DefaultHasher` hash, which another Rust release may hash
+    // differently.
+    let stdout = stdout.replace(&crate_hash, "$HASH");
+    let stderr = stderr.replace(&crate_hash, "$HASH");
     let outputs = Outputs { stdout: &stdout, stderr: &stderr, eval_stream: &eval_stream };
 
     if opts.bless {

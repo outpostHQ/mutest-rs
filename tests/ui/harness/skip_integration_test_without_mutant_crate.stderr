@@ -1,4 +1,4 @@
-warning: integration test `mutest_test_81dfcd727c6b478e_harness_skip_integration_test_without_mutant_cra` links no mutant crate, so no mutation can reach its tests
+warning: integration test `mutest_test_$HASH_harness_skip_integration_test_without_mutant_cra` links no mutant crate, so no mutation can reach its tests
   |
   = note: its tests are skipped
 
