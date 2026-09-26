@@ -34,6 +34,7 @@ pub fn is_worker() -> bool {
 /// as crashed and starts a new worker; otherwise it exits as the worker did.
 pub fn supervise() -> ! {
     sys::adopt_orphans();
+    sys::forward_stop_signals();
 
     // Without a journal the run still happens, but a mutation that crashes the worker ends it.
     let journal = Journal::create().ok();
@@ -75,10 +76,11 @@ fn run_worker(journal: Option<&Journal>) -> ExitStatus {
     cmd.args(env::args_os().skip(1));
     cmd.env(SUPERVISOR_PID_VAR, process::id().to_string());
     if let Some(journal) = journal { journal.pass_to(&mut cmd); }
-    let worker = cmd.spawn().expect("cannot start the mutation analysis worker");
 
-    sys::forward_signals_to(worker.id());
-    sys::wait_reaping_orphans(worker)
+    match sys::start_worker(&mut cmd) {
+        Ok(worker) => sys::wait_reaping_orphans(worker),
+        Err(stopped) => stopped,
+    }
 }
 
 /// Not `ExitStatus`'s own words, which also say whether a core was dumped.
@@ -110,38 +112,90 @@ fn exit_as(status: ExitStatus) -> ! {
 
 #[cfg(unix)]
 mod sys {
+    use std::io;
+    use std::mem;
     use std::os::unix::process::ExitStatusExt as _;
-    use std::process::{Child, ExitStatus};
-    use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+    use std::process::{Child, Command, ExitStatus};
+    use std::sync::atomic::{AtomicI32, Ordering};
 
     use libc::{c_int, pid_t};
 
     const STOP_SIGNALS: [c_int; 4] = [libc::SIGHUP, libc::SIGINT, libc::SIGQUIT, libc::SIGTERM];
 
+    /// The running worker, which a stop signal is forwarded to; 0 while there is none.
     static WORKER_PID: AtomicI32 = AtomicI32::new(0);
-    static STOP_REQUESTED: AtomicBool = AtomicBool::new(false);
+    /// The stop signal received last; 0 until one is.
+    static STOP_SIGNAL: AtomicI32 = AtomicI32::new(0);
 
     extern "C" fn forward_signal(signal: c_int) {
-        STOP_REQUESTED.store(true, Ordering::Relaxed);
+        STOP_SIGNAL.store(signal, Ordering::Relaxed);
         let worker_pid = WORKER_PID.load(Ordering::Relaxed);
-        // SAFETY: `kill` is async-signal-safe, and the pid is a child of this process that has not
-        //         been reaped, which is the only way its id could go to another process.
+        // SAFETY: `kill` is async-signal-safe. The pid is that of a worker that has not been reaped,
+        //         which is the only way its id could go to another process: it is stored once the
+        //         worker has started, and cleared before the worker is reaped.
         if worker_pid > 0 { unsafe { libc::kill(worker_pid, signal) }; }
     }
 
     /// A signal meant to stop the run stops the worker, and the supervisor goes on to clean up after
     /// it; the supervisor itself stopping first would leave the worker running unsupervised.
-    pub(super) fn forward_signals_to(worker_pid: u32) {
-        WORKER_PID.store(worker_pid as pid_t, Ordering::Relaxed);
+    pub(super) fn forward_stop_signals() {
         for signal_number in STOP_SIGNALS {
             // SAFETY: The handler only touches atomics and calls `kill`, which is async-signal-safe.
             unsafe { libc::signal(signal_number, forward_signal as extern "C" fn(c_int) as libc::sighandler_t) };
         }
     }
 
+    /// Starts a worker, unless the run has been asked to stop: then it ends as the stop signal would
+    /// have ended the worker.
+    pub(super) fn start_worker(cmd: &mut Command) -> Result<Child, ExitStatus> {
+        if let Some(signal) = stop_signal() { return Err(ExitStatus::from_raw(signal)); }
+
+        let worker = cmd.spawn().expect("cannot start the mutation analysis worker");
+        WORKER_PID.store(worker.id() as pid_t, Ordering::Relaxed);
+
+        // A stop that came while the worker was starting found no worker to forward it to.
+        if let Some(signal) = stop_signal() {
+            // SAFETY: The worker has not been reaped, so its id is still its own.
+            unsafe { libc::kill(worker.id() as pid_t, signal) };
+        }
+        Ok(worker)
+    }
+
+    fn stop_signal() -> Option<c_int> {
+        match STOP_SIGNAL.load(Ordering::Relaxed) {
+            0 => None,
+            signal => Some(signal),
+        }
+    }
+
+    /// Waits until the child `waitid` selects has exited, and says which it was, without reaping
+    /// it: until it is reaped, its id cannot go to another process.
+    fn wait_for_exit(idtype: libc::idtype_t, id: libc::id_t) -> pid_t {
+        loop {
+            // SAFETY: `siginfo_t` is plain data, for which all zeroes is a valid value.
+            let mut info = unsafe { mem::zeroed::<libc::siginfo_t>() };
+            // SAFETY: `info` is a valid place for `waitid` to write to.
+            if unsafe { libc::waitid(idtype, id, &mut info, libc::WEXITED | libc::WNOWAIT) } == 0 {
+                // SAFETY: `waitid` succeeded, so `info` describes the child that exited.
+                return unsafe { info.si_pid() };
+            }
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() != Some(libc::EINTR) {
+                panic!("cannot wait for the mutation analysis worker: {error}");
+            }
+        }
+    }
+
+    /// Reaps the worker once it has exited. Its id is no longer where a stop signal goes by then,
+    /// as reaping it frees the id for another process.
+    fn reap_worker(mut worker: Child) -> ExitStatus {
+        WORKER_PID.store(0, Ordering::Relaxed);
+        worker.wait().expect("cannot wait for the mutation analysis worker")
+    }
+
     /// Whether the worker was stopped by someone, rather than by what it ran.
     pub(super) fn stopped_on_request(status: ExitStatus) -> bool {
-        STOP_REQUESTED.load(Ordering::Relaxed) || status.signal().is_some_and(|signal| STOP_SIGNALS.contains(&signal))
+        stop_signal().is_some() || status.signal().is_some_and(|signal| STOP_SIGNALS.contains(&signal))
     }
 
     pub(super) fn raise_with_default_action(signal_number: i32) {
@@ -160,8 +214,6 @@ mod sys {
     #[cfg(target_os = "linux")]
     mod linux {
         use std::fs;
-        use std::io;
-        use std::os::unix::process::ExitStatusExt;
         use std::process;
         use std::ptr;
         use std::thread;
@@ -195,13 +247,11 @@ mod sys {
         pub(crate) fn wait_reaping_orphans(worker: Child) -> ExitStatus {
             let worker_pid = worker.id() as pid_t;
             loop {
-                let mut status: c_int = 0;
-                // SAFETY: `status` is a valid place for `waitpid` to write to.
-                let reaped = unsafe { libc::waitpid(-1, &mut status, 0) };
-                if reaped == worker_pid { return ExitStatus::from_raw(status); }
-                if reaped == -1 && io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
-                    panic!("cannot wait for the mutation analysis worker: {}", io::Error::last_os_error());
-                }
+                let exited = wait_for_exit(libc::P_ALL, 0);
+                if exited == worker_pid { return reap_worker(worker); }
+                // An orphan. Should reaping it be interrupted, `waitid` finds it again.
+                // SAFETY: A null status is allowed.
+                unsafe { libc::waitpid(exited, ptr::null_mut(), 0) };
             }
         }
 
@@ -261,38 +311,76 @@ mod sys {
 
         pub(crate) fn adopt_orphans() {}
         pub(crate) fn die_with(_supervisor_pid: Option<pid_t>) {}
-        pub(crate) fn wait_reaping_orphans(mut worker: Child) -> ExitStatus {
-            worker.wait().expect("cannot wait for the mutation analysis worker")
+        pub(crate) fn wait_reaping_orphans(worker: Child) -> ExitStatus {
+            wait_for_exit(libc::P_PID, worker.id() as libc::id_t);
+            reap_worker(worker)
         }
         pub(crate) fn kill_descendants() {}
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use std::os::unix::process::ExitStatusExt;
+        use std::process::{Command, Stdio};
+        use std::sync::Mutex;
+        use std::sync::atomic::Ordering;
+
+        use super::*;
+
+        /// On Linux, waiting for the worker reaps any child of this process that exits meanwhile,
+        /// so the tests that start processes take turns.
+        static STARTING_PROCESSES: Mutex<()> = Mutex::new(());
+
+        #[cfg(target_os = "linux")]
+        #[test]
+        fn a_process_this_one_started_is_among_its_children() {
+            let _turn = STARTING_PROCESSES.lock().unwrap_or_else(|e| e.into_inner());
+
+            let mut child = Command::new("sleep").arg("60").stdin(Stdio::null()).spawn().unwrap();
+            let children = children();
+            let _ = child.kill();
+            let _ = child.wait();
+
+            assert!(children.contains(&(child.id() as pid_t)), "{} is not among {children:?}", child.id());
+        }
+
+        #[test]
+        fn a_stop_requested_between_workers_reaches_no_process_and_starts_no_worker() {
+            let _turn = STARTING_PROCESSES.lock().unwrap_or_else(|e| e.into_inner());
+
+            let worker = start_worker(&mut Command::new("true")).unwrap();
+            let _ = wait_reaping_orphans(worker);
+            assert_eq!(WORKER_PID.load(Ordering::Relaxed), 0, "a stop would be forwarded to the reaped worker's id");
+
+            // As the handler runs for a Ctrl+C that comes before the next worker has started.
+            forward_signal(libc::SIGINT);
+            let started = start_worker(Command::new("sleep").arg("60").stdin(Stdio::null()));
+            STOP_SIGNAL.store(0, Ordering::Relaxed);
+            match started {
+                Ok(mut worker) => {
+                    let _ = worker.kill();
+                    let _ = worker.wait();
+                    panic!("a worker started after the run was asked to stop");
+                }
+                Err(stopped) => assert_eq!(stopped.signal(), Some(libc::SIGINT)),
+            }
+        }
     }
 }
 
 #[cfg(not(unix))]
 mod sys {
-    use std::process::{Child, ExitStatus};
+    use std::process::{Child, Command, ExitStatus};
 
     pub(super) fn adopt_orphans() {}
     pub(super) fn die_with(_supervisor_pid: Option<i32>) {}
-    pub(super) fn forward_signals_to(_worker_pid: u32) {}
+    pub(super) fn forward_stop_signals() {}
+    pub(super) fn start_worker(cmd: &mut Command) -> Result<Child, ExitStatus> {
+        Ok(cmd.spawn().expect("cannot start the mutation analysis worker"))
+    }
     pub(super) fn stopped_on_request(_status: ExitStatus) -> bool { false }
     pub(super) fn wait_reaping_orphans(mut worker: Child) -> ExitStatus {
         worker.wait().expect("cannot wait for the mutation analysis worker")
     }
     pub(super) fn kill_descendants() {}
-}
-
-#[cfg(all(test, target_os = "linux"))]
-mod tests {
-    use std::process::{Command, Stdio};
-
-    #[test]
-    fn a_process_this_one_started_is_among_its_children() {
-        let mut child = Command::new("sleep").arg("60").stdin(Stdio::null()).spawn().unwrap();
-        let children = super::children();
-        let _ = child.kill();
-        let _ = child.wait();
-
-        assert!(children.contains(&(child.id() as libc::pid_t)), "{} is not among {children:?}", child.id());
-    }
 }
