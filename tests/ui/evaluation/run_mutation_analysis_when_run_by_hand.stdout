@@ -1,0 +1,35 @@
+profiling reference test run
+
+applying mutation:
+- [fn_return_default] return `0` without evaluating the function body at tests/ui/evaluation/run_mutation_analysis_when_run_by_hand.rs:10:1: 12:2
+
+ran 1 out of 1 test
+
+warning: [fn_return_default] mutation was not detected
+  --> tests/ui/evaluation/run_mutation_analysis_when_run_by_hand.rs:10:1
+   |
+10 | / fn answer() -> u32 {
+11 | |     42
+12 | | }
+   | |_^ return `0` without evaluating the function body
+   |
+   = note: statement inserted: `return 0;`
+
+applying mutation:
+- [fn_return_default] return `1` without evaluating the function body at tests/ui/evaluation/run_mutation_analysis_when_run_by_hand.rs:10:1: 12:2
+
+ran 1 out of 1 test
+
+warning: [fn_return_default] mutation was not detected
+  --> tests/ui/evaluation/run_mutation_analysis_when_run_by_hand.rs:10:1
+   |
+10 | / fn answer() -> u32 {
+11 | |     42
+12 | | }
+   | |_^ return `1` without evaluating the function body
+   |
+   = note: statement inserted: `return 1;`
+
+mutations: 0.00%. 0 detected (0 timed out; 0 crashed); 2 undetected; 2 total
+     safe: 0.00%. 0 detected (0 timed out; 0 crashed); 2 undetected; 2 total
+   unsafe: none. 0 detected (0 timed out; 0 crashed); 0 undetected; 0 total

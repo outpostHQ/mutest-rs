@@ -35,6 +35,7 @@ fn runs_one_test_in_a_child() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success(), "the child failed:\n{stdout}");
     assert!(stdout.contains("the child ran"), "the test did not run in the child:\n{stdout}");
+    assert!(stdout.contains("running 1 test\n"), "the child ran more than the test it was given:\n{stdout}");
     assert!(!stdout.contains("profiling reference test run"), "the child ran a mutation analysis:\n{stdout}");
 
     assert_eq!(42, answer());

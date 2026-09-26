@@ -1348,18 +1348,9 @@ fn mutest_simulate_main<S: SubstMap>(args: &[&str], tests: Vec<test::TestDescAnd
     }
 }
 
-/// Set by `cargo mutest` for the test binaries it runs, which are to run the mutation analysis.
-const HARNESS_VAR: &str = "MUTEST_HARNESS";
-
-/// Whether `cargo mutest` started this process to run the mutation analysis. It must be called
-/// before any thread is started: it removes the marker, so that no process a test starts from
-/// this binary is taken for the harness too.
-fn started_as_harness() -> bool {
-    let started_as_harness = env::var_os(HARNESS_VAR).is_some();
-    // SAFETY: No other thread is running yet.
-    unsafe { env::remove_var(HARNESS_VAR) };
-    started_as_harness
-}
+/// Set by the process that runs the mutation analysis in its own environment, which every process
+/// its tests start inherits. This binary run with it set runs as libtest would.
+const RUN_AS_LIBTEST_VAR: &str = "__MUTEST_RUN_AS_LIBTEST";
 
 pub fn mutest_main_static(test_suite: TestSuite<'_>, meta_mutant: &'static MetaMutant<impl SubstMap + Sync>) {
     if let Ok(test_name) = env::var(test_runner::TEST_SUBPROCESS_INVOCATION) {
@@ -1385,20 +1376,22 @@ pub fn mutest_main_static(test_suite: TestSuite<'_>, meta_mutant: &'static MetaM
     };
 
     // A test may run this binary again, to run one of its tests in a child process, naming that test
-    // the way libtest takes it. Only the process `cargo mutest` started, and the worker it starts,
-    // run the mutation analysis; anything else runs as libtest would, with no mutation active. A
-    // mutation analysis would run the test that started the child, which would start another child.
-    let worker = supervisor::is_worker();
-    if !started_as_harness() && !worker {
+    // the way libtest takes it. That child runs as libtest would, with no mutation active: a mutation
+    // analysis would run the test that started the child, which would start another child. However
+    // else it is run, by `cargo mutest` or by hand, and whatever its arguments, this binary runs the
+    // mutation analysis.
+    if env::var_os(RUN_AS_LIBTEST_VAR).is_some() {
         let args = args.iter().map(|&arg| arg.to_owned()).collect::<Vec<_>>();
         let exit_code = test::test_main(&args, tests);
         process::exit(if exit_code == process::ExitCode::SUCCESS { 0 } else { LIBTEST_ERROR_EXIT_CODE });
     }
 
     // The analysis runs in a second process, so that this one can clean up after it.
-    if cfg!(any(unix, windows)) && !worker {
+    if cfg!(any(unix, windows)) && !supervisor::is_worker() {
         supervisor::supervise();
     }
+    // SAFETY: No other thread is running yet.
+    unsafe { env::set_var(RUN_AS_LIBTEST_VAR, "1") };
     journal::open_for_worker();
 
     let owned_tests = tests.iter().map(|test| make_owned_test_def(test)).collect::<Vec<_>>();

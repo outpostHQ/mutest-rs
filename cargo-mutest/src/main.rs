@@ -656,10 +656,6 @@ fn run_cargo_with_mutest_driver(cargo_invocation: &CargoInvocation, matches: &cl
 
         cmd.args(matches.get_many::<String>("PASSED_OPTIONS").unwrap_or_default());
 
-        // NOTE: The test binaries Cargo runs are the harnesses, which run the mutation analysis
-        //       rather than libtest, whatever arguments follow. A binary a test runs is not marked.
-        cmd.env("MUTEST_HARNESS", "1");
-
         // NOTE: Disable insta snapshot creation for mutated program tests.
         cmd.env("INSTA_UPDATE", "no");
     }

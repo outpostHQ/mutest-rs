@@ -699,9 +699,9 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
     if exec_build_artifact {
         let build_artifact_path = Path::new(BUILD_OUT_DIR).join(&test_crate_name);
         let mut cmd = Command::new(&build_artifact_path);
-        // As `cargo mutest` runs it, which reads the harness's exit code from the log rather than
-        // from Cargo.
-        cmd.env("MUTEST_HARNESS", "1");
+        // NOTE: Run as anyone would run a harness built with `cargo mutest run --no-run`, with nothing
+        //       set to mark it. `cargo mutest` adds only the log it reads the harness's exit code
+        //       from, rather than from Cargo.
         let exit_code_log = path::absolute(Path::new(BUILD_OUT_DIR).join(format!("{test_crate_name}.exit-codes"))).expect("cannot resolve the exit code log path");
         let _ = fs::remove_file(&exit_code_log);
         cmd.env(mutest_exit_code::LOG_VAR, &exit_code_log);
