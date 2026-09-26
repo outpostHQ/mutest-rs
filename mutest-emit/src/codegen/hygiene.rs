@@ -1313,7 +1313,9 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                         // NOTE: If we encounter the same name relating to two different namespaces,
                         //       then the paths must be different, otherwise
                         //       the two imports will refer to the same names in the same namespaces.
-                        ident == next_ident && (namespace == next_namespace || matching_paths(path, next_path))
+                        // NOTE: `as _` introduces no name, so two such imports in one namespace only
+                        //       duplicate each other if they import the same path.
+                        ident == next_ident && (matching_paths(path, next_path) || (namespace == next_namespace && ident.name != kw::Underscore))
                     }
 
                     _ => false,
