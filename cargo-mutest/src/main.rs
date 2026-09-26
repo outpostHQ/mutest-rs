@@ -282,7 +282,7 @@ fn main() {
             //       whether specified explicitly through `--target-dir`, or implicitly chosen by Cargo.
             cargo_invocation.target_dir.push("mutest");
 
-            run_cargo_with_mutest_driver(&cargo_invocation, matches, &unstable_flags);
+            run_cargo_with_mutest_driver(&cargo_invocation, matches, &unstable_flags, inspect_opts.is_some());
 
             if let Some((open, port)) = inspect_opts {
                 run_mutest_inspector_from_cargo_invocation(open, port, &cargo_invocation, matches);
@@ -445,7 +445,7 @@ fn each_run_gets_its_own_build_failure_marker_inside_the_target_directory() {
     assert_ne!(build_failure_marker_path(target_dir, 4321), build_failure_marker_path(target_dir, 8765));
 }
 
-fn run_cargo_with_mutest_driver(cargo_invocation: &CargoInvocation, matches: &clap::ArgMatches, unstable_flags: &[&str]) {
+fn run_cargo_with_mutest_driver(cargo_invocation: &CargoInvocation, matches: &clap::ArgMatches, unstable_flags: &[&str], inspect: bool) {
     let mut mutest_args = cargo_invocation.non_cargo_args.clone();
 
     let no_run = matches.get_flag("no-run");
@@ -626,12 +626,71 @@ fn run_cargo_with_mutest_driver(cargo_invocation: &CargoInvocation, matches: &cl
         .spawn().expect("failed to run Cargo")
         .wait().expect("failed to run Cargo");
 
+    let marker_contents = fs::read_to_string(&build_failure_marker_path).unwrap_or_default();
     let _ = fs::remove_file(&build_failure_marker_path);
 
-    let exit_code = exit_status.code();
-    if exit_code != Some(0) && exit_code != Some(101) {
-        process::exit(exit_code.unwrap_or(-1));
+    let failed_builds = failed_builds_named_in(&marker_contents);
+    for failed_build in &failed_builds {
+        color_print::ceprintln!("<red,bold>error</>: {} did not build, so none of its mutations were evaluated", failed_build);
     }
+
+    if let Some(exit_code) = exit_code_after_cargo(exit_status.code(), &failed_builds, inspect) {
+        process::exit(exit_code);
+    }
+}
+
+/// The builds the drivers of this run recorded as failed, one line each.
+fn failed_builds_named_in(marker_contents: &str) -> Vec<&str> {
+    marker_contents.lines().filter(|line| !line.is_empty()).collect()
+}
+
+#[test]
+fn every_build_a_driver_recorded_as_failed_is_named() {
+    let marker_contents = "the test harness of `krate` in package `krate`\nthe test harness of `cli` in package `krate`\n";
+
+    assert_eq!(failed_builds_named_in(marker_contents), ["the test harness of `krate` in package `krate`", "the test harness of `cli` in package `krate`"]);
+    assert_eq!(failed_builds_named_in(""), [] as [&str; 0]);
+}
+
+/// The code this run ends with once Cargo has exited, or `None` to go on: to the inspector if one
+/// was asked for, and otherwise to a successful exit.
+///
+/// Cargo exits 101 when a build failed, and when a test binary did: a harness exits 101 when a
+/// mutation went undetected, and when it could not evaluate at all. None of these ends the run with
+/// 0. A harness that did run still goes on to an inspector asked for, which shows what it found.
+fn exit_code_after_cargo(cargo_exit_code: Option<i32>, failed_builds: &[&str], inspect: bool) -> Option<i32> {
+    if !failed_builds.is_empty() {
+        return Some(cargo_exit_code.filter(|&code| code != 0).unwrap_or(101));
+    }
+    match cargo_exit_code {
+        Some(0) => None,
+        Some(101) if inspect => None,
+        code => Some(code.unwrap_or(-1)),
+    }
+}
+
+#[test]
+fn a_run_whose_test_harness_did_not_build_exits_non_zero() {
+    let failed_builds = ["the test harness of `krate` in package `krate`"];
+
+    assert_eq!(exit_code_after_cargo(Some(101), &failed_builds, false), Some(101));
+    // There is nothing to inspect for a harness that was never built.
+    assert_eq!(exit_code_after_cargo(Some(101), &failed_builds, true), Some(101));
+}
+
+#[test]
+fn a_run_with_an_undetected_mutation_or_a_failed_evaluation_exits_with_cargos_code() {
+    assert_eq!(exit_code_after_cargo(Some(101), &[], false), Some(101));
+    assert_eq!(exit_code_after_cargo(Some(3), &[], false), Some(3));
+    assert_eq!(exit_code_after_cargo(None, &[], false), Some(-1));
+}
+
+#[test]
+fn a_run_that_detected_every_mutation_goes_on_to_exit_zero_or_to_the_inspector() {
+    assert_eq!(exit_code_after_cargo(Some(0), &[], false), None);
+    assert_eq!(exit_code_after_cargo(Some(0), &[], true), None);
+    // The inspector shows what a harness that ran found, undetected mutations included.
+    assert_eq!(exit_code_after_cargo(Some(101), &[], true), None);
 }
 
 fn run_mutest_inspector_from_cargo_invocation(open: bool, port: Option<u16>, cargo_invocation: &CargoInvocation, matches: &clap::ArgMatches) {

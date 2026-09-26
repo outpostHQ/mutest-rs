@@ -157,13 +157,14 @@ const UNSTABLE_OPTIONS: &[UnstableOption] = mutest_driver_cli::extend_const_slic
 const BUG_REPORT_URL: &str = "https://github.com/zalanlevai/mutest-rs/issues/new";
 
 /// Leave the failure where the sibling drivers of this build can see it, so that they can stop
-/// instead of finishing work that Cargo is going to discard.
-fn run_recording_build_failure(f: impl FnOnce()) -> process::ExitCode {
+/// instead of finishing work that Cargo is going to discard, and where `cargo mutest` can name it.
+fn run_recording_build_failure(label: &str, f: impl FnOnce()) -> process::ExitCode {
     match rustc_driver::catch_fatal_errors(f) {
         Ok(()) => process::ExitCode::SUCCESS,
         Err(_) => {
-            if let Some(marker_path) = build_status::marker_path() {
-                build_status::record_failure(&marker_path);
+            // A build stopped because another failed is not named: the one that failed already is.
+            if let Some(marker_path) = build_status::marker_path() && mutest_emit::stop::requested().is_none() {
+                build_status::record_failure(&marker_path, label);
             }
             process::ExitCode::FAILURE
         }
@@ -251,9 +252,11 @@ pub fn main() -> process::ExitCode {
         .or_else(|| env::var("MUTEST_ARGS").ok().map(|args| args.split(' ').map(ToOwned::to_owned).collect::<Vec<_>>()));
     let mutest_args_str = mutest_args.as_ref().map(|mutest_args| mutest_args.join(" "));
 
+    let build_label = build_status::build_label(&args, env::var("CARGO_PKG_NAME").ok().as_deref(), test_target);
+
     // Fall back to a rustc invocation if mutest is not "enabled" for the given crate based on invocation.
     if info_query || (cargo_invocation && !primary_package) || proc_macro_target || (bin_target && !test_target) {
-        return run_recording_build_failure(|| {
+        return run_recording_build_failure(&build_label, || {
             rustc_driver::run_compiler(&args, &mut RustcCallbacks { mutest_args: mutest_args_str })
         });
     }
@@ -270,7 +273,7 @@ pub fn main() -> process::ExitCode {
         mutest_driver_cli::check_unstable_options(&mutest_arg_matches, UNSTABLE_OPTIONS);
     }
 
-    run_recording_build_failure(|| {
+    run_recording_build_failure(&build_label, || {
         let (Some(compiler_config), crate_types) = mutest_driver::passes::parse_compiler_args(&args) else {
             early_dcx.early_fatal("no compiler configuration was generated");
         };
