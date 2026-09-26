@@ -7,14 +7,27 @@ use mutest_emit::codegen::symbols::{Ident, path};
 use rustc_data_structures::smallvec::{SmallVec, smallvec};
 use rustc_data_structures::thin_vec::thin_vec;
 
+/// Anywhere in the type, generic arguments included: `Option<impl Read>` is as illegal in a binding
+/// as `impl Read` is.
 fn mentions_impl_trait(ty: &ast::Ty) -> bool {
-    match &ty.kind {
-        ast::TyKind::ImplTrait(..) => true,
-        ast::TyKind::Slice(inner) | ast::TyKind::Array(inner, _) | ast::TyKind::Paren(inner) => mentions_impl_trait(inner),
-        ast::TyKind::Ref(_, mut_ty) | ast::TyKind::Ptr(mut_ty) => mentions_impl_trait(&mut_ty.ty),
-        ast::TyKind::Tup(tys) => tys.iter().any(|ty| mentions_impl_trait(ty)),
-        _ => false,
+    struct ImplTraitFinder {
+        found: bool,
     }
+
+    impl<'ast> ast::visit::Visitor<'ast> for ImplTraitFinder {
+        fn visit_ty(&mut self, ty: &'ast ast::Ty) {
+            if let ast::TyKind::ImplTrait(..) = ty.kind {
+                self.found = true;
+                return;
+            }
+
+            ast::visit::walk_ty(self, ty);
+        }
+    }
+
+    let mut finder = ImplTraitFinder { found: false };
+    ast::visit::Visitor::visit_ty(&mut finder, ty);
+    finder.found
 }
 
 fn find_ident_pats<'ast>(pat: &'ast ast::Pat) -> Vec<&'ast ast::Pat> {

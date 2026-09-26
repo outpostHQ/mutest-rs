@@ -1,0 +1,4 @@
+[arg_default_shadow] ignore `n` argument by shadowing it with `Default::default()` in f at tests/ui/mutation/ops/arg_default_shadow/ignore_params_with_nested_impl_trait.rs:9:6: 9:14
+  <-(0)- test
+
+1 mutations; 1 safe; 0 unsafe (0 tainted)
