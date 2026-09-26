@@ -53,11 +53,12 @@ pub fn worst(codes: impl IntoIterator<Item = i32>) -> i32 {
 pub const LOG_VAR: &str = "MUTEST_EXIT_CODE_LOG";
 
 /// Records that the harness with this process id has started. A harness that records no exit after
-/// it ended in a way it could not record, such as being killed.
+/// that ended in a way it could not record, such as being killed, and `read` counts it as a panic.
 pub fn record_start(log: &Path, pid: u32) -> io::Result<()> {
     append(log, &format!("started {pid}\n"))
 }
 
+/// Records the code the harness with this process id exits with.
 pub fn record_exit(log: &Path, pid: u32, code: i32) -> io::Result<()> {
     append(log, &format!("exited {pid} {code}\n"))
 }
