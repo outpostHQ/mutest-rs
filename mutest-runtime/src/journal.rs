@@ -10,6 +10,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::env;
 use std::fs::{self, File, OpenOptions};
+use std::hash::{BuildHasher, RandomState};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process;
@@ -93,10 +94,32 @@ pub struct Journal {
 }
 
 impl Journal {
+    /// A new journal in the temporary directory, readable by this user alone. Others can write there
+    /// too, and a file or link they put where the journal goes would be opened in its place, and
+    /// truncated: so the journal goes under a name no one can guess, and only where nothing is yet.
     pub fn create() -> io::Result<Self> {
-        let path = env::temp_dir().join(format!("mutest-journal-{}", process::id()));
-        File::create(&path)?;
-        Ok(Self { path })
+        let random = RandomState::new();
+        let names = (0..8).map(|attempt| format!("mutest-journal-{}-{:016x}", process::id(), random.hash_one(attempt)));
+        Self::create_in(&env::temp_dir(), names)
+    }
+
+    /// Under the first of the names that nothing is at yet.
+    fn create_in(dir: &Path, names: impl IntoIterator<Item = String>) -> io::Result<Self> {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+
+        let mut taken = io::Error::new(io::ErrorKind::AlreadyExists, "every name for the mutation journal is taken");
+        for name in names {
+            let path = dir.join(name);
+            match options.open(&path) {
+                Ok(_) => return Ok(Self { path }),
+                Err(err) if err.kind() == io::ErrorKind::AlreadyExists => taken = err,
+                Err(err) => return Err(err),
+            }
+        }
+        Err(taken)
     }
 
     pub fn pass_to(&self, worker: &mut process::Command) {
@@ -125,7 +148,8 @@ impl Drop for Journal {
 
 /// The worker's side.
 pub struct WorkerJournal {
-    file: Mutex<File>,
+    path: PathBuf,
+    file: Mutex<Option<File>>,
     finished: HashMap<u32, CarriedResult>,
     crashed: BTreeSet<u32>,
 }
@@ -138,10 +162,7 @@ pub fn open_for_worker() {
     let journal = env::var_os(JOURNAL_VAR).and_then(|path| {
         // SAFETY: No other thread is running yet.
         unsafe { env::remove_var(JOURNAL_VAR) };
-        let path = PathBuf::from(path);
-        let Entries { started: _, finished, crashed } = read(&path);
-        let file = OpenOptions::new().append(true).open(&path).ok()?;
-        Some(WorkerJournal { file: Mutex::new(file), finished, crashed })
+        WorkerJournal::open(PathBuf::from(path))
     });
     let _ = WORKER_JOURNAL.set(journal);
 }
@@ -152,6 +173,25 @@ pub fn worker() -> Option<&'static WorkerJournal> {
 }
 
 impl WorkerJournal {
+    fn open(path: PathBuf) -> Option<Self> {
+        let Entries { started: _, finished, crashed } = read(&path);
+        let file = OpenOptions::new().append(true).open(&path).ok()?;
+        Some(Self { path, file: Mutex::new(Some(file)), finished, crashed })
+    }
+
+    /// Once a line cannot be written, as on a full disk, the journal is removed rather than left
+    /// without what this worker goes on to do: from it, the supervisor would count mutations that
+    /// finished as crashed. Without a journal the run goes on, and a crash ends it.
+    fn append(&self, line: &Value) {
+        let mut file = self.file.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(journal_file) = file.as_mut() else { return; };
+        if let Err(err) = append(journal_file, line) {
+            *file = None;
+            let _ = fs::remove_file(&self.path);
+            println!("cannot write to the mutation journal: {err}: a mutation that crashes the test harness now ends the run");
+        }
+    }
+
     /// What an earlier worker recorded for the mutation, if anything, against these tests.
     pub fn carried(&self, mutation_id: u32, tests: &[test_runner::Test]) -> Option<MutationTestResults> {
         if self.crashed.contains(&mutation_id) {
@@ -170,16 +210,69 @@ impl WorkerJournal {
     }
 
     pub fn started(&self, mutation_ids: &[u32]) {
-        let mut file = self.file.lock().unwrap_or_else(|e| e.into_inner());
-        append(&mut file, &json!({ "started": mutation_ids })).expect("cannot write to the mutation journal");
+        self.append(&json!({ "started": mutation_ids }));
     }
 
     pub fn finished(&self, mutation_id: u32, results: &MutationTestResults) {
         let tests = results.results_per_test.iter()
             .map(|(name, result)| json!([name.as_slice(), result.map(result_name)]))
             .collect::<Vec<_>>();
-        let line = json!({ "finished": mutation_id, "result": result_name(results.result), "tests": tests });
-        let mut file = self.file.lock().unwrap_or_else(|e| e.into_inner());
-        append(&mut file, &line).expect("cannot write to the mutation journal");
+        self.append(&json!({ "finished": mutation_id, "result": result_name(results.result), "tests": tests }));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs::File;
+
+    use super::{Journal, WorkerJournal};
+
+    #[test]
+    fn a_worker_that_cannot_write_its_journal_goes_on_without_one() {
+        let journal = Journal::create().unwrap();
+        journal.record_crashed(&[1]).unwrap();
+        // Writing through a handle opened for reading fails, as it does on a full disk.
+        let worker_journal = WorkerJournal::open(journal.path.clone()).unwrap();
+        *worker_journal.file.lock().unwrap() = Some(File::open(&journal.path).unwrap());
+
+        worker_journal.started(&[2]);
+
+        // Mutation 2 is not taken for crashed should the worker now crash on another.
+        assert_eq!(journal.unfinished(), [] as [u32; 0]);
+        worker_journal.started(&[3]);
+        assert_eq!(journal.unfinished(), [] as [u32; 0]);
+        // The journal is gone, not left with some of what this worker did and not the rest.
+        assert!(!journal.path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_journal_is_never_opened_through_a_file_already_at_its_path() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("mutest-journal-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("target");
+        fs::write(&target, "kept").unwrap();
+        std::os::unix::fs::symlink(&target, dir.join("taken")).unwrap();
+
+        let journal = Journal::create_in(&dir, ["taken".to_owned(), "free".to_owned()]).unwrap();
+
+        assert_eq!(fs::read_to_string(&target).unwrap(), "kept");
+        assert_eq!(journal.path, dir.join("free"));
+        assert_eq!(fs::metadata(&journal.path).unwrap().permissions().mode() & 0o777, 0o600);
+        drop(journal);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn journals_are_created_under_names_of_their_own() {
+        let first = Journal::create().unwrap();
+        let second = Journal::create().unwrap();
+
+        assert_ne!(first.path, second.path);
+        assert!(first.path.exists() && second.path.exists());
     }
 }
