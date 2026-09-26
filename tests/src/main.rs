@@ -96,6 +96,16 @@ enum Expectation {
     StdOut { empty: bool },
     /// //@ stderr
     StdErr { empty: bool },
+    /// //@ eval-stream
+    EvalStream,
+}
+
+/// What a test produced, for its expectations to be checked against.
+struct Outputs<'a> {
+    stdout: &'a str,
+    stderr: &'a str,
+    /// The evaluation stream the generated program wrote, as `normalize_eval_stream` leaves it.
+    eval_stream: &'a str,
 }
 
 impl Expectation {
@@ -103,82 +113,104 @@ impl Expectation {
         match self {
             Expectation::StdOut { .. } => "stdout",
             Expectation::StdErr { .. } => "stderr",
+            Expectation::EvalStream => "evaluation stream",
         }
     }
 
-    pub fn check(&self, path: &Path, stdout: &str, stderr: &str) -> ExpectationVerdict {
-        match self {
-            &Expectation::StdOut { empty: expect_empty } | &Expectation::StdErr { empty: expect_empty } => {
-                let (out_name, out, out_path) = match self {
-                    Expectation::StdOut { .. } => ("stdout", stdout, path.with_extension("stdout")),
-                    Expectation::StdErr { .. } => ("stderr", stderr, path.with_extension("stderr")),
-                    #[expect(unreachable_patterns, reason = "the outer arm has already narrowed `self` to these two variants")]
-                    _ => unreachable!(),
+    /// The output the expectation is about, the snapshot it is compared with, and whether it is
+    /// expected to be empty instead.
+    fn output<'a>(&self, path: &Path, outputs: &Outputs<'a>) -> (&'a str, PathBuf, bool) {
+        match *self {
+            Expectation::StdOut { empty } => (outputs.stdout, path.with_extension("stdout"), empty),
+            Expectation::StdErr { empty } => (outputs.stderr, path.with_extension("stderr"), empty),
+            Expectation::EvalStream => (outputs.eval_stream, path.with_extension("jsonl"), false),
+        }
+    }
+
+    pub fn check(&self, path: &Path, outputs: &Outputs<'_>) -> ExpectationVerdict {
+        let out_name = self.display_name();
+        let (out, out_path, expect_empty) = self.output(path, outputs);
+
+        if expect_empty {
+            if !out.is_empty() {
+                let diff_text = diff::display_diff("", out).unwrap();
+                return ExpectationVerdict::Unmet {
+                    reason: format!("{out_name} is not empty"),
+                    error: Some(diff_text),
                 };
+            }
+        } else {
+            if !out_path.exists() { return ExpectationVerdict::Unblessed; }
 
-                if expect_empty {
-                    if !out.is_empty() {
-                        let diff_text = diff::display_diff("", out).unwrap();
-                        return ExpectationVerdict::Unmet {
-                            reason: format!("{out_name} is not empty"),
-                            error: Some(diff_text),
-                        };
-                    }
-                } else {
-                    if !out_path.exists() { return ExpectationVerdict::Unblessed; }
-
-                    let expected_out = fs::read_to_string(&out_path).expect(&format!("cannot read {}", out_path.display()));
-                    if *out != expected_out {
-                        let diff_text = diff::display_diff(&expected_out, out).unwrap();
-                        return ExpectationVerdict::Unmet {
-                            reason: format!("{out_name} does not match expected output"),
-                            error: Some(diff_text),
-                        };
-                    }
-                }
-
-
-                ExpectationVerdict::Met
+            let expected_out = fs::read_to_string(&out_path).expect(&format!("cannot read {}", out_path.display()));
+            if *out != expected_out {
+                let diff_text = diff::display_diff(&expected_out, out).unwrap();
+                return ExpectationVerdict::Unmet {
+                    reason: format!("{out_name} does not match expected output"),
+                    error: Some(diff_text),
+                };
             }
         }
+
+        ExpectationVerdict::Met
     }
 
-    pub fn bless(&self, path: &Path, stdout: &str, stderr: &str, dry_run: bool) -> BlessVerdict {
-        match self {
-            &Expectation::StdOut { empty: expect_empty } | &Expectation::StdErr { empty: expect_empty } => {
-                if expect_empty { return BlessVerdict::UpToDate; }
+    pub fn bless(&self, path: &Path, outputs: &Outputs<'_>, dry_run: bool) -> BlessVerdict {
+        let (out, out_path, expect_empty) = self.output(path, outputs);
+        if expect_empty { return BlessVerdict::UpToDate; }
 
-                let (_out_name, out, out_path) = match self {
-                    Expectation::StdOut { .. } => ("stdout", stdout, path.with_extension("stdout")),
-                    Expectation::StdErr { .. } => ("stderr", stderr, path.with_extension("stderr")),
-                    #[expect(unreachable_patterns, reason = "the outer arm has already narrowed `self` to these two variants")]
-                    _ => unreachable!(),
-                };
+        let previous_out = out_path.exists().then(|| fs::read_to_string(&out_path).expect(&format!("cannot read {}", out_path.display())));
 
-                let previous_out = out_path.exists().then(|| fs::read_to_string(&out_path).expect(&format!("cannot read {}", out_path.display())));
+        if previous_out.as_deref() != Some(out) {
+            if !dry_run {
+                fs::write(&out_path, out).expect(&format!("cannot write {}", out_path.display()));
+            }
 
-                if previous_out.as_deref() != Some(out) {
-                    if !dry_run {
-                        fs::write(&out_path, out).expect(&format!("cannot write {}", out_path.display()));
-                    }
-
-                    return match previous_out {
-                        Some(previous_out) => {
-                            let diff_text = diff::display_diff(&previous_out, out).unwrap();
-                            BlessVerdict::Changed(diff_text)
-                        }
-                        None => BlessVerdict::New
-                    }
+            return match previous_out {
+                Some(previous_out) => {
+                    let diff_text = diff::display_diff(&previous_out, out).unwrap();
+                    BlessVerdict::Changed(diff_text)
                 }
-
-                BlessVerdict::UpToDate
+                None => BlessVerdict::New
             }
         }
+
+        BlessVerdict::UpToDate
     }
+}
+
+/// The evaluation stream as a snapshot can hold it: without the times and thread ids, which differ
+/// from run to run.
+fn normalize_eval_stream(stream: &str) -> String {
+    stream.lines()
+        .map(|line| {
+            let Ok(serde_json::Value::Object(mut event)) = serde_json::from_str(line) else { return format!("{line}\n"); };
+            for varying in ["time", "thread_id", "test_exec_time"] {
+                event.remove(varying);
+            }
+            format!("{}\n", serde_json::Value::Object(event))
+        })
+        .collect()
+}
+
+#[test]
+fn test_normalize_eval_stream() {
+    let stream = concat!(
+        "{\"format_version\":1}\n",
+        "{\"event\":\"test_start\",\"time\":1203,\"mutation_id\":1,\"test_name\":\"test\",\"thread_id\":2}\n",
+        "{\"event\":\"test_result\",\"time\":5821,\"mutation_id\":1,\"test_name\":\"test\",\"test_exec_time\":4618,\"test_result\":\"failed\"}\n",
+    );
+
+    assert_eq!(normalize_eval_stream(stream), concat!(
+        "{\"format_version\":1}\n",
+        "{\"event\":\"test_start\",\"mutation_id\":1,\"test_name\":\"test\"}\n",
+        "{\"event\":\"test_result\",\"mutation_id\":1,\"test_name\":\"test\",\"test_result\":\"failed\"}\n",
+    ));
 }
 
 const BUILD_OUT_DIR: &str = "target/mutest_test/debug/deps";
 const AUX_OUT_DIR: &str = "target/mutest_test/debug/deps/auxiliary";
+const EVAL_STREAM_OUT_DIR: &str = "target/mutest_test/json";
 
 struct Opts {
     pub filters: Option<Vec<String>>,
@@ -409,6 +441,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
             "stdout: empty" => { expectations.insert(Expectation::StdOut { empty: true }); }
             "stderr" => { expectations.insert(Expectation::StdErr { empty: false }); }
             "stderr: empty" => { expectations.insert(Expectation::StdErr { empty: true }); }
+            "eval-stream" => { expectations.insert(Expectation::EvalStream); }
 
             _ if directive.starts_with("aux-build:") => {}
             _ if directive.starts_with("rustc-flags:") => {}
@@ -655,9 +688,23 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         return;
     }
 
+    let mut eval_stream = String::new();
+
     if exec_build_artifact {
-        let build_artifact_path = Path::new(BUILD_OUT_DIR).join(test_crate_name);
+        let build_artifact_path = Path::new(BUILD_OUT_DIR).join(&test_crate_name);
         let mut cmd = Command::new(&build_artifact_path);
+
+        // Into a directory of the test's own, which is removed once the stream has been read.
+        let eval_stream_dir = expectations.contains(&Expectation::EvalStream).then(|| {
+            let dir = path::absolute(Path::new(EVAL_STREAM_OUT_DIR).join(&test_crate_name)).expect("cannot resolve the evaluation stream directory");
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).unwrap_or_else(|error| panic!("cannot create `{}`: {error}", dir.display()));
+            dir
+        });
+        if let Some(dir) = &eval_stream_dir {
+            cmd.arg(format!("--metadata-out-root-dir={}", dir.display()));
+            cmd.arg("--Zwrite-json-eval-stream");
+        }
 
         let run_env = directives.iter().filter_map(|d| d.strip_prefix("run-env:").map(str::trim))
             .flat_map(|env| {
@@ -692,6 +739,11 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         let left_running = orphans::kill_adopted_since(&orphans_before);
         let stdout = String::from_utf8(output.stdout).unwrap();
         let stderr = String::from_utf8(output.stderr).unwrap();
+
+        if let Some(dir) = &eval_stream_dir {
+            eval_stream = normalize_eval_stream(&fs::read_to_string(dir.join("evaluation.jsonl")).unwrap_or_default());
+            let _ = fs::remove_dir_all(dir);
+        }
 
         if opts.verbosity >= 1 {
             if let Some(exit_code) = output.status.code() {
@@ -739,9 +791,11 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         full_stderr.push_str(&stderr);
     }
 
+    let outputs = Outputs { stdout: &stdout, stderr: &stderr, eval_stream: &eval_stream };
+
     if opts.bless {
         let bless_verdicts = expectations.iter()
-            .map(|expectation| expectation.bless(&path, &stdout, &stderr, opts.dry_run))
+            .map(|expectation| expectation.bless(&path, &outputs, opts.dry_run))
             .collect::<Vec<_>>();
 
         if bless_verdicts.iter().all(|v| matches!(v, BlessVerdict::UpToDate)) {
@@ -767,7 +821,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         }
     } else {
         let expectation_verdicts = expectations.iter()
-            .map(|expectation| expectation.check(&path, &stdout, &stderr))
+            .map(|expectation| expectation.check(&path, &outputs))
             .collect::<Vec<_>>();
 
         if expectation_verdicts.iter().all(|v| matches!(v, ExpectationVerdict::Met)) {

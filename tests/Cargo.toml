@@ -9,6 +9,7 @@ edition = "2024"
 cargo_metadata = "0.23"
 path-slash = "0.2"
 clap = { version = "4", features = ["cargo"] }
+serde_json = "1.0"
 similar = { version = "3", features = ["inline"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]

@@ -192,6 +192,11 @@ impl WorkerJournal {
         }
     }
 
+    /// Whether an earlier worker of this run recorded results, which this one goes on from.
+    pub fn carries_over_results(&self) -> bool {
+        !self.finished.is_empty() || !self.crashed.is_empty()
+    }
+
     /// What an earlier worker recorded for the mutation, if anything, against these tests.
     pub fn carried(&self, mutation_id: u32, tests: &[test_runner::Test]) -> Option<MutationTestResults> {
         if self.crashed.contains(&mutation_id) {

@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{BufWriter, Write};
 use std::num::NonZeroU64;
-use std::ops::DerefMut;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
@@ -16,19 +15,27 @@ use crate::test_runner;
 
 #[derive(Clone)]
 pub struct EvaluationStreamWriter {
-    buffered_file: Arc<Mutex<BufWriter<fs::File>>>,
+    file: Arc<Mutex<fs::File>>,
     t_start: Instant,
 }
 
 impl EvaluationStreamWriter {
-    pub fn new(path: &Path, t_start: Instant) -> Self {
-        let file = fs::File::create(path).expect("cannot create stream file");
-        let buffered_file = Arc::new(Mutex::new(BufWriter::new(file)));
-        let eval_stream_writer = Self { buffered_file, t_start };
+    /// Starts the stream, or, for a worker that goes on after one that crashed, goes on with the
+    /// stream that worker wrote.
+    pub fn new(path: &Path, t_start: Instant, goes_on: bool) -> Self {
+        let file = match goes_on {
+            false => fs::File::create(path),
+            true => fs::OpenOptions::new().append(true).create(true).open(path),
+        };
+        let file = file.expect("cannot create stream file");
+        let starts = file.metadata().map_or(true, |metadata| metadata.len() == 0);
+        let eval_stream_writer = Self { file: Arc::new(Mutex::new(file)), t_start };
 
-        eval_stream_writer.write_event(&mutest_json::evaluation_stream::EvaluationStreamHeader {
-            format_version: mutest_json::FORMAT_VERSION,
-        });
+        if starts {
+            eval_stream_writer.write_event(&mutest_json::evaluation_stream::EvaluationStreamHeader {
+                format_version: mutest_json::FORMAT_VERSION,
+            });
+        }
 
         eval_stream_writer
     }
@@ -38,10 +45,13 @@ impl EvaluationStreamWriter {
         self.t_start.elapsed()
     }
 
+    /// Each event is written whole as it happens, not buffered: a mutation that crashes the process
+    /// would take the buffer with it.
     pub fn write_event<T: serde::Serialize>(&self, data: &T) {
-        let mut eval_stream_file = self.buffered_file.lock().unwrap();
-        serde_json::to_writer(eval_stream_file.deref_mut(), &data).expect("cannot write to stream file");
-        writeln!(eval_stream_file.deref_mut(), "").expect("cannot write to stream file");
+        let mut line = serde_json::to_vec(data).expect("cannot write to stream file");
+        line.push(b'\n');
+        let mut eval_stream_file = self.file.lock().unwrap();
+        eval_stream_file.write_all(&line).expect("cannot write to stream file");
     }
 
     pub fn write_test_start(&self, mutation: &MutationMeta, test_desc: &test::TestDesc, thread_id: Option<ThreadId>) {

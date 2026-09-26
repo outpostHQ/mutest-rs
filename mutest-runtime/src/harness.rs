@@ -1012,12 +1012,13 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
             .collect(),
     };
 
-    let t_start = Instant::now();
+    let t_start = supervisor::run_start();
     let mut write_duration = Duration::ZERO;
 
     let eval_stream_writer = match &opts.write_opts {
         Some(write_opts) if let Some(()) = write_opts.eval_stream => {
-            Some(EvaluationStreamWriter::new(&write_opts.out_dir.join("evaluation.jsonl"), t_start))
+            let goes_on = journal::worker().is_some_and(WorkerJournal::carries_over_results);
+            Some(EvaluationStreamWriter::new(&write_opts.out_dir.join("evaluation.jsonl"), t_start, goes_on))
         }
         _ => None,
     };

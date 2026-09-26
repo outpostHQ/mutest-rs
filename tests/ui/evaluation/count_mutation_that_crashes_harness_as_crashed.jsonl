@@ -1,0 +1,6 @@
+{"format_version":1}
+{"event":"test_start","mutation_id":1,"test_name":"test"}
+{"event":"test_start","mutation_id":2,"test_name":"test"}
+{"event":"test_result","mutation_id":2,"test_name":"test","test_result":"failed"}
+{"event":"test_start","mutation_id":3,"test_name":"test"}
+{"event":"test_result","mutation_id":3,"test_name":"test","test_result":"failed"}

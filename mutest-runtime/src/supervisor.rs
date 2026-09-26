@@ -10,6 +10,8 @@
 use std::env;
 use std::io::{self, Write};
 use std::process::{self, Command, ExitStatus};
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 use crate::journal::Journal;
 
@@ -18,13 +20,35 @@ pub use sys::children;
 
 /// Set in the worker's environment, to the supervisor's process id.
 const SUPERVISOR_PID_VAR: &str = "__MUTEST_SUPERVISOR_PID";
+/// Set in the worker's environment, to how long the run had gone on when the worker was started, in
+/// nanoseconds: a worker that goes on after one that crashed goes on with its times too.
+const RUN_ELAPSED_VAR: &str = "__MUTEST_RUN_ELAPSED_NANOS";
+
+static RUN_START: OnceLock<Instant> = OnceLock::new();
+
+/// When the run started: for the worker, when its supervisor did.
+pub fn run_start() -> Instant {
+    *RUN_START.get_or_init(Instant::now)
+}
+
+/// When a run that had gone on for `elapsed_nanos` by `now` started.
+fn run_start_before(now: Instant, elapsed_nanos: &str) -> Option<Instant> {
+    now.checked_sub(Duration::from_nanos(elapsed_nanos.parse().ok()?))
+}
 
 /// Whether this process is the worker. It must be called before any thread is started: it removes
 /// the marker, so that a process a test starts from this binary is not taken for a worker too.
 pub fn is_worker() -> bool {
     let Ok(supervisor_pid) = env::var(SUPERVISOR_PID_VAR) else { return false; };
+    let run_elapsed = env::var(RUN_ELAPSED_VAR);
     // SAFETY: No other thread is running yet.
-    unsafe { env::remove_var(SUPERVISOR_PID_VAR) };
+    unsafe {
+        env::remove_var(SUPERVISOR_PID_VAR);
+        env::remove_var(RUN_ELAPSED_VAR);
+    }
+    if let Some(run_start) = run_elapsed.ok().and_then(|elapsed| run_start_before(Instant::now(), &elapsed)) {
+        let _ = RUN_START.set(run_start);
+    }
     sys::die_with(supervisor_pid.parse().ok());
     true
 }
@@ -33,6 +57,7 @@ pub fn is_worker() -> bool {
 /// what the worker left running. If the worker went down in the middle of mutations, it counts them
 /// as crashed and starts a new worker; otherwise it exits as the worker did.
 pub fn supervise() -> ! {
+    let run_start = run_start();
     sys::adopt_orphans();
     sys::forward_stop_signals();
 
@@ -40,7 +65,7 @@ pub fn supervise() -> ! {
     let journal = Journal::create().ok();
 
     loop {
-        let status = run_worker(journal.as_ref());
+        let status = run_worker(run_start, journal.as_ref());
         sys::kill_descendants();
 
         let crashed = match &journal {
@@ -70,11 +95,12 @@ pub fn supervise() -> ! {
     }
 }
 
-fn run_worker(journal: Option<&Journal>) -> ExitStatus {
+fn run_worker(run_start: Instant, journal: Option<&Journal>) -> ExitStatus {
     let current_exe = env::current_exe().expect("cannot resolve test executable path");
     let mut cmd = Command::new(current_exe);
     cmd.args(env::args_os().skip(1));
     cmd.env(SUPERVISOR_PID_VAR, process::id().to_string());
+    cmd.env(RUN_ELAPSED_VAR, run_start.elapsed().as_nanos().to_string());
     if let Some(journal) = journal { journal.pass_to(&mut cmd); }
 
     match sys::start_worker(&mut cmd) {
@@ -383,4 +409,19 @@ mod sys {
         worker.wait().expect("cannot wait for the mutation analysis worker")
     }
     pub(super) fn kill_descendants() {}
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use super::run_start_before;
+
+    #[test]
+    fn a_worker_times_what_it_does_from_when_the_run_started() {
+        let now = Instant::now();
+
+        assert_eq!(run_start_before(now, "1500000000"), now.checked_sub(Duration::from_millis(1500)));
+        assert_eq!(run_start_before(now, "soon"), None);
+    }
 }
