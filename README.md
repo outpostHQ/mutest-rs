@@ -74,6 +74,21 @@ cargo mutest run -p <PACKAGE>
 
 See `--help` for more options and subcommands.
 
+### Exit codes
+
+`cargo mutest run` exits with a code for scripts and CI to act on, following [cargo-mutants](https://mutants.rs/exit-codes.html):
+
+| Code | Meaning |
+| ---- | ------- |
+| 0    | The analysis completed, and the tests caught every mutation. |
+| 1    | The command could not run as given: an argument is wrong, or a part of mutest-rs it needs is not installed. |
+| 2    | The analysis completed, and the tests missed some mutations. |
+| 3    | The analysis completed, and some mutations timed out. |
+| 4    | A test harness did not build, or its tests failed with no mutation applied, so its mutations were not evaluated. |
+| 101  | mutest-rs panicked, or a test harness ended in a way none of the codes above describes, such as killed by a signal. |
+
+A run of several test harnesses exits with the code that says the most went wrong, in the order 101, 1, 4, 3, 2, 0: a timeout outranks a miss, as in cargo-mutants. A mutation that crashed a harness is neither: the tests did not pass with it applied. With `--simulate`, the run exits 0 if the tests catch the mutation and 2 if they miss it. `--inspect` opens the inspector only after an analysis that completed.
+
 ### Using `cfg(mutest)`
 
 When running `cargo mutest`, the `mutest` cfg is set. This can be used to detect if code is running under mutest-rs, and enable conditional compilation based on it.

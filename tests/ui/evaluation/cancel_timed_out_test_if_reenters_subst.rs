@@ -1,5 +1,5 @@
 //@ print-mutations
-//@ run: fail
+//@ run: exit 3
 //@ stdout
 //@ stderr: empty
 //@ mutation-operators: bool_expr_negate

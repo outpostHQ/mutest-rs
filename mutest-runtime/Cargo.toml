@@ -18,6 +18,7 @@ edition = "2024"
 crate-type = ["rlib"]
 
 [dependencies]
+mutest-exit-code = { path = "../mutest-exit-code" }
 mutest-json = { path = "../mutest-json" }
 
 # Injected dependencies:

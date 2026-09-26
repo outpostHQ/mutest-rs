@@ -6,12 +6,18 @@
 //! A mutation can take the worker down with it: a stack overflow aborts the process, not just the
 //! test. The supervisor then counts the mutations the worker was evaluating as crashed, and starts
 //! a new worker, which goes on after them; see `journal`.
+//!
+//! The supervisor ends as its last worker did, and so it is the one to record the harness's exit
+//! code for `cargo mutest`, however the worker ended; see `mutest_exit_code`.
 
 use std::env;
 use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 use std::process::{self, Command, ExitStatus};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
+
+use mutest_exit_code as exit_code;
 
 use crate::journal::Journal;
 
@@ -61,6 +67,12 @@ pub fn supervise() -> ! {
     sys::adopt_orphans();
     sys::forward_stop_signals();
 
+    // Should this process end before it records its exit, `cargo mutest` counts it as a panic.
+    let exit_code_log = env::var_os(exit_code::LOG_VAR).map(PathBuf::from);
+    if let Some(exit_code_log) = &exit_code_log {
+        let _ = exit_code::record_start(exit_code_log, process::id());
+    }
+
     // Without a journal the run still happens, but a mutation that crashes the worker ends it.
     let journal = Journal::create().ok();
 
@@ -74,7 +86,7 @@ pub fn supervise() -> ! {
         };
         if crashed.is_empty() {
             drop(journal);
-            exit_as(status);
+            exit_as(status, exit_code_log.as_deref());
         }
 
         // NOTE: How it ended goes to stderr: what a crash is called depends on the platform.
@@ -90,7 +102,7 @@ pub fn supervise() -> ! {
         if let Err(err) = journal.as_ref().map_or(Ok(()), |journal| journal.record_crashed(&crashed)) {
             println!("cannot record the crash in the mutation journal: {err}");
             drop(journal);
-            exit_as(status);
+            exit_as(status, exit_code_log.as_deref());
         }
     }
 }
@@ -101,6 +113,7 @@ fn run_worker(run_start: Instant, journal: Option<&Journal>) -> ExitStatus {
     cmd.args(env::args_os().skip(1));
     cmd.env(SUPERVISOR_PID_VAR, process::id().to_string());
     cmd.env(RUN_ELAPSED_VAR, run_start.elapsed().as_nanos().to_string());
+    cmd.env_remove(exit_code::LOG_VAR);
     if let Some(journal) = journal { journal.pass_to(&mut cmd); }
 
     match sys::start_worker(&mut cmd) {
@@ -124,16 +137,32 @@ fn describe_end(status: ExitStatus) -> String {
     }
 }
 
-fn exit_as(status: ExitStatus) -> ! {
+/// Ends this process as the worker ended, once its exit code is recorded for `cargo mutest`.
+fn exit_as(status: ExitStatus, exit_code_log: Option<&Path>) -> ! {
+    let code = exit_code_of(status);
+    if let Some(exit_code_log) = exit_code_log {
+        let _ = exit_code::record_exit(exit_code_log, process::id(), code);
+    }
     #[cfg(unix)]
     {
         use std::os::unix::process::ExitStatusExt;
         if let Some(signal) = status.signal() {
             sys::raise_with_default_action(signal);
-            process::exit(128 + signal);
         }
     }
-    process::exit(status.code().unwrap_or(101))
+    process::exit(code)
+}
+
+/// As a shell reports it: a process killed by a signal ends with 128 plus the signal's number.
+fn exit_code_of(status: ExitStatus) -> i32 {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signal) = status.signal() {
+            return 128 + signal;
+        }
+    }
+    status.code().unwrap_or(exit_code::PANIC)
 }
 
 #[cfg(unix)]

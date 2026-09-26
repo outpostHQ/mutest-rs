@@ -374,16 +374,17 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
     let mut expectations = BTreeSet::new();
     let mut mutest_prints = BTreeSet::new();
     let mut exec_build_artifact = false;
-    let mut expect_run_fail = false;
+    let mut expected_run_exit_code = mutest_exit_code::SUCCESS;
     let mut mutest_outputs: Vec<&str> = vec!["info"];
     for directive in &directives {
         match directive.as_str() {
-            action_directive @ ("print-tests" | "print-call-graph" | "print-targets" | "print-mutations" | "print-code" | "build" | "build: fail" | "run" | "run: fail") => {
+            action_directive if matches!(action_directive, "print-tests" | "print-call-graph" | "print-targets" | "print-mutations" | "print-code" | "build" | "build: fail" | "run")
+                || action_directive.starts_with("run: exit ") => {
                 // NOTE: The invariant here is that the moment any action directive resulting in the `test-bin` output is used,
                 //       then no other action directive of any kind can be specified afterwards.
                 //       This ensures the following:
                 //         1. `print-*` action directives must appear before any other action directive, e.g. `build`, and
-                //         2. the `build`, `build: fail`, `run`, `run: fail` action directives are mutually exclusive.
+                //         2. the `build`, `build: fail`, `run`, `run: exit <CODE>` action directives are mutually exclusive.
                 if mutest_outputs.contains(&"test-bin") {
                     results.ignored_tests_count += 1;
                     log_test(&name, TestResult::Ignored, Some("invalid action directives"));
@@ -401,9 +402,14 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
                         exec_build_artifact = true;
                         mutest_outputs.push("test-bin");
                     }
-                    "run: fail" => {
+                    _ if let Some(exit_code) = action_directive.strip_prefix("run: exit ") => {
+                        let Ok(exit_code) = exit_code.trim().parse() else {
+                            results.ignored_tests_count += 1;
+                            log_test(&name, TestResult::Ignored, Some(&format!("invalid directive: `{action_directive}` names no exit code")));
+                            return;
+                        };
                         exec_build_artifact = true;
-                        expect_run_fail = true;
+                        expected_run_exit_code = exit_code;
                         mutest_outputs.push("test-bin");
                     }
                     "print-tests" => {
@@ -693,8 +699,12 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
     if exec_build_artifact {
         let build_artifact_path = Path::new(BUILD_OUT_DIR).join(&test_crate_name);
         let mut cmd = Command::new(&build_artifact_path);
-        // As `cargo mutest` runs it.
+        // As `cargo mutest` runs it, which reads the harness's exit code from the log rather than
+        // from Cargo.
         cmd.env("MUTEST_HARNESS", "1");
+        let exit_code_log = path::absolute(Path::new(BUILD_OUT_DIR).join(format!("{test_crate_name}.exit-codes"))).expect("cannot resolve the exit code log path");
+        let _ = fs::remove_file(&exit_code_log);
+        cmd.env(mutest_exit_code::LOG_VAR, &exit_code_log);
 
         // Into a directory of the test's own, which is removed once the stream has been read.
         let eval_stream_dir = expectations.contains(&Expectation::EvalStream).then(|| {
@@ -746,6 +756,8 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
             eval_stream = normalize_eval_stream(&fs::read_to_string(dir.join("evaluation.jsonl")).unwrap_or_default());
             let _ = fs::remove_dir_all(dir);
         }
+        let recorded_exit_codes = mutest_exit_code::read(&fs::read_to_string(&exit_code_log).unwrap_or_default());
+        let _ = fs::remove_file(&exit_code_log);
 
         if opts.verbosity >= 1 {
             if let Some(exit_code) = output.status.code() {
@@ -755,16 +767,20 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
             eprintln!("stderr:\n{}", stderr);
         }
 
-        let expected_exit_code = match expect_run_fail {
-            true => 101,
-            false => 0,
-        };
-        if output.status.code() != Some(expected_exit_code) {
+        if output.status.code() != Some(expected_run_exit_code) {
             results.failed_tests_count += 1;
             log_test(&name, TestResult::Failed, Some(&match output.status.code() {
-                Some(exit_code) => format!("process exited with code {exit_code}, expected {expected_exit_code}"),
-                None => format!("process exited without exit code, expected {expected_exit_code}"),
+                Some(exit_code) => format!("process exited with code {exit_code}, expected {expected_run_exit_code}"),
+                None => format!("process exited without exit code, expected {expected_run_exit_code}"),
             }));
+            eprintln!("stdout:\n{}", stdout);
+            eprintln!("stderr:\n{}", stderr);
+            return;
+        }
+
+        if recorded_exit_codes != [expected_run_exit_code] {
+            results.failed_tests_count += 1;
+            log_test(&name, TestResult::Failed, Some(&format!("recorded exit codes {recorded_exit_codes:?} for `cargo mutest`, expected [{expected_run_exit_code}]")));
             eprintln!("stdout:\n{}", stdout);
             eprintln!("stderr:\n{}", stderr);
             return;

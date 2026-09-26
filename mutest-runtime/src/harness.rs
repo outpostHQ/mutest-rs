@@ -13,6 +13,8 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use mutest_exit_code as exit_code;
+
 use crate::config::{self, Options};
 use crate::detections::{MutationDetectionMatrix, print_mutation_detection_matrix};
 use crate::flakiness::{MutationFlakinessMatrix, print_mutation_flakiness_epilogue, print_mutation_flakiness_matrix};
@@ -99,7 +101,8 @@ impl<S: SubstMap> Debug for ActiveMutantHandle<S> {
     }
 }
 
-const ERROR_EXIT_CODE: i32 = 101;
+/// What libtest's own harness exits with when a test fails.
+const LIBTEST_ERROR_EXIT_CODE: i32 = 101;
 
 fn make_owned_test_fn(test_fn: &test::TestFn) -> test::TestFn {
     match test_fn {
@@ -742,7 +745,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
         MutationParallelism::DynamicallyScheduled(mutants, mutation_conflicts) => {
             let Some(thread_pool) = &thread_pool else {
                 println!("dynamic, parallel scheduling of mutations requires a thread pool: rerun with `--use-thread-pool`");
-                process::exit(ERROR_EXIT_CODE);
+                process::exit(exit_code::USAGE);
             };
             let max_thread_count = thread_pool.max_thread_count();
 
@@ -1040,10 +1043,7 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
 
     println!("profiling reference test run");
     let t_test_profiling_start = Instant::now();
-    let mut profiled_tests = match profile_tests(tests) {
-        Ok(tests) => tests,
-        Err(_) => { process::exit(ERROR_EXIT_CODE); }
-    };
+    let Ok(mut profiled_tests) = profile_tests(tests);
     let test_profiling_duration = t_test_profiling_start.elapsed();
 
     let failed_profiled_tests = profiled_tests.iter().filter(|test| !matches!(test.result, test_runner::TestResult::Ignored | test_runner::TestResult::Ok)).collect::<Vec<_>>();
@@ -1052,7 +1052,7 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
             println!("  test {} ... fail", failed_profiled_test.test.desc.name.as_slice());
         }
         println!("not all tests passed, cannot continue");
-        process::exit(ERROR_EXIT_CODE);
+        process::exit(exit_code::BASELINE_FAILED);
     }
 
     sort_profiled_tests_by_exec_time(&mut profiled_tests);
@@ -1164,8 +1164,13 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
                 );
             }
 
-            if !results.all_test_runs_failed_successfully {
-                process::exit(ERROR_EXIT_CODE);
+            // A mutation that crashed the harness does not count against it: no test passed with it.
+            let code = exit_code::worst([
+                (results.undetected_mutations_count > 0).then_some(exit_code::MISSED),
+                (results.timed_out_mutations_count > 0).then_some(exit_code::TIMED_OUT),
+            ].into_iter().flatten());
+            if code != exit_code::SUCCESS {
+                process::exit(code);
             }
         }
 
@@ -1319,10 +1324,7 @@ fn mutest_simulate_main<S: SubstMap>(args: &[&str], tests: Vec<test::TestDescAnd
         }),
     };
 
-    match test_runner::run_tests(tests_to_run, on_test_event, test_run_strategy, false) {
-        Ok(_) => {}
-        Err(_) => { process::exit(ERROR_EXIT_CODE); }
-    }
+    let Ok(_) = test_runner::run_tests(tests_to_run, on_test_event, test_run_strategy, false);
 
     println!("test result: {result}. {passed} passed; {failed} failed; {ignored} ignored",
         result = match failed_tests_count {
@@ -1340,8 +1342,9 @@ fn mutest_simulate_main<S: SubstMap>(args: &[&str], tests: Vec<test::TestDescAnd
         );
     }
 
-    if failed_tests_count != 0 {
-        process::exit(ERROR_EXIT_CODE);
+    // The tests caught the mutation if one of them failed with it applied.
+    if failed_tests_count == 0 {
+        process::exit(exit_code::MISSED);
     }
 }
 
@@ -1389,7 +1392,7 @@ pub fn mutest_main_static(test_suite: TestSuite<'_>, meta_mutant: &'static MetaM
     if !started_as_harness() && !worker {
         let args = args.iter().map(|&arg| arg.to_owned()).collect::<Vec<_>>();
         let exit_code = test::test_main(&args, tests);
-        process::exit(if exit_code == process::ExitCode::SUCCESS { 0 } else { ERROR_EXIT_CODE });
+        process::exit(if exit_code == process::ExitCode::SUCCESS { 0 } else { LIBTEST_ERROR_EXIT_CODE });
     }
 
     // The analysis runs in a second process, so that this one can clean up after it.
@@ -1403,15 +1406,15 @@ pub fn mutest_main_static(test_suite: TestSuite<'_>, meta_mutant: &'static MetaM
     if let Some(mutation_id_str) = args.iter().flat_map(|arg| arg.strip_prefix("--simulate=")).next() {
         let Some(mutation_id) = mutation_id_str.parse::<u32>().ok() else {
             println!("invalid mutation id `{mutation_id_str}`");
-            process::exit(ERROR_EXIT_CODE);
+            process::exit(exit_code::USAGE);
         };
         let Some(mutant) = meta_mutant.find_mutant_with_mutation(mutation_id) else {
             println!("cannot find mutation with id {mutation_id}");
-            process::exit(ERROR_EXIT_CODE);
+            process::exit(exit_code::USAGE);
         };
         let Mutant::Mutation(mutant) = mutant else {
             println!("cannot simulate individual mutations: mutations are baked into batches, disable mutation batching");
-            process::exit(ERROR_EXIT_CODE);
+            process::exit(exit_code::USAGE);
         };
 
         return mutest_simulate_main(&args, owned_tests, mutant, meta_mutant.active_mutant_handle);
