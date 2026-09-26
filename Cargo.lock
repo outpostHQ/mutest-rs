@@ -795,6 +795,7 @@ name = "mutest-runtime"
 version = "0.0.0"
 dependencies = [
  "atomic-wait",
+ "libc",
  "mutest-json",
  "phf",
  "serde",
@@ -822,6 +823,8 @@ version = "0.0.0"
 dependencies = [
  "cargo_metadata",
  "clap",
+ "libc",
+ "mutest-runtime",
  "path-slash",
  "similar",
 ]

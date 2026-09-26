@@ -33,5 +33,8 @@ atomic-wait = "1.1"
 serde = "1.0"
 serde_json = "1.0"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [lints]
 workspace = true

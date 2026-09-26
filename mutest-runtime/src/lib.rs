@@ -41,5 +41,8 @@ pub use metadata::*;
 
 mod journal;
 mod supervisor;
+#[cfg(target_os = "linux")]
+#[doc(hidden)]
+pub use supervisor::children;
 
 pub use test_runner::is_test_thread_active;

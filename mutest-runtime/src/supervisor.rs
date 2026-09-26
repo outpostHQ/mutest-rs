@@ -13,6 +13,9 @@ use std::process::{self, Command, ExitStatus};
 
 use crate::journal::Journal;
 
+#[cfg(target_os = "linux")]
+pub use sys::children;
+
 /// Set in the worker's environment, to the supervisor's process id.
 const SUPERVISOR_PID_VAR: &str = "__MUTEST_SUPERVISOR_PID";
 
@@ -107,23 +110,13 @@ fn exit_as(status: ExitStatus) -> ! {
 
 #[cfg(unix)]
 mod sys {
-    use std::ffi::c_int;
     use std::os::unix::process::ExitStatusExt as _;
     use std::process::{Child, ExitStatus};
     use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
-    unsafe extern "C" {
-        fn kill(pid: c_int, sig: c_int) -> c_int;
-        fn raise(sig: c_int) -> c_int;
-        fn signal(signum: c_int, handler: usize) -> usize;
-    }
+    use libc::{c_int, pid_t};
 
-    const SIG_DFL: usize = 0;
-    const SIGHUP: c_int = 1;
-    const SIGINT: c_int = 2;
-    const SIGQUIT: c_int = 3;
-    const SIGTERM: c_int = 15;
-    const STOP_SIGNALS: [c_int; 4] = [SIGHUP, SIGINT, SIGQUIT, SIGTERM];
+    const STOP_SIGNALS: [c_int; 4] = [libc::SIGHUP, libc::SIGINT, libc::SIGQUIT, libc::SIGTERM];
 
     static WORKER_PID: AtomicI32 = AtomicI32::new(0);
     static STOP_REQUESTED: AtomicBool = AtomicBool::new(false);
@@ -133,16 +126,16 @@ mod sys {
         let worker_pid = WORKER_PID.load(Ordering::Relaxed);
         // SAFETY: `kill` is async-signal-safe, and the pid is a child of this process that has not
         //         been reaped, which is the only way its id could go to another process.
-        if worker_pid > 0 { unsafe { kill(worker_pid, signal) }; }
+        if worker_pid > 0 { unsafe { libc::kill(worker_pid, signal) }; }
     }
 
     /// A signal meant to stop the run stops the worker, and the supervisor goes on to clean up after
     /// it; the supervisor itself stopping first would leave the worker running unsupervised.
     pub(super) fn forward_signals_to(worker_pid: u32) {
-        WORKER_PID.store(worker_pid as c_int, Ordering::Relaxed);
+        WORKER_PID.store(worker_pid as pid_t, Ordering::Relaxed);
         for signal_number in STOP_SIGNALS {
             // SAFETY: The handler only touches atomics and calls `kill`, which is async-signal-safe.
-            unsafe { signal(signal_number, forward_signal as extern "C" fn(c_int) as usize) };
+            unsafe { libc::signal(signal_number, forward_signal as extern "C" fn(c_int) as libc::sighandler_t) };
         }
     }
 
@@ -154,17 +147,18 @@ mod sys {
     pub(super) fn raise_with_default_action(signal_number: i32) {
         // SAFETY: Restoring the default action, and raising the signal the worker died of.
         unsafe {
-            signal(signal_number, SIG_DFL);
-            raise(signal_number);
+            libc::signal(signal_number, libc::SIG_DFL);
+            libc::raise(signal_number);
         }
     }
 
     #[cfg(target_os = "linux")]
     pub(super) use linux::*;
+    #[cfg(target_os = "linux")]
+    pub use linux::children;
 
     #[cfg(target_os = "linux")]
     mod linux {
-        use std::ffi::{c_int, c_ulong};
         use std::fs;
         use std::io;
         use std::os::unix::process::ExitStatusExt;
@@ -173,33 +167,25 @@ mod sys {
         use std::thread;
         use std::time::{Duration, Instant};
 
+        use libc::c_ulong;
+
         use super::*;
-
-        unsafe extern "C" {
-            fn prctl(option: c_int, arg2: c_ulong, arg3: c_ulong, arg4: c_ulong, arg5: c_ulong) -> c_int;
-            fn getppid() -> c_int;
-            fn waitpid(pid: c_int, status: *mut c_int, options: c_int) -> c_int;
-        }
-
-        const PR_SET_PDEATHSIG: c_int = 1;
-        const PR_SET_CHILD_SUBREAPER: c_int = 36;
-        const SIGKILL: c_int = 9;
-        const WNOHANG: c_int = 1;
-        const EINTR: i32 = 4;
 
         /// What the tests orphan is reparented to the supervisor, rather than to init.
         pub(crate) fn adopt_orphans() {
-            // SAFETY: `prctl` with `PR_SET_CHILD_SUBREAPER` only sets a flag on this process.
-            unsafe { prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) };
+            // SAFETY: `prctl` with `PR_SET_CHILD_SUBREAPER` only sets a flag on this process. It reads
+            //         four more arguments as `unsigned long`, whichever it uses, so four are passed.
+            unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1 as c_ulong, 0 as c_ulong, 0 as c_ulong, 0 as c_ulong) };
         }
 
         /// The worker is killed with its supervisor, should the supervisor itself be killed outright.
-        pub(crate) fn die_with(supervisor_pid: Option<c_int>) {
-            // SAFETY: `prctl` with `PR_SET_PDEATHSIG` only sets a flag on this process.
-            unsafe { prctl(PR_SET_PDEATHSIG, SIGKILL as c_ulong, 0, 0, 0) };
+        pub(crate) fn die_with(supervisor_pid: Option<pid_t>) {
+            // SAFETY: `prctl` with `PR_SET_PDEATHSIG` only sets a flag on this process. It reads four
+            //         more arguments as `unsigned long`, whichever it uses, so four are passed.
+            unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL as c_ulong, 0 as c_ulong, 0 as c_ulong, 0 as c_ulong) };
             // The supervisor may have died before the flag was set.
             // SAFETY: `getppid` cannot fail.
-            if supervisor_pid.is_some_and(|supervisor_pid| unsafe { getppid() } != supervisor_pid) {
+            if supervisor_pid.is_some_and(|supervisor_pid| unsafe { libc::getppid() } != supervisor_pid) {
                 process::exit(101);
             }
         }
@@ -207,29 +193,30 @@ mod sys {
         /// Waits for the worker, reaping the orphans that exit meanwhile, so that none of them lingers
         /// as a zombie holding a process slot until the end of a long run.
         pub(crate) fn wait_reaping_orphans(worker: Child) -> ExitStatus {
-            let worker_pid = worker.id() as c_int;
+            let worker_pid = worker.id() as pid_t;
             loop {
                 let mut status: c_int = 0;
                 // SAFETY: `status` is a valid place for `waitpid` to write to.
-                let reaped = unsafe { waitpid(-1, &mut status, 0) };
+                let reaped = unsafe { libc::waitpid(-1, &mut status, 0) };
                 if reaped == worker_pid { return ExitStatus::from_raw(status); }
-                if reaped == -1 && io::Error::last_os_error().raw_os_error() != Some(EINTR) {
+                if reaped == -1 && io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
                     panic!("cannot wait for the mutation analysis worker: {}", io::Error::last_os_error());
                 }
             }
         }
 
-        /// Every process whose parent is this one.
-        fn children() -> Vec<c_int> {
+        /// Every process whose parent is this one, adopted or not. The UI tests look through them
+        /// too, for what a harness left running.
+        pub fn children() -> Vec<pid_t> {
             let Ok(entries) = fs::read_dir("/proc") else { return vec![]; };
-            let me = process::id() as c_int;
+            let me = process::id() as pid_t;
             entries
                 .filter_map(|entry| {
-                    let pid = entry.ok()?.file_name().to_str()?.parse::<c_int>().ok()?;
+                    let pid = entry.ok()?.file_name().to_str()?.parse::<pid_t>().ok()?;
                     let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
                     // `pid (comm) state ppid ...`, where `comm` may itself hold spaces and parentheses.
                     let (_, after_comm) = stat.rsplit_once(')')?;
-                    let ppid = after_comm.split_whitespace().nth(1)?.parse::<c_int>().ok()?;
+                    let ppid = after_comm.split_whitespace().nth(1)?.parse::<pid_t>().ok()?;
                     (ppid == me).then_some(pid)
                 })
                 .collect()
@@ -244,14 +231,14 @@ mod sys {
                 for child in children() {
                     // SAFETY: `child` is a child of this process that has not been reaped, so its id
                     //         cannot have gone to another process.
-                    unsafe { kill(child, SIGKILL) };
+                    unsafe { libc::kill(child, libc::SIGKILL) };
                 }
                 loop {
                     // SAFETY: A null status is allowed.
-                    match unsafe { waitpid(-1, ptr::null_mut(), WNOHANG) } {
+                    match unsafe { libc::waitpid(-1, ptr::null_mut(), libc::WNOHANG) } {
                         // Children remain, and none has exited yet.
                         0 => break,
-                        -1 if io::Error::last_os_error().raw_os_error() == Some(EINTR) => continue,
+                        -1 if io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) => continue,
                         // No child remains.
                         -1 => return,
                         _reaped => continue,
@@ -273,7 +260,7 @@ mod sys {
         use super::*;
 
         pub(crate) fn adopt_orphans() {}
-        pub(crate) fn die_with(_supervisor_pid: Option<c_int>) {}
+        pub(crate) fn die_with(_supervisor_pid: Option<pid_t>) {}
         pub(crate) fn wait_reaping_orphans(mut worker: Child) -> ExitStatus {
             worker.wait().expect("cannot wait for the mutation analysis worker")
         }
@@ -293,4 +280,19 @@ mod sys {
         worker.wait().expect("cannot wait for the mutation analysis worker")
     }
     pub(super) fn kill_descendants() {}
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use std::process::{Command, Stdio};
+
+    #[test]
+    fn a_process_this_one_started_is_among_its_children() {
+        let mut child = Command::new("sleep").arg("60").stdin(Stdio::null()).spawn().unwrap();
+        let children = super::children();
+        let _ = child.kill();
+        let _ = child.wait();
+
+        assert!(children.contains(&(child.id() as libc::pid_t)), "{} is not among {children:?}", child.id());
+    }
 }

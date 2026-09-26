@@ -19,45 +19,26 @@ mod diff;
 mod orphans {
     #[cfg(target_os = "linux")]
     mod sys {
-        use std::ffi::{c_int, c_ulong};
-        use std::fs;
-        use std::process;
         use std::ptr;
 
-        unsafe extern "C" {
-            fn prctl(option: c_int, arg2: c_ulong, arg3: c_ulong, arg4: c_ulong, arg5: c_ulong) -> c_int;
-            fn kill(pid: c_int, sig: c_int) -> c_int;
-            fn waitpid(pid: c_int, status: *mut c_int, options: c_int) -> c_int;
-        }
-
-        const PR_SET_CHILD_SUBREAPER: c_int = 36;
-        const SIGKILL: c_int = 9;
+        use libc::{c_ulong, pid_t};
 
         pub fn adopt() {
-            // SAFETY: `prctl` with `PR_SET_CHILD_SUBREAPER` only sets a flag on this process.
-            unsafe { prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) };
+            // SAFETY: `prctl` with `PR_SET_CHILD_SUBREAPER` only sets a flag on this process. It reads
+            //         four more arguments as `unsigned long`, whichever it uses, so four are passed.
+            unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1 as c_ulong, 0 as c_ulong, 0 as c_ulong, 0 as c_ulong) };
         }
 
         pub fn children() -> Vec<u32> {
-            let Ok(entries) = fs::read_dir("/proc") else { return vec![]; };
-            entries
-                .filter_map(|entry| {
-                    let pid = entry.ok()?.file_name().to_str()?.parse::<u32>().ok()?;
-                    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-                    // `pid (comm) state ppid ...`, where `comm` may itself hold spaces and parentheses.
-                    let (_, after_comm) = stat.rsplit_once(')')?;
-                    let ppid = after_comm.split_whitespace().nth(1)?.parse::<u32>().ok()?;
-                    (ppid == process::id()).then_some(pid)
-                })
-                .collect()
+            mutest_runtime::children().into_iter().map(|pid| pid as u32).collect()
         }
 
         pub fn kill_and_reap(pid: u32) {
             // SAFETY: `pid` is a child of this process, and it is not reaped until `waitpid` below, so
             //         the id cannot have been reused by another process.
             unsafe {
-                kill(pid as c_int, SIGKILL);
-                waitpid(pid as c_int, ptr::null_mut(), 0);
+                libc::kill(pid as pid_t, libc::SIGKILL);
+                libc::waitpid(pid as pid_t, ptr::null_mut(), 0);
             }
         }
     }

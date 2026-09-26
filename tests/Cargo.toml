@@ -11,5 +11,10 @@ path-slash = "0.2"
 clap = { version = "4", features = ["cargo"] }
 similar = { version = "3", features = ["inline"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+mutest-runtime = { path = "../mutest-runtime" }
+
+libc = "0.2"
+
 [lints]
 workspace = true
