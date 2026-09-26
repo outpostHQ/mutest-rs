@@ -57,9 +57,6 @@ pub fn run(mut config: Config) -> CompilerResult<RunResult> {
 
     let original_print_opts = config.opts.print_opts.clone();
 
-    #[cfg(feature = "embed-runtime")]
-    inject::extract_runtime_crate_and_deps(&config.target_dir_root());
-
     let Some(mut analysis_pass) = passes::analysis::run(&mut config)? else { return Ok(run_result) };
 
     if let Some(_) = config.opts.print_opts.code.take() {

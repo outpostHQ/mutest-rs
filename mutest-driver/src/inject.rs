@@ -39,7 +39,7 @@ fn extract_file(path: &Path, content: &[u8]) {
 const MUTEST_EXTRACTED_DEPS_DIR_NAME: &str = "mutest_deps";
 
 #[cfg(feature = "embed-runtime")]
-pub fn extract_runtime_crate_and_deps(target_dir_root_path: &Path) {
+fn extract_runtime_crate_and_deps(target_dir_root_path: &Path) {
     let mutest_deps_dir_path = target_dir_root_path.join(MUTEST_EXTRACTED_DEPS_DIR_NAME);
     fs::create_dir_all(&mutest_deps_dir_path).unwrap_or_else(|error| panic!("cannot create directory `{}`: {error}", mutest_deps_dir_path.display()));
 
@@ -134,6 +134,10 @@ pub fn inject_runtime_crate_and_deps(config: &Config, compiler_config: &mut Comp
     // cross-compiled or embedded runtime is looked for in a mutest-rs build directory, as it is by a
     // driver built without embedding.
     let runtime_embedded = cfg!(feature = "embed-runtime") && target_triple == host_triple && !config.opts.unstable_flags.embedded;
+    // Unpacked only by a build that links it: every other run of the driver would unpack it for
+    // nothing, and into the target directory of a build that has no use for it.
+    #[cfg(feature = "embed-runtime")]
+    if runtime_embedded { extract_runtime_crate_and_deps(&config.target_dir_root()); }
 
     let mutest_host_artifacts_dir_path = if runtime_embedded {
         &config.target_dir_root().join(MUTEST_EXTRACTED_DEPS_DIR_NAME)
