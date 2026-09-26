@@ -39,4 +39,6 @@ pub use harness::*;
 mod metadata;
 pub use metadata::*;
 
+mod supervisor;
+
 pub use test_runner::is_test_thread_active;

@@ -14,6 +14,87 @@ use std::time::Instant;
 
 mod diff;
 
+/// Processes a generated program left running when it exited. On Linux this runner adopts them, as
+/// a child subreaper, where they would otherwise be orphaned to init and never seen again.
+mod orphans {
+    #[cfg(target_os = "linux")]
+    mod sys {
+        use std::ffi::{c_int, c_ulong};
+        use std::fs;
+        use std::process;
+        use std::ptr;
+
+        unsafe extern "C" {
+            fn prctl(option: c_int, arg2: c_ulong, arg3: c_ulong, arg4: c_ulong, arg5: c_ulong) -> c_int;
+            fn kill(pid: c_int, sig: c_int) -> c_int;
+            fn waitpid(pid: c_int, status: *mut c_int, options: c_int) -> c_int;
+        }
+
+        const PR_SET_CHILD_SUBREAPER: c_int = 36;
+        const SIGKILL: c_int = 9;
+
+        pub fn adopt() {
+            // SAFETY: `prctl` with `PR_SET_CHILD_SUBREAPER` only sets a flag on this process.
+            unsafe { prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) };
+        }
+
+        pub fn children() -> Vec<u32> {
+            let Ok(entries) = fs::read_dir("/proc") else { return vec![]; };
+            entries
+                .filter_map(|entry| {
+                    let pid = entry.ok()?.file_name().to_str()?.parse::<u32>().ok()?;
+                    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+                    // `pid (comm) state ppid ...`, where `comm` may itself hold spaces and parentheses.
+                    let (_, after_comm) = stat.rsplit_once(')')?;
+                    let ppid = after_comm.split_whitespace().nth(1)?.parse::<u32>().ok()?;
+                    (ppid == process::id()).then_some(pid)
+                })
+                .collect()
+        }
+
+        pub fn kill_and_reap(pid: u32) {
+            // SAFETY: `pid` is a child of this process, and it is not reaped until `waitpid` below, so
+            //         the id cannot have been reused by another process.
+            unsafe {
+                kill(pid as c_int, SIGKILL);
+                waitpid(pid as c_int, ptr::null_mut(), 0);
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    mod sys {
+        pub fn adopt() {}
+        pub fn children() -> Vec<u32> { vec![] }
+        pub fn kill_and_reap(_pid: u32) {}
+    }
+
+    /// From now on, what a program started by this runner orphans is reparented to this runner.
+    pub fn adopt() {
+        sys::adopt();
+    }
+
+    pub fn adopted() -> Vec<u32> {
+        sys::children()
+    }
+
+    /// Kills every process adopted since `before`, and every process they started, and says how many
+    /// there were to begin with.
+    pub fn kill_adopted_since(before: &[u32]) -> usize {
+        let mut left_running = 0;
+        let mut first_round = true;
+        loop {
+            let adopted = sys::children().into_iter().filter(|pid| !before.contains(pid)).collect::<Vec<_>>();
+            if adopted.is_empty() { return left_running; }
+            if first_round { left_running = adopted.len(); }
+            first_round = false;
+            for pid in adopted {
+                sys::kill_and_reap(pid);
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 enum ExpectationVerdict {
     Met,
@@ -623,7 +704,11 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         let full_stdout = &mut stdout;
         let full_stderr = &mut stderr;
 
+        let orphans_before = orphans::adopted();
         let output = cmd.output().expect(&format!("cannot spawn generated program `{}`", build_artifact_path.display()));
+        // NOTE: Nothing the harness starts may outlive it. What it left running was orphaned to
+        //       this runner, which kills it before it can pile up across the tests that follow.
+        let left_running = orphans::kill_adopted_since(&orphans_before);
         let stdout = String::from_utf8(output.stdout).unwrap();
         let stderr = String::from_utf8(output.stderr).unwrap();
 
@@ -645,6 +730,14 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
                 Some(exit_code) => format!("process exited with code {exit_code}, expected {expected_exit_code}"),
                 None => format!("process exited without exit code, expected {expected_exit_code}"),
             }));
+            eprintln!("stdout:\n{}", stdout);
+            eprintln!("stderr:\n{}", stderr);
+            return;
+        }
+
+        if left_running >= 1 {
+            results.failed_tests_count += 1;
+            log_test(&name, TestResult::Failed, Some(&format!("left {left_running} processes running after it exited")));
             eprintln!("stdout:\n{}", stdout);
             eprintln!("stderr:\n{}", stderr);
             return;
@@ -778,6 +871,9 @@ fn main() {
         process::exit(1);
     }
     eprintln!();
+
+    // NOTE: Only after the build, so that a daemon Cargo starts is not taken for a test's orphan.
+    orphans::adopt();
 
     let mut results = TestRunResults {
         ignored_tests_count: 0,

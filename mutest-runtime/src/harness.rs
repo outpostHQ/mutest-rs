@@ -18,6 +18,7 @@ use crate::detections::{MutationDetectionMatrix, print_mutation_detection_matrix
 use crate::flakiness::{MutationFlakinessMatrix, print_mutation_flakiness_epilogue, print_mutation_flakiness_matrix};
 use crate::metadata::{self, CargoTargetKind, ExternalTestsExtra, MetaMutant, Mutant, MutationMeta, MutationParallelism, MutationSafety, StandaloneMutantMeta, SubstLocIdx, SubstMap, SubstMeta, TestSuite};
 use crate::subsumption::{MutationSubsumptionMatrix, print_mutation_subsumption_matrix};
+use crate::supervisor;
 use crate::test_runner;
 use crate::thread_pool::ThreadPool;
 use crate::write::{EvaluationStreamWriter, write_evaluation};
@@ -1306,6 +1307,11 @@ pub fn mutest_main_static(test_suite: TestSuite<'_>, meta_mutant: &'static MetaM
         };
 
         mutest_isolated_worker(test, meta_mutant)
+    }
+
+    // The analysis runs in a second process, so that this one can clean up after it.
+    if cfg!(any(unix, windows)) && !supervisor::is_worker() {
+        supervisor::supervise();
     }
 
     let args = env::args().collect::<Vec<_>>();
