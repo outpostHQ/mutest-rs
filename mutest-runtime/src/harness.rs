@@ -586,16 +586,24 @@ impl MutationAnalysisResults {
     }
 }
 
-fn run_mutation_analysis<S: SubstMap + Sync>(
-    opts: &Options,
-    tests: &[test_runner::Test],
+/// What a mutation analysis evaluates, and with which options: the same for each iteration of a
+/// flakiness analysis.
+struct MutationAnalysis<'a, S: SubstMap + 'static> {
+    opts: &'a Options,
+    tests: &'a [test_runner::Test],
     external_tests_extra: Option<&'static ExternalTestsExtra>,
     meta_mutant: &'static MetaMutant<S>,
+}
+
+fn run_mutation_analysis<S: SubstMap + Sync>(
+    analysis: &MutationAnalysis<'_, S>,
     thread_pool: Option<ThreadPool>,
     lingering_test_monitoring_thread: Arc<LingeringTestMonitoringThread>,
     eval_stream_writer: Option<EvaluationStreamWriter>,
     journal: Option<&WorkerJournal>,
 ) -> MutationAnalysisResults {
+    let &MutationAnalysis { opts, tests, external_tests_extra, meta_mutant } = analysis;
+
     let mut results = MutationAnalysisResults {
         all_test_runs_failed_successfully: true,
         total_mutations_count: 0,
@@ -1121,9 +1129,11 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
         }
     }));
 
+    let analysis = MutationAnalysis { opts: &opts, tests: &tests, external_tests_extra, meta_mutant };
+
     match opts.mode {
         config::Mode::Evaluate => {
-            let results = run_mutation_analysis(&opts, &tests, external_tests_extra, meta_mutant, thread_pool, lingering_test_monitoring_thread.clone(), eval_stream_writer, journal::worker());
+            let results = run_mutation_analysis(&analysis, thread_pool, lingering_test_monitoring_thread.clone(), eval_stream_writer, journal::worker());
 
             if let Some(write_opts) = &opts.write_opts {
                 let t_write_start = Instant::now();
@@ -1168,7 +1178,7 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
                 println!();
 
                 // A result carried over would be the same run twice, so a crash ends a flakiness run.
-                let iteration_results = run_mutation_analysis(&opts, &tests, external_tests_extra, meta_mutant, thread_pool.clone(), lingering_test_monitoring_thread.clone(), eval_stream_writer.clone(), None);
+                let iteration_results = run_mutation_analysis(&analysis, thread_pool.clone(), lingering_test_monitoring_thread.clone(), eval_stream_writer.clone(), None);
 
                 if let Some(()) = &opts.print_opts.detection_matrix {
                     print_mutation_detection_matrix(&iteration_results.mutation_detection_matrix, &tests, !opts.exhaustive);

@@ -41,7 +41,7 @@ const MUTEST_EXTRACTED_DEPS_DIR_NAME: &str = "mutest_deps";
 #[cfg(feature = "embed-runtime")]
 pub fn extract_runtime_crate_and_deps(target_dir_root_path: &Path) {
     let mutest_deps_dir_path = target_dir_root_path.join(MUTEST_EXTRACTED_DEPS_DIR_NAME);
-    fs::create_dir_all(&mutest_deps_dir_path).expect(&format!("cannot create directory `{}`", mutest_deps_dir_path.display()));
+    fs::create_dir_all(&mutest_deps_dir_path).unwrap_or_else(|error| panic!("cannot create directory `{}`: {error}", mutest_deps_dir_path.display()));
 
     extract_file(&mutest_deps_dir_path.join(rlib_catalog::MUTEST_RUNTIME_RLIB_FILENAME), rlib_catalog::MUTEST_RUNTIME_RLIB_DATA);
     for (dep_file_name, dep_data) in rlib_catalog::MUTEST_RUNTIME_EXTERN_DEPS_DATA {

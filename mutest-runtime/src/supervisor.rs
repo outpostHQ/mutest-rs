@@ -108,7 +108,6 @@ fn exit_as(status: ExitStatus) -> ! {
 #[cfg(unix)]
 mod sys {
     use std::ffi::c_int;
-    use std::io;
     use std::os::unix::process::ExitStatusExt as _;
     use std::process::{Child, ExitStatus};
     use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
@@ -167,6 +166,7 @@ mod sys {
     mod linux {
         use std::ffi::{c_int, c_ulong};
         use std::fs;
+        use std::io;
         use std::os::unix::process::ExitStatusExt;
         use std::process;
         use std::ptr;
