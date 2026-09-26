@@ -2,9 +2,16 @@
 //! again as the worker, which runs the mutation analysis, and outlives it. Everything the tests
 //! start descends from the supervisor, which on Linux adopts what they orphan, whatever process
 //! group it is in, and kills all of it once the worker has exited, however the worker exited.
+//!
+//! A mutation can take the worker down with it: a stack overflow aborts the process, not just the
+//! test. The supervisor then counts the mutations the worker was evaluating as crashed, and starts
+//! a new worker, which goes on after them; see `journal`.
 
 use std::env;
+use std::io::{self, Write};
 use std::process::{self, Command, ExitStatus};
+
+use crate::journal::Journal;
 
 /// Set in the worker's environment, to the supervisor's process id.
 const SUPERVISOR_PID_VAR: &str = "__MUTEST_SUPERVISOR_PID";
@@ -20,21 +27,70 @@ pub fn is_worker() -> bool {
 }
 
 /// Starts this binary again as the worker, with the same arguments, and waits for it; then kills
-/// what the worker left running, and exits as the worker did.
+/// what the worker left running. If the worker went down in the middle of mutations, it counts them
+/// as crashed and starts a new worker; otherwise it exits as the worker did.
 pub fn supervise() -> ! {
     sys::adopt_orphans();
 
+    // Without a journal the run still happens, but a mutation that crashes the worker ends it.
+    let journal = Journal::create().ok();
+
+    loop {
+        let status = run_worker(journal.as_ref());
+        sys::kill_descendants();
+
+        let crashed = match &journal {
+            Some(journal) if !sys::stopped_on_request(status) => journal.unfinished(),
+            _ => vec![],
+        };
+        if crashed.is_empty() {
+            drop(journal);
+            exit_as(status);
+        }
+
+        // NOTE: How it ended goes to stderr: what a crash is called depends on the platform.
+        eprintln!("the test harness {ended}", ended = describe_end(status));
+        println!("the test harness crashed while evaluating {mutations} {ids}: counted as crashed; going on without {them}",
+            mutations = match crashed.len() { 1 => "mutation", _ => "mutations" },
+            ids = crashed.iter().map(u32::to_string).collect::<Vec<_>>().join(", "),
+            them = match crashed.len() { 1 => "it", _ => "them" },
+        );
+        println!();
+        let _ = io::stdout().flush();
+
+        if let Err(err) = journal.as_ref().map_or(Ok(()), |journal| journal.record_crashed(&crashed)) {
+            println!("cannot record the crash in the mutation journal: {err}");
+            drop(journal);
+            exit_as(status);
+        }
+    }
+}
+
+fn run_worker(journal: Option<&Journal>) -> ExitStatus {
     let current_exe = env::current_exe().expect("cannot resolve test executable path");
     let mut cmd = Command::new(current_exe);
     cmd.args(env::args_os().skip(1));
     cmd.env(SUPERVISOR_PID_VAR, process::id().to_string());
+    if let Some(journal) = journal { journal.pass_to(&mut cmd); }
     let worker = cmd.spawn().expect("cannot start the mutation analysis worker");
 
     sys::forward_signals_to(worker.id());
-    let status = sys::wait_reaping_orphans(worker);
-    sys::kill_descendants();
+    sys::wait_reaping_orphans(worker)
+}
 
-    exit_as(status)
+/// Not `ExitStatus`'s own words, which also say whether a core was dumped.
+fn describe_end(status: ExitStatus) -> String {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signal) = status.signal() {
+            return format!("was killed by signal {signal}");
+        }
+    }
+    match status.code() {
+        Some(code) => format!("exited with code {code}"),
+        None => "ended".to_owned(),
+    }
 }
 
 fn exit_as(status: ExitStatus) -> ! {
@@ -53,8 +109,9 @@ fn exit_as(status: ExitStatus) -> ! {
 mod sys {
     use std::ffi::c_int;
     use std::io;
+    use std::os::unix::process::ExitStatusExt as _;
     use std::process::{Child, ExitStatus};
-    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
     unsafe extern "C" {
         fn kill(pid: c_int, sig: c_int) -> c_int;
@@ -67,10 +124,13 @@ mod sys {
     const SIGINT: c_int = 2;
     const SIGQUIT: c_int = 3;
     const SIGTERM: c_int = 15;
+    const STOP_SIGNALS: [c_int; 4] = [SIGHUP, SIGINT, SIGQUIT, SIGTERM];
 
     static WORKER_PID: AtomicI32 = AtomicI32::new(0);
+    static STOP_REQUESTED: AtomicBool = AtomicBool::new(false);
 
     extern "C" fn forward_signal(signal: c_int) {
+        STOP_REQUESTED.store(true, Ordering::Relaxed);
         let worker_pid = WORKER_PID.load(Ordering::Relaxed);
         // SAFETY: `kill` is async-signal-safe, and the pid is a child of this process that has not
         //         been reaped, which is the only way its id could go to another process.
@@ -81,10 +141,15 @@ mod sys {
     /// it; the supervisor itself stopping first would leave the worker running unsupervised.
     pub(super) fn forward_signals_to(worker_pid: u32) {
         WORKER_PID.store(worker_pid as c_int, Ordering::Relaxed);
-        for signal_number in [SIGHUP, SIGINT, SIGQUIT, SIGTERM] {
-            // SAFETY: The handler only calls `kill`, which is async-signal-safe.
+        for signal_number in STOP_SIGNALS {
+            // SAFETY: The handler only touches atomics and calls `kill`, which is async-signal-safe.
             unsafe { signal(signal_number, forward_signal as extern "C" fn(c_int) as usize) };
         }
+    }
+
+    /// Whether the worker was stopped by someone, rather than by what it ran.
+    pub(super) fn stopped_on_request(status: ExitStatus) -> bool {
+        STOP_REQUESTED.load(Ordering::Relaxed) || status.signal().is_some_and(|signal| STOP_SIGNALS.contains(&signal))
     }
 
     pub(super) fn raise_with_default_action(signal_number: i32) {
@@ -223,6 +288,7 @@ mod sys {
     pub(super) fn adopt_orphans() {}
     pub(super) fn die_with(_supervisor_pid: Option<i32>) {}
     pub(super) fn forward_signals_to(_worker_pid: u32) {}
+    pub(super) fn stopped_on_request(_status: ExitStatus) -> bool { false }
     pub(super) fn wait_reaping_orphans(mut worker: Child) -> ExitStatus {
         worker.wait().expect("cannot wait for the mutation analysis worker")
     }

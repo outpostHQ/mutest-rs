@@ -17,6 +17,7 @@ use crate::config::{self, Options};
 use crate::detections::{MutationDetectionMatrix, print_mutation_detection_matrix};
 use crate::flakiness::{MutationFlakinessMatrix, print_mutation_flakiness_epilogue, print_mutation_flakiness_matrix};
 use crate::metadata::{self, CargoTargetKind, ExternalTestsExtra, MetaMutant, Mutant, MutationMeta, MutationParallelism, MutationSafety, StandaloneMutantMeta, SubstLocIdx, SubstMap, SubstMeta, TestSuite};
+use crate::journal::{self, WorkerJournal};
 use crate::subsumption::{MutationSubsumptionMatrix, print_mutation_subsumption_matrix};
 use crate::supervisor;
 use crate::test_runner;
@@ -593,6 +594,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
     thread_pool: Option<ThreadPool>,
     lingering_test_monitoring_thread: Arc<LingeringTestMonitoringThread>,
     eval_stream_writer: Option<EvaluationStreamWriter>,
+    journal: Option<&WorkerJournal>,
 ) -> MutationAnalysisResults {
     let mut results = MutationAnalysisResults {
         all_test_runs_failed_successfully: true,
@@ -614,6 +616,12 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
     match meta_mutant.mutation_parallelism {
         MutationParallelism::None(mutants) => {
             for mutant in mutants {
+                // Evaluated by a worker before this one, which may have crashed on it.
+                if let Some(carried) = journal.and_then(|journal| journal.carried(mutant.mutation.id, tests)) {
+                    results.record_mutation_results(mutant.mutation, carried);
+                    continue;
+                }
+
                 // SAFETY: Ideally, since the previous test runs all completed,
                 //         no other thread is running, no one else is reading from the handle.
                 //         Lingering test cases from previous test runs are forcibly terminated
@@ -643,10 +651,12 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                     prioritize_tests_by_distance(&mut tests, external_tests_extra, &[mutant.mutation]);
                 }
 
+                if let Some(journal) = journal { journal.started(&[mutant.mutation.id]); }
                 let (mut run_results, lingering_tests) = run_tests(tests, external_tests_extra, Mutant::Mutation(mutant), opts.exhaustive, opts.mutation_isolation, thread_pool.clone(), eval_stream_writer.clone(), opts.verbosity);
                 lingering_test_monitoring_thread.submit_lingering_tests(lingering_tests);
 
                 let Some(mutation_result) = run_results.remove(&mutant.mutation.id) else { unreachable!() };
+                if let Some(journal) = journal { journal.finished(mutant.mutation.id, &mutation_result); }
                 if let MutationTestResult::Undetected = mutation_result.result {
                     print!("{}", mutant.mutation.undetected_diagnostic);
                 }
@@ -655,6 +665,18 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
         }
         MutationParallelism::Batched(batched_mutants) => {
             for batched_mutant in batched_mutants {
+                // Evaluated by a worker before this one. A batch that crashed it is crashed as a
+                // whole: its mutations are baked in together, so none can be run without the others.
+                let carried = journal.and_then(|journal| {
+                    batched_mutant.mutations.iter().map(|mutation| journal.carried(mutation.id, tests)).collect::<Option<Vec<_>>>()
+                });
+                if let Some(carried) = carried {
+                    for (&mutation, mutation_result) in iter::zip(batched_mutant.mutations, carried) {
+                        results.record_mutation_results(mutation, mutation_result);
+                    }
+                    continue;
+                }
+
                 // SAFETY: Ideally, since the previous test runs all completed,
                 //         no other thread is running, no one else is reading from the handle.
                 //         Lingering test cases from previous test runs are forcibly terminated
@@ -693,11 +715,15 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                 }
                 maximize_mutation_parallelism(&mut tests, external_tests_extra, batched_mutant.mutations);
 
+                if let Some(journal) = journal {
+                    journal.started(&batched_mutant.mutations.iter().map(|mutation| mutation.id).collect::<Vec<_>>());
+                }
                 let (mut run_results, lingering_tests) = run_tests(tests, external_tests_extra, Mutant::Batch(batched_mutant), opts.exhaustive, opts.mutation_isolation, thread_pool.clone(), eval_stream_writer.clone(), opts.verbosity);
                 lingering_test_monitoring_thread.submit_lingering_tests(lingering_tests);
 
                 for mutation in batched_mutant.mutations {
                     let Some(mutation_result) = run_results.remove(&mutation.id) else { unreachable!() };
+                    if let Some(journal) = journal { journal.finished(mutation.id, &mutation_result); }
                     if let MutationTestResult::Undetected = mutation_result.result {
                         print!("{}", mutation.undetected_diagnostic);
                     }
@@ -713,6 +739,18 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
             let max_thread_count = thread_pool.max_thread_count();
 
             let mut remaining_mutants = mutants.iter().collect::<Vec<_>>();
+
+            // Evaluated by a worker before this one. Mutations that ran together when one of them
+            // crashed that worker are all counted as crashed, since which one did is not known.
+            if let Some(journal) = journal {
+                remaining_mutants.retain(|mutant| match journal.carried(mutant.mutation.id, tests) {
+                    Some(carried) => {
+                        results.record_mutation_results(mutant.mutation, carried);
+                        false
+                    }
+                    None => true,
+                });
+            }
 
             struct RunningMutant<S: SubstMap + 'static> {
                 mutant: &'static StandaloneMutantMeta<S>,
@@ -788,6 +826,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                             result
                         };
 
+                        if let Some(journal) = journal { journal.started(&[mutant.mutation.id]); }
                         let thread = thread::Builder::new().name(format!("mutation {}", mutant.mutation.id));
                         let handle = match thread.spawn(job) {
                             Ok(handle) => handle,
@@ -806,6 +845,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                     let mutation = completed_mutant.mutant.mutation;
 
                     let Ok(mutation_result) = completed_mutant.join_handle.join() else { unreachable!() };
+                    if let Some(journal) = journal { journal.finished(mutation.id, &mutation_result); }
                     if let MutationTestResult::Undetected = mutation_result.result {
                         print!("{}", mutation.undetected_diagnostic);
                     }
@@ -1083,7 +1123,7 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
 
     match opts.mode {
         config::Mode::Evaluate => {
-            let results = run_mutation_analysis(&opts, &tests, external_tests_extra, meta_mutant, thread_pool, lingering_test_monitoring_thread.clone(), eval_stream_writer);
+            let results = run_mutation_analysis(&opts, &tests, external_tests_extra, meta_mutant, thread_pool, lingering_test_monitoring_thread.clone(), eval_stream_writer, journal::worker());
 
             if let Some(write_opts) = &opts.write_opts {
                 let t_write_start = Instant::now();
@@ -1127,7 +1167,8 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
                 println!("running iteration {iteration} out of {iterations_count}");
                 println!();
 
-                let iteration_results = run_mutation_analysis(&opts, &tests, external_tests_extra, meta_mutant, thread_pool.clone(), lingering_test_monitoring_thread.clone(), eval_stream_writer.clone());
+                // A result carried over would be the same run twice, so a crash ends a flakiness run.
+                let iteration_results = run_mutation_analysis(&opts, &tests, external_tests_extra, meta_mutant, thread_pool.clone(), lingering_test_monitoring_thread.clone(), eval_stream_writer.clone(), None);
 
                 if let Some(()) = &opts.print_opts.detection_matrix {
                     print_mutation_detection_matrix(&iteration_results.mutation_detection_matrix, &tests, !opts.exhaustive);
@@ -1343,6 +1384,7 @@ pub fn mutest_main_static(test_suite: TestSuite<'_>, meta_mutant: &'static MetaM
     if cfg!(any(unix, windows)) && !supervisor::is_worker() {
         supervisor::supervise();
     }
+    journal::open_for_worker();
 
     let owned_tests = tests.iter().map(|test| make_owned_test_def(test)).collect::<Vec<_>>();
 

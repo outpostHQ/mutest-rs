@@ -1,0 +1,22 @@
+profiling reference test run
+
+applying mutation:
+- [fn_return_default] return `Default::default()` without evaluating the function body at tests/ui/evaluation/count_mutation_that_crashes_harness_as_crashed.rs:13:5: 15:6
+
+the test harness crashed while evaluating mutation 1: counted as crashed; going on without it
+
+profiling reference test run
+
+applying mutation:
+- [fn_return_default] return `0` without evaluating the function body at tests/ui/evaluation/count_mutation_that_crashes_harness_as_crashed.rs:18:1: 20:2
+
+ran 1 out of 1 test
+
+applying mutation:
+- [fn_return_default] return `1` without evaluating the function body at tests/ui/evaluation/count_mutation_that_crashes_harness_as_crashed.rs:18:1: 20:2
+
+ran 1 out of 1 test
+
+mutations: 100.00%. 2 detected (0 timed out; 1 crashed); 0 undetected; 3 total
+     safe: 100.00%. 2 detected (0 timed out; 1 crashed); 0 undetected; 3 total
+   unsafe: none. 0 detected (0 timed out; 0 crashed); 0 undetected; 0 total
