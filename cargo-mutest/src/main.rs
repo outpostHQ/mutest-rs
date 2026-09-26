@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::env;
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
@@ -471,6 +472,18 @@ fn each_run_gets_its_own_build_failure_marker_inside_the_target_directory() {
     assert_ne!(build_failure_marker_path(target_dir, 4321), build_failure_marker_path(target_dir, 8765));
 }
 
+/// The variables a harness sets for the processes it starts, which all begin `__MUTEST_`.
+fn harness_internal_vars(vars: impl IntoIterator<Item = OsString>) -> Vec<OsString> {
+    vars.into_iter().filter(|var| var.as_encoded_bytes().starts_with(b"__MUTEST_")).collect()
+}
+
+#[test]
+fn a_harness_s_own_variables_are_kept_from_cargo() {
+    let vars = ["__MUTEST_RUN_AS_LIBTEST", "MUTEST_EXIT_CODE_LOG", "PATH", "__MUTEST_JOURNAL"].map(OsString::from);
+
+    assert_eq!(harness_internal_vars(vars), ["__MUTEST_RUN_AS_LIBTEST", "__MUTEST_JOURNAL"].map(OsString::from));
+}
+
 /// Named after the run, as the build failure marker is.
 fn exit_code_log_path(target_dir: &Path, run_id: u32) -> PathBuf {
     target_dir.join(format!("exit-codes-{run_id}"))
@@ -496,6 +509,13 @@ fn run_cargo_with_mutest_driver(cargo_invocation: &CargoInvocation, matches: &cl
     if !no_build { mutest_driver_outputs.push("test-bin") }
 
     let mut cmd = cargo_command_base();
+
+    // NOTE: Run from a test of a mutest-rs harness, this process has the variables the harness set
+    //       for the processes its tests start, such as the one that has its own binary run as
+    //       libtest; they are for that harness, and none of them may reach this run's.
+    for var in harness_internal_vars(env::vars_os().map(|(var, _)| var)) {
+        cmd.env_remove(var);
+    }
 
     let embedded = unstable_flags.contains(&"embedded");
     if embedded {

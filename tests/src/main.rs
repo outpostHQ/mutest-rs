@@ -220,7 +220,12 @@ struct Opts {
     /// Asked of Cargo rather than assumed to be `target/`, which is wrong whenever a build
     /// directory, a `CARGO_TARGET_DIR`, or an outer `.cargo/config.toml` moves it.
     pub driver: PathBuf,
+    /// Beside the driver, which it runs from there. Given to each generated program in
+    /// `CARGO_MUTEST_VAR`, for a test that runs `cargo mutest` itself.
+    pub cargo_mutest: PathBuf,
 }
+
+const CARGO_MUTEST_VAR: &str = "MUTEST_TESTS_CARGO_MUTEST";
 
 struct TestRunResults {
     pub ignored_tests_count: usize,
@@ -705,6 +710,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         let exit_code_log = path::absolute(Path::new(BUILD_OUT_DIR).join(format!("{test_crate_name}.exit-codes"))).expect("cannot resolve the exit code log path");
         let _ = fs::remove_file(&exit_code_log);
         cmd.env(mutest_exit_code::LOG_VAR, &exit_code_log);
+        cmd.env(CARGO_MUTEST_VAR, &opts.cargo_mutest);
 
         // Into a directory of the test's own, which is removed once the stream has been read.
         let eval_stream_dir = expectations.contains(&Expectation::EvalStream).then(|| {
@@ -916,15 +922,16 @@ fn main() {
         dry_run,
         verbosity,
         driver: target_dir.join("release").join(format!("mutest-driver{}", env::consts::EXE_SUFFIX)),
+        cargo_mutest: target_dir.join("release").join(format!("cargo-mutest{}", env::consts::EXE_SUFFIX)),
     };
 
-    // Ensure we are testing latest mutest-driver.
+    // Ensure we are testing latest mutest-driver and cargo-mutest.
     let mut cmd = Command::new("cargo");
-    cmd.args(["build", "--release", "-p", "mutest-driver"]);
+    cmd.args(["build", "--release", "-p", "mutest-driver", "-p", "cargo-mutest"]);
     cmd.stdout(Stdio::inherit());
     cmd.stderr(Stdio::inherit());
     if !cmd.output().expect("cannot spawn cargo").status.success() {
-        eprintln!("`cargo build --release -p mutest-driver` failed");
+        eprintln!("`cargo build --release -p mutest-driver -p cargo-mutest` failed");
         process::exit(1);
     }
     eprintln!();

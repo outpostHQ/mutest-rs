@@ -1348,9 +1348,15 @@ fn mutest_simulate_main<S: SubstMap>(args: &[&str], tests: Vec<test::TestDescAnd
     }
 }
 
-/// Set by the process that runs the mutation analysis in its own environment, which every process
-/// its tests start inherits. This binary run with it set runs as libtest would.
+/// Set by the process that runs the mutation analysis in its own environment, to the path of its
+/// executable, and so passed on to every process its tests start. This binary run with it set to its
+/// own path runs as libtest would; another harness a test runs is not the one it names.
 const RUN_AS_LIBTEST_VAR: &str = "__MUTEST_RUN_AS_LIBTEST";
+
+fn runs_as_libtest() -> bool {
+    let Some(marked_exe) = env::var_os(RUN_AS_LIBTEST_VAR) else { return false; };
+    env::current_exe().is_ok_and(|exe| exe.as_os_str() == marked_exe)
+}
 
 pub fn mutest_main_static(test_suite: TestSuite<'_>, meta_mutant: &'static MetaMutant<impl SubstMap + Sync>) {
     if let Ok(test_name) = env::var(test_runner::TEST_SUBPROCESS_INVOCATION) {
@@ -1378,9 +1384,9 @@ pub fn mutest_main_static(test_suite: TestSuite<'_>, meta_mutant: &'static MetaM
     // A test may run this binary again, to run one of its tests in a child process, naming that test
     // the way libtest takes it. That child runs as libtest would, with no mutation active: a mutation
     // analysis would run the test that started the child, which would start another child. However
-    // else it is run, by `cargo mutest` or by hand, and whatever its arguments, this binary runs the
-    // mutation analysis.
-    if env::var_os(RUN_AS_LIBTEST_VAR).is_some() {
+    // else it is run, by `cargo mutest`, by hand or by a test of another harness, and whatever its
+    // arguments, this binary runs the mutation analysis.
+    if runs_as_libtest() {
         let args = args.iter().map(|&arg| arg.to_owned()).collect::<Vec<_>>();
         let exit_code = test::test_main(&args, tests);
         process::exit(if exit_code == process::ExitCode::SUCCESS { 0 } else { LIBTEST_ERROR_EXIT_CODE });
@@ -1390,8 +1396,11 @@ pub fn mutest_main_static(test_suite: TestSuite<'_>, meta_mutant: &'static MetaM
     if cfg!(any(unix, windows)) && !supervisor::is_worker() {
         supervisor::supervise();
     }
-    // SAFETY: No other thread is running yet.
-    unsafe { env::set_var(RUN_AS_LIBTEST_VAR, "1") };
+    // Where this binary's path cannot be found, a test cannot run it again by its path either.
+    if let Ok(exe) = env::current_exe() {
+        // SAFETY: No other thread is running yet.
+        unsafe { env::set_var(RUN_AS_LIBTEST_VAR, exe) };
+    }
     journal::open_for_worker();
 
     let owned_tests = tests.iter().map(|test| make_owned_test_def(test)).collect::<Vec<_>>();
