@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use crate::config::WriteOptions;
 use crate::flakiness::MutationFlakinessMatrix;
-use crate::harness::{MutationAnalysisResults, MutationTestResult};
+use crate::harness::{MutationAnalysisResults, MutationOpStats, MutationTestResult};
 use crate::metadata::MutationMeta;
 use crate::test_runner;
 
@@ -84,6 +84,22 @@ impl EvaluationStreamWriter {
     }
 }
 
+/// As the summary the harness prints counts them: a mutation that timed out or crashed is neither
+/// detected nor undetected, and the score is the share of the rest that was detected.
+fn detection_stats(stats: MutationOpStats) -> mutest_json::evaluation::MutationDetectionStats {
+    mutest_json::evaluation::MutationDetectionStats {
+        mutation_score: match stats.resolved_mutations_count() {
+            0 => None,
+            resolved => Some(stats.detected_mutations_count() as f64 / resolved as f64),
+        },
+        total_mutations_count: stats.total_mutations_count,
+        detected_mutations_count: stats.detected_mutations_count(),
+        timed_out_mutations_count: stats.timed_out_mutations_count,
+        crashed_mutations_count: stats.crashed_mutations_count,
+        undetected_mutations_count: stats.undetected_mutations_count,
+    }
+}
+
 fn write_metadata<T: serde::Serialize>(write_opts: &WriteOptions, file_name: &str, data: &T) {
     let file = fs::File::create(write_opts.out_dir.join(file_name)).expect("cannot create metadata file");
     let mut buffered_file = BufWriter::new(file);
@@ -148,54 +164,26 @@ where
             };
 
             mutest_json::evaluation::MutationRun {
-                all_mutations_detection_stats: mutest_json::evaluation::MutationDetectionStats {
-                    mutation_score: match run_results.total_mutations_count {
-                        0 => None,
-                        _ => Some(run_results.detected_mutations_count() as f64 / run_results.resolved_mutations_count().max(1) as f64),
-                    },
+                all_mutations_detection_stats: detection_stats(MutationOpStats {
                     total_mutations_count: run_results.total_mutations_count,
-                    detected_mutations_count: run_results.detected_mutations_count(),
+                    undetected_mutations_count: run_results.undetected_mutations_count,
                     timed_out_mutations_count: run_results.timed_out_mutations_count,
                     crashed_mutations_count: run_results.crashed_mutations_count,
-                    undetected_mutations_count: run_results.undetected_mutations_count,
-                },
-                safe_mutations_detection_stats: mutest_json::evaluation::MutationDetectionStats {
-                    mutation_score: match run_results.total_safe_mutations_count {
-                        0 => None,
-                        _ => Some((run_results.total_safe_mutations_count - run_results.undetected_safe_mutations_count) as f64 / run_results.total_safe_mutations_count as f64),
-                    },
+                }),
+                safe_mutations_detection_stats: detection_stats(MutationOpStats {
                     total_mutations_count: run_results.total_safe_mutations_count,
-                    detected_mutations_count: run_results.total_safe_mutations_count - run_results.undetected_safe_mutations_count,
+                    undetected_mutations_count: run_results.undetected_safe_mutations_count,
                     timed_out_mutations_count: run_results.timed_out_safe_mutations_count,
                     crashed_mutations_count: run_results.crashed_safe_mutations_count,
-                    undetected_mutations_count: run_results.undetected_safe_mutations_count,
-                },
-                unsafe_mutations_detection_stats: mutest_json::evaluation::MutationDetectionStats {
-                    mutation_score: match run_results.total_mutations_count - run_results.total_safe_mutations_count {
-                        0 => None,
-                        _ => Some((run_results.detected_mutations_count() - run_results.detected_safe_mutations_count()) as f64 / (run_results.resolved_mutations_count() - run_results.resolved_safe_mutations_count()).max(1) as f64),
-                    },
+                }),
+                unsafe_mutations_detection_stats: detection_stats(MutationOpStats {
                     total_mutations_count: run_results.total_mutations_count - run_results.total_safe_mutations_count,
-                    detected_mutations_count: run_results.detected_mutations_count() - run_results.detected_safe_mutations_count(),
+                    undetected_mutations_count: run_results.undetected_mutations_count - run_results.undetected_safe_mutations_count,
                     timed_out_mutations_count: run_results.timed_out_mutations_count - run_results.timed_out_safe_mutations_count,
                     crashed_mutations_count: run_results.crashed_mutations_count - run_results.crashed_safe_mutations_count,
-                    undetected_mutations_count: run_results.undetected_mutations_count - run_results.undetected_safe_mutations_count,
-                },
+                }),
                 per_op_mutation_detection_stats: run_results.mutation_op_stats.iter()
-                    .map(|(&op_name, op_stats)| {
-                        let op_mutation_detection_stats = mutest_json::evaluation::MutationDetectionStats {
-                            mutation_score: match op_stats.total_mutations_count {
-                                0 => None,
-                                _ => Some(op_stats.detected_mutations_count() as f64 / op_stats.resolved_mutations_count().max(1) as f64),
-                            },
-                            total_mutations_count: op_stats.total_mutations_count,
-                            detected_mutations_count: op_stats.detected_mutations_count(),
-                            timed_out_mutations_count: op_stats.timed_out_mutations_count,
-                            crashed_mutations_count: op_stats.crashed_mutations_count,
-                            undetected_mutations_count: op_stats.undetected_mutations_count,
-                        };
-                        (op_name.to_owned(), op_mutation_detection_stats)
-                    })
+                    .map(|(&op_name, &op_stats)| (op_name.to_owned(), detection_stats(op_stats)))
                     .collect(),
                 mutation_detection_matrix,
                 duration: run_results.duration,
@@ -245,4 +233,67 @@ where
         test_profiling_duration,
         duration,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::env;
+    use std::fs;
+    use std::process;
+    use std::time::Duration;
+
+    use crate::config::WriteOptions;
+    use crate::detections::MutationDetectionMatrix;
+    use crate::harness::MutationAnalysisResults;
+
+    use super::write_evaluation;
+
+    /// A run of safe mutations only, as `evaluation.json` records it.
+    fn written_run(total: usize, undetected: usize, crashed: usize) -> serde_json::Value {
+        let results = MutationAnalysisResults {
+            all_test_runs_failed_successfully: undetected == 0,
+            total_mutations_count: total,
+            total_safe_mutations_count: total,
+            undetected_mutations_count: undetected,
+            undetected_safe_mutations_count: undetected,
+            timed_out_mutations_count: 0,
+            timed_out_safe_mutations_count: 0,
+            crashed_mutations_count: crashed,
+            crashed_safe_mutations_count: crashed,
+            mutation_detection_matrix: MutationDetectionMatrix::new(0),
+            mutation_op_stats: HashMap::new(),
+            duration: Duration::ZERO,
+        };
+        let out_dir = env::temp_dir().join(format!("mutest-write-test-{}-{total}-{undetected}-{crashed}", process::id()));
+        fs::create_dir_all(&out_dir).unwrap();
+        let write_opts = WriteOptions { out_dir: out_dir.clone(), eval_stream: None };
+
+        write_evaluation(&write_opts, &[], &HashMap::new(), [&results], None, Duration::ZERO, Duration::ZERO);
+
+        let evaluation = fs::read_to_string(out_dir.join("evaluation.json")).unwrap();
+        fs::remove_dir_all(&out_dir).unwrap();
+        serde_json::from_str::<serde_json::Value>(&evaluation).unwrap()["mutation_runs"][0].take()
+    }
+
+    #[test]
+    fn a_crashed_mutation_is_counted_as_crashed_and_not_as_detected() {
+        let run = written_run(3, 0, 1);
+
+        for stats in ["all_mutations_detection_stats", "safe_mutations_detection_stats"] {
+            assert_eq!(run[stats]["total_mutations_count"], 3, "{stats}");
+            assert_eq!(run[stats]["detected_mutations_count"], 2, "{stats}");
+            assert_eq!(run[stats]["crashed_mutations_count"], 1, "{stats}");
+            assert_eq!(run[stats]["mutation_score"], 1.0, "{stats}");
+        }
+    }
+
+    #[test]
+    fn a_run_in_which_no_mutation_reached_a_verdict_has_no_score() {
+        let run = written_run(1, 0, 1);
+
+        for stats in ["all_mutations_detection_stats", "safe_mutations_detection_stats"] {
+            assert_eq!(run[stats]["mutation_score"], serde_json::Value::Null, "{stats}");
+        }
+    }
 }
