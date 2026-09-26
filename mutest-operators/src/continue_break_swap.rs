@@ -1,8 +1,10 @@
 use mutest_emit::{Mutation, Operator};
 use mutest_emit::analysis::hir;
+use mutest_emit::analysis::ty;
 use mutest_emit::codegen::ast;
 use mutest_emit::codegen::mutation::{MutCtxt, MutLoc, Mutations, Subst, SubstDef, SubstLoc};
 use rustc_data_structures::smallvec::smallvec;
+use rustc_middle::ty::TyCtxt;
 
 pub const CONTINUE_BREAK_SWAP: &str = "continue_break_swap";
 
@@ -44,6 +46,21 @@ impl Mutation for ContinueBreakSwapMutation {
     }
 }
 
+/// Whether a `loop` of type `!` still type-checks as `()` that may finish: its value coerces to `()`,
+/// or it is a statement that code after it does not rely on to diverge.
+fn loop_may_become_unit<'tcx>(tcx: TyCtxt<'tcx>, typeck: &ty::TypeckResults<'tcx>, loop_hir: &'tcx hir::Expr<'tcx>) -> bool {
+    if typeck.expr_ty_adjusted(loop_hir) == tcx.types.unit { return true; }
+
+    let hir::Node::Stmt(stmt) = tcx.parent_hir_node(loop_hir.hir_id) else { return false; };
+    let hir::Node::Block(block) = tcx.parent_hir_node(stmt.hir_id) else { return false; };
+    let last_in_block = block.expr.is_none() && block.stmts.last().is_some_and(|last| last.hir_id == stmt.hir_id);
+    if !last_in_block { return true; }
+
+    // The block ends in the loop, so the block's value is the loop's divergence.
+    let hir::Node::Expr(block_expr) = tcx.parent_hir_node(block.hir_id) else { return false; };
+    typeck.expr_ty_adjusted(block_expr) == tcx.types.unit
+}
+
 /// Swap continue expressions for break expressions and vice versa.
 pub struct ContinueBreakSwap;
 
@@ -72,8 +89,17 @@ impl<'a> Operator<'a> for ContinueBreakSwap {
 
         let (hir::ExprKind::Continue(destination) | hir::ExprKind::Break(destination, _)) = expr_hir.kind else { unreachable!() };
         let target_hir_id = destination.target_id.unwrap();
+        // A `break` may leave a labeled block, which has nothing to `continue`.
+        let hir::Node::Expr(target_hir @ hir::Expr { kind: hir::ExprKind::Loop(..), .. }) = tcx.hir_node(target_hir_id) else { return Mutations::none(); };
+
         let target_ty = typeck.node_type(target_hir_id);
-        if target_ty != tcx.types.unit && target_ty != tcx.types.never { return Mutations::none(); }
+        let compiles = match &expr.kind {
+            // Only a `loop` without a `break` has type `!`, and a `continue` swapped for a `break` gives it
+            // one, so it becomes `()` and can finish.
+            ast::ExprKind::Continue(_) if target_ty == tcx.types.never => loop_may_become_unit(tcx, typeck, target_hir),
+            _ => target_ty == tcx.types.unit || target_ty == tcx.types.never,
+        };
+        if !compiles { return Mutations::none(); }
 
         let mutation = Self::Mutation {
             original_expr: expr.kind.clone(),

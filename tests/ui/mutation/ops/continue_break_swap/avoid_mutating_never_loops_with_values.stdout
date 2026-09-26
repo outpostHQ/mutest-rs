@@ -1,0 +1,7 @@
+[continue_break_swap] swap continue for break in count_to at tests/ui/mutation/ops/continue_break_swap/avoid_mutating_never_loops_with_values.rs:45:13: 45:21
+  <-(0)- test
+
+[continue_break_swap] swap continue for break in count_before_tail at tests/ui/mutation/ops/continue_break_swap/avoid_mutating_never_loops_with_values.rs:57:13: 57:21
+  <-(0)- test
+
+2 mutations; 2 safe; 0 unsafe (0 tainted)
