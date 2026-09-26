@@ -22,7 +22,18 @@ fn extract_file(path: &Path, content: &[u8]) {
 
     if existing_file_up_to_date { return; }
 
-    fs::write(path, content).expect(&format!("cannot write file `{}`", path.display()));
+    // Every driver of a build extracts into the same directory, while another may already be
+    // compiling against the file: write it aside and rename it over, which replaces it whole.
+    let mut temp_file_name = path.file_name().expect("extracted file has no name").to_owned();
+    temp_file_name.push(format!(".{}.tmp", std::process::id()));
+    let temp_path = path.with_file_name(temp_file_name);
+    fs::write(&temp_path, content).unwrap_or_else(|error| panic!("cannot write file `{}`: {error}", temp_path.display()));
+    if let Err(error) = fs::rename(&temp_path, path) {
+        let _ = fs::remove_file(&temp_path);
+        // Windows refuses to replace a file another process has open; that process extracted it.
+        if fs::read(path).is_ok_and(|file_content| file_content == content) { return; }
+        panic!("cannot write file `{}`: {error}", path.display());
+    }
 }
 
 const MUTEST_EXTRACTED_DEPS_DIR_NAME: &str = "mutest_deps";
@@ -119,13 +130,18 @@ pub fn inject_runtime_crate_and_deps(config: &Config, compiler_config: &mut Comp
     let host_triple = host_tuple();
     let target_triple = compiler_config.opts.target_triple.tuple();
 
-    let mutest_host_artifacts_dir_path = if cfg!(feature = "embed-runtime") {
+    // The runtime this binary embeds is built for the host, and is the only one it embeds: a
+    // cross-compiled or embedded runtime is looked for in a mutest-rs build directory, as it is by a
+    // driver built without embedding.
+    let runtime_embedded = cfg!(feature = "embed-runtime") && target_triple == host_triple && !config.opts.unstable_flags.embedded;
+
+    let mutest_host_artifacts_dir_path = if runtime_embedded {
         &config.target_dir_root().join(MUTEST_EXTRACTED_DEPS_DIR_NAME)
     } else {
         config.mutest_search_path.as_deref().unwrap_or(Path::new(COMPILETIME_ARTIFACTS_DIR))
     };
 
-    let mutest_host_deps_dir_path = if cfg!(feature = "embed-runtime") {
+    let mutest_host_deps_dir_path = if runtime_embedded {
         mutest_host_artifacts_dir_path
     } else {
         match &config.mutest_search_path {
@@ -137,12 +153,6 @@ pub fn inject_runtime_crate_and_deps(config: &Config, compiler_config: &mut Comp
     let mutest_target_artifacts_dir_path = match target_triple == host_triple {
         true => mutest_host_artifacts_dir_path,
         false => {
-            if cfg!(feature = "embed-runtime") {
-                let mut diag = early_dcx.early_struct_fatal("mutest-rs with runtime embedding does not support cross-compilation");
-                diag.note(format!("target: `{target_triple}`"));
-                diag.emit();
-            }
-
             let profile = mutest_host_artifacts_dir_path.file_name().expect("invalid mutest search path");
             let root_dir_path = mutest_host_artifacts_dir_path.parent().expect("invalid mutest search path");
 
@@ -297,12 +307,7 @@ pub fn inject_test_crate_shim_if_no_target_std(config: &Config, compiler_config:
         diag.emit();
     }
 
-    if cfg!(feature = "embed-runtime") {
-        let mut diag = early_dcx.early_struct_fatal("mutest-rs with runtime embedding does not support cross-compilation");
-        diag.note(format!("target: `{target_triple}`"));
-        diag.emit();
-    }
-
+    // The shim is never embedded: it is looked for in a mutest-rs build directory.
     let mutest_host_artifacts_dir_path = config.mutest_search_path.as_deref().unwrap_or(Path::new(COMPILETIME_ARTIFACTS_DIR));
 
     let mutest_target_artifacts_dir_path = {
@@ -350,6 +355,24 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::specialized_mutant_crate_paths;
+
+    #[cfg(feature = "embed-runtime")]
+    #[test]
+    fn an_extracted_file_replaces_a_stale_one_and_leaves_nothing_beside_it() {
+        use std::fs;
+
+        let dir_path = std::env::temp_dir().join(format!("mutest-extract-{}", std::process::id()));
+        fs::create_dir_all(&dir_path).unwrap();
+        let file_path = dir_path.join("libmutest_runtime.rlib");
+        fs::write(&file_path, b"stale").unwrap();
+
+        super::extract_file(&file_path, b"current");
+        super::extract_file(&file_path, b"current");
+
+        assert_eq!(fs::read(&file_path).unwrap(), b"current");
+        assert_eq!(fs::read_dir(&dir_path).unwrap().count(), 1);
+        fs::remove_dir_all(&dir_path).unwrap();
+    }
 
     #[test]
     fn a_crate_linking_the_specialized_mutant_is_offered_its_full_metadata_beside_its_rlib() {

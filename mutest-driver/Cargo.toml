@@ -38,7 +38,10 @@ rand_seeder = "0.5"
 cargo_metadata = "0.23"
 
 [features]
-default = []
+# On by default, so that `cargo install --path mutest-driver` installs a driver that carries its
+# runtime and needs nothing from this checkout's `target/` once installed. Without it the driver
+# links the runtime from the build directory it was built in, which is gone after a `cargo clean`.
+default = ["embed-runtime"]
 embed-runtime = []
 
 [lints]

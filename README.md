@@ -59,6 +59,8 @@ cargo install --force --path cargo-mutest
 
 > `mutest-driver` embeds a release build of `mutest-runtime`, so the runtime has to exist before the driver is built. On a machine that has built this workspace before it already does, which is why the first line is easy to leave out and then miss; on a clean checkout its absence stops the install with "cannot find mutest-runtime rlib file for embedding".
 
+> The installed driver carries that runtime and its dependencies inside itself (the default `embed-runtime` feature) and unpacks them into `target/mutest/mutest_deps` of the package it tests, so nothing in this checkout's `target/` is needed once it is installed. A driver built with `--no-default-features` links the runtime from the directory it was built in instead, as do cross-compiled and `-Z embedded` runs, whose runtimes are never embedded.
+
 ## Usage
 
 Run the `cargo mutest run` subcommand against a standard Cargo package or workspace directory containing your crate.
