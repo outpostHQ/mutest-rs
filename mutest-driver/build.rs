@@ -122,6 +122,27 @@ fn fetch_rlib_deps(crate_name: &str, rlib_path: &Path, dep_dirs: &[PathBuf]) -> 
     dep_paths
 }
 
+/// Whether a member of the archive is LLVM bitcode. Under LTO, Cargo builds a library that nothing
+/// in the build links as bitcode alone (`-C linker-plugin-lto`), leaving the linking to the final
+/// binary's LTO, and the runtime is linked into test binaries that are not built by this build.
+fn holds_llvm_bitcode(rlib_path: &Path) -> bool {
+    const AR_MAGIC: &[u8] = b"!<arch>\n";
+    const BITCODE_MAGIC: &[u8] = b"BC\xC0\xDE";
+
+    let Ok(archive) = fs::read(rlib_path) else { return false; };
+    let Some(mut members) = archive.strip_prefix(AR_MAGIC) else { return false; };
+    // Each member is a 60-byte header, whose bytes 48..58 are the size in decimal, then its data,
+    // padded to an even length.
+    while members.len() >= 60 {
+        let (header, rest) = members.split_at(60);
+        let Some(size) = std::str::from_utf8(&header[48..58]).ok().and_then(|size| size.trim().parse::<usize>().ok()) else { return false; };
+        let Some(data) = rest.get(..size) else { return false; };
+        if data.starts_with(BITCODE_MAGIC) { return true; }
+        members = rest.get(size + size % 2..).unwrap_or_default();
+    }
+    false
+}
+
 fn main() {
     let profile = env::var("PROFILE").unwrap();
 
@@ -155,6 +176,10 @@ fn main() {
     println!("cargo:rerun-if-changed={}", mutest_runtime_rlib_path.display());
     if !fs::exists(&mutest_runtime_rlib_path).unwrap() {
         println!("cargo::error=cannot find mutest-runtime rlib file for embedding: the crate must be built explicitly first: run `cargo build --profile={profile} -p mutest-runtime`");
+        return;
+    }
+    if holds_llvm_bitcode(&mutest_runtime_rlib_path) {
+        println!("cargo::error=the mutest-runtime rlib holds LLVM bitcode where its object code should be, which only a linker given LLVM's plugin can link into a test binary: rebuild it without LTO, with `cargo build --profile={profile} -p mutest-runtime`");
         return;
     }
 

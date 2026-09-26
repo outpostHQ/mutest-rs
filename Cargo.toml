@@ -28,5 +28,8 @@ rc_buffer = "warn"
 [profile.release]
 # No `strip`: the driver installs an ICE hook and the runtime is linked into users' test
 # binaries, so both need their frames to survive into a backtrace.
-lto = true
+#
+# No `lto`: under LTO Cargo builds the runtime rlib as LLVM bitcode alone, which a user's linker
+# cannot link into a test binary unless it has LLVM's plugin. `mutest-driver`'s build script
+# refuses such an rlib.
 codegen-units = 1
