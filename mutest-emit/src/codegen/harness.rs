@@ -125,7 +125,7 @@ fn mk_mutations_mod<'tcx, 'ent, 'trg, 'm>(sp: Span, tcx: TyCtxt<'tcx>, entry_poi
         ast::Safety::Default,
         Ident::new(sym::allow, sp),
         ast::mk::attr_args_delimited(sp, ast::token::Delimiter::Parenthesis, ast::mk::token_stream(vec![
-            ast::mk::tt_token_joint(sp, ast::TokenKind::Ident(sym::non_upper_case_globals, ast::token::IdentIsRaw::No)),
+            ast::mk::tt_token_joint(sp, ast::TokenKind::Ident(sym::non_upper_case_globals, ast::token::IdentKind::Normal)),
         ])),
     );
 
@@ -541,7 +541,7 @@ pub fn generate_harness<'tcx, 'ent, 'trg, 'm>(
         let feature_test_attr = ast::mk::attr_inner(g, def_site,
             Ident::new(sym::feature, def_site),
             ast::mk::attr_args_delimited(def_site, ast::token::Delimiter::Parenthesis, ast::mk::token_stream(vec![
-                ast::mk::tt_token_joint(def_site, ast::TokenKind::Ident(sym::test, ast::token::IdentIsRaw::No)),
+                ast::mk::tt_token_joint(def_site, ast::TokenKind::Ident(sym::test, ast::token::IdentKind::Normal)),
             ])),
         );
         krate.attrs.push(feature_test_attr);
@@ -551,7 +551,7 @@ pub fn generate_harness<'tcx, 'ent, 'trg, 'm>(
         let feature_custom_test_frameworks_attr = ast::mk::attr_inner(g, def_site,
             Ident::new(sym::feature, def_site),
             ast::mk::attr_args_delimited(def_site, ast::token::Delimiter::Parenthesis, ast::mk::token_stream(vec![
-                ast::mk::tt_token_joint(def_site, ast::TokenKind::Ident(sym::custom_test_frameworks, ast::token::IdentIsRaw::No)),
+                ast::mk::tt_token_joint(def_site, ast::TokenKind::Ident(sym::custom_test_frameworks, ast::token::IdentKind::Normal)),
             ])),
         );
         krate.attrs.push(feature_custom_test_frameworks_attr);

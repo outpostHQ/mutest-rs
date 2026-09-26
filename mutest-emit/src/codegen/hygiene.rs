@@ -440,7 +440,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
             },
         ));
         diagnostic.note(format!("expected at {}", std::panic::Location::caller()));
-        diagnostic.emit();
+        diagnostic.emit_bug();
     }
 
     #[must_use]
@@ -1899,7 +1899,7 @@ pub fn sanitize_macro_expansions<'tcx>(tcx: TyCtxt<'tcx>, crate_res: &res::Crate
 
     // Find the prelude module of this crate, whose contents are available in every module.
     let prelude_mod = tcx.hir_root_module().item_ids.iter().find_map(|&item_id| {
-        let hir::ItemKind::Use(use_path, hir::UseKind::Glob) = tcx.hir_item(item_id).kind else { return None; };
+        let hir::ItemKind::Use(hir::UseTree { prefix: use_path, kind: hir::UseKind::Glob }) = tcx.hir_item(item_id).kind else { return None; };
         if !hir::find_attr!(tcx.hir_attrs(item_id.hir_id()), PreludeImport) { return None; };
 
         // HACK: The resolutions on the prelude import use path are all `Err`, so we resolve the def manually,
@@ -1945,7 +1945,7 @@ pub fn sanitize_macro_expansions<'tcx>(tcx: TyCtxt<'tcx>, crate_res: &res::Crate
             let feature_allow_internal_unstable_attr = ast::mk::attr_inner(g, DUMMY_SP,
                 Ident::new(sym::feature, DUMMY_SP),
                 ast::mk::attr_args_delimited(DUMMY_SP, ast::token::Delimiter::Parenthesis, ast::mk::token_stream(vec![
-                    ast::mk::tt_token_joint(DUMMY_SP, ast::TokenKind::Ident(allow_internal_unstable, ast::token::IdentIsRaw::No)),
+                    ast::mk::tt_token_joint(DUMMY_SP, ast::TokenKind::Ident(allow_internal_unstable, ast::token::IdentKind::Normal)),
                 ])),
             );
             krate.attrs.push(feature_allow_internal_unstable_attr);
@@ -1962,7 +1962,7 @@ pub fn sanitize_macro_expansions<'tcx>(tcx: TyCtxt<'tcx>, crate_res: &res::Crate
                 let attr = ast::mk::attr_inner(g, DUMMY_SP,
                     Ident::new(sym::$meta, DUMMY_SP),
                     ast::mk::attr_args_delimited(DUMMY_SP, ast::token::Delimiter::Parenthesis, ast::mk::token_stream(vec![
-                        ast::mk::tt_token_joint(DUMMY_SP, ast::TokenKind::Ident(kind, ast::token::IdentIsRaw::No)),
+                        ast::mk::tt_token_joint(DUMMY_SP, ast::TokenKind::Ident(kind, ast::token::IdentKind::Normal)),
                     ])),
                 );
                 krate.attrs.push(attr);

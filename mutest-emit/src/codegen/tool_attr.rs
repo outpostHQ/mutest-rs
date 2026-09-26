@@ -11,7 +11,7 @@ pub fn register(sess: &Session, krate: &mut ast::Crate) {
     let word_attr = |name, arg| ast::mk::attr_inner(g, DUMMY_SP,
         Ident::new(name, DUMMY_SP),
         ast::mk::attr_args_delimited(DUMMY_SP, ast::token::Delimiter::Parenthesis, ast::mk::token_stream(vec![
-            ast::mk::tt_token_joint(DUMMY_SP, ast::TokenKind::Ident(arg, ast::token::IdentIsRaw::No)),
+            ast::mk::tt_token_joint(DUMMY_SP, ast::TokenKind::Ident(arg, ast::token::IdentKind::Normal)),
         ])),
     );
 

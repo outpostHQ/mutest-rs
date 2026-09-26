@@ -1,7 +1,7 @@
 //@ build
 //@ stderr: empty
 
-#![feature(allocator_api)]
+#![feature(allocator_ext)]
 #![feature(decl_macro)]
 
 #![allow(unused)]

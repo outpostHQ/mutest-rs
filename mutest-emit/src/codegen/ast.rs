@@ -948,7 +948,7 @@ pub mod mk {
         assert!(path.segments.last().is_some_and(|s| s.args.is_none()));
 
         let path_sep_token = |sp: Span| self::tt_token_joint(sp, ast::token::TokenKind::PathSep);
-        let segment_token = |sp: Span, segment: ast::PathSegment| self::tt_token_joint_hidden(sp, ast::token::TokenKind::Ident(segment.ident.name, ast::token::IdentIsRaw::No));
+        let segment_token = |sp: Span, segment: ast::PathSegment| self::tt_token_joint_hidden(sp, ast::token::TokenKind::Ident(segment.ident.name, ast::token::IdentKind::Normal));
 
         let is_global = path.segments[0].ident.name == Symbol::intern("");
         let mut tokens = Vec::with_capacity(2 * path.segments.len() - 1 + is_global as usize);
@@ -1059,7 +1059,7 @@ impl Descr for ast::ExprKind {
             ast::ExprKind::IncludedBytes(..) => "included bytes",
             ast::ExprKind::FormatArgs(..) => "format_args",
             ast::ExprKind::UnsafeBinderCast(..) => "unsafe binder cast",
-            ast::ExprKind::DirectConstArg(..) => "direct const arg",
+            ast::ExprKind::GcaMacro(..) => "gca macro",
             ast::ExprKind::Err(..) => "error",
             ast::ExprKind::Dummy => "dummy",
         }
@@ -1113,7 +1113,7 @@ impl Descr for ast::TyKind {
             ast::TyKind::Pat(..) => "pattern",
             ast::TyKind::FieldOf(..) => "field of",
             ast::TyKind::View(..) => "view",
-            ast::TyKind::DirectConstArg(..) => "direct const arg",
+            ast::TyKind::GcaMacro(..) => "gca macro",
             ast::TyKind::Paren(..) => "parentheses",
             ast::TyKind::MacCall(..) => "macro call",
             ast::TyKind::Err(..) => "error",

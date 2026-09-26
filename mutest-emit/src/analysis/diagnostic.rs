@@ -42,7 +42,7 @@ impl<T: Write> Write for SharedBuffer<T> {
     }
 }
 
-fn emit_with_emitter<G>(mut diagnostic: Diag<G>, emitter: Box<DynEmitter>) {
+fn emit_with_emitter(mut diagnostic: Diag<'_>, emitter: Box<DynEmitter>) {
     let emit_dcx = DiagCtxt::new(emitter);
 
     // Cast reference to the temporary diagnostic context to
@@ -52,13 +52,12 @@ fn emit_with_emitter<G>(mut diagnostic: Diag<G>, emitter: Box<DynEmitter>) {
     let emit_dcx_ref: &DiagCtxt = unsafe { &*(&emit_dcx as *const _) };
     diagnostic.dcx = emit_dcx_ref.handle();
 
-    // NOTE: `emit` is only defined for the concrete emission guarantees, all of which
-    //       delegate the emission itself to this.
-    diagnostic.emit_producing_nothing();
+    // NOTE: `emit` aborts after a `Bug` or `Fatal` diagnostic; only warnings and notes are rendered here.
+    diagnostic.emit();
 }
 
-pub fn raw_output_full<G>(
-    diagnostic: Diag<G>,
+pub fn raw_output_full(
+    diagnostic: Diag<'_>,
     source_map: Option<Arc<SourceMap>>,
     short_message: bool,
     ui_testing: bool,
@@ -102,8 +101,8 @@ pub fn raw_output_full<G>(
     Mutex::into_inner(Arc::try_unwrap(output).unwrap()).unwrap()
 }
 
-pub fn output_full<G>(
-    diagnostic: Diag<G>,
+pub fn output_full(
+    diagnostic: Diag<'_>,
     source_map: Option<Arc<SourceMap>>,
     short_message: bool,
     ui_testing: bool,
@@ -119,7 +118,7 @@ pub fn output_full<G>(
     String::from_utf8(bytes).unwrap()
 }
 
-pub fn output<G>(diagnostic: Diag<G>, sess: &Session) -> String {
+pub fn output(diagnostic: Diag<'_>, sess: &Session) -> String {
     let source_map = Some(sess.psess.clone_source_map());
     let short_message = false;
     let ui_testing = sess.opts.unstable_opts.ui_testing;
@@ -134,6 +133,6 @@ pub fn output<G>(diagnostic: Diag<G>, sess: &Session) -> String {
     output_full(diagnostic, source_map, short_message, ui_testing, ignored_directories_in_source_blocks, diagnostic_width, macro_backtrace, track_diagnostics, terminal_url, theme, color_config)
 }
 
-pub fn emit_str<G>(diagnostic: Diag<G>, sess: &Session) -> String {
+pub fn emit_str(diagnostic: Diag<'_>, sess: &Session) -> String {
     output(diagnostic, sess)
 }

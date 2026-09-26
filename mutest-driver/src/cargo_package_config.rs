@@ -235,7 +235,7 @@ pub fn fetch_merged_cargo_package_config<'op, 'm>(early_dcx: &EarlyDiagCtxt) -> 
 
                     let mut diagnostic = early_dcx.early_struct_fatal(format!("{error}"));
                     diagnostic.note(format!("while parsing `package.metadata.mutest` in Cargo package manifest `{}`", package_manifest_path));
-                    diagnostic.emit();
+                    diagnostic.emit_fatal();
                 }
             }
         }
@@ -249,7 +249,7 @@ pub fn fetch_merged_cargo_package_config<'op, 'm>(early_dcx: &EarlyDiagCtxt) -> 
                 Err(error) => {
                     let mut diagnostic = early_dcx.early_struct_fatal(format!("{error}"));
                     diagnostic.note("while parsing `workspace.metadata.mutest` in Cargo workspace manifest");
-                    diagnostic.emit();
+                    diagnostic.emit_fatal();
                 }
             }
         }

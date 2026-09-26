@@ -245,7 +245,7 @@ pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
                         for &cnum in cnums {
                             diagnostic.note(format!("crate candidate: `{}`", tcx.crate_name(cnum)));
                         }
-                        diagnostic.emit();
+                        diagnostic.emit_fatal();
                     }
                 }
             });

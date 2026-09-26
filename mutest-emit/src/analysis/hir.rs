@@ -364,19 +364,19 @@ pub mod attr {
 
     pub fn is_word_attr(attr: &hir::Attribute, tool: Option<Symbol>, word: Symbol) -> bool {
         let hir::Attribute::Unparsed(attr_item) = &attr else { return false; };
-        let hir::AttrArgs::Empty = &attr_item.args else { return false; };
+        let hir::attrs::AttrArgs::Empty = &attr_item.args else { return false; };
         match_attr_name(attr, tool, word)
     }
 
     pub fn is_name_value_attr(attr: &hir::Attribute, tool: Option<Symbol>, name: Symbol, value: &ast::LitKind) -> bool {
         let hir::Attribute::Unparsed(attr_item) = &attr else { return false; };
-        let hir::AttrArgs::Eq { expr: lit, .. } = &attr_item.args else { return false; };
+        let hir::attrs::AttrArgs::Eq { expr: lit, .. } = &attr_item.args else { return false; };
         match_attr_name(attr, tool, name) && lit.kind == *value
     }
 
     pub fn is_list_attr_with_path(attr: &hir::Attribute, tool: Option<Symbol>, name: Symbol, path: &ast::Path) -> bool {
         let hir::Attribute::Unparsed(attr_item) = &attr else { return false; };
-        let hir::AttrArgs::Delimited(_delimited_args) = &attr_item.args else { return false; };
+        let hir::attrs::AttrArgs::Delimited(_delimited_args) = &attr_item.args else { return false; };
         match_attr_name(attr, tool, name) && attr.meta_item_list().iter().flatten().any(|meta_item| {
             let hir::MetaItemInner::MetaItem(ast::MetaItem { path: meta_path, kind: ast::MetaItemKind::Word, .. }) = meta_item else { return false };
             iter::zip(&meta_path.segments, &path.segments).all(|(a, b)| a.ident.name == b.ident.name)
@@ -385,7 +385,7 @@ pub mod attr {
 
     pub fn is_list_attr_with_ident(attr: &hir::Attribute, tool: Option<Symbol>, name: Symbol, ident: Symbol) -> bool {
         let hir::Attribute::Unparsed(attr_item) = &attr else { return false; };
-        let hir::AttrArgs::Delimited(_delimited_args) = &attr_item.args else { return false; };
+        let hir::attrs::AttrArgs::Delimited(_delimited_args) = &attr_item.args else { return false; };
         match_attr_name(attr, tool, name) && attr.meta_item_list().iter().flatten().any(|meta_item| {
             let hir::MetaItemInner::MetaItem(ast::MetaItem { path: meta_path, kind: ast::MetaItemKind::Word, .. }) = meta_item else { return false };
             meta_path.segments.len() == 1 && meta_path.segments[0].ident.name == ident

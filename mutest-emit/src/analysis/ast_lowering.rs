@@ -39,8 +39,11 @@ impl DefResolutions {
             })
             .collect();
 
+        // Each use item is one owner now, holding the resolutions of every tree nested in it.
         let import_res_map = resolver.owners.items()
-            .map(|(_, owner_resolver_data)| (owner_resolver_data.id, owner_resolver_data.import_res))
+            .flat_map(|(_, owner_resolver_data)| {
+                owner_resolver_data.import_res.items().map(|(&node_id, &import_res)| (node_id, import_res))
+            })
             .collect();
 
         Self {
@@ -2447,7 +2450,7 @@ fn disambiguate_hir_def_item_node_path_components<'tcx>(tcx: TyCtxt<'tcx>, path:
         match def_item {
             hir::DefItem::Item(item) => match item.kind {
                 hir::ItemKind::ExternCrate(_, ident) => Some(hir::DefPathData::TypeNs(ident.name)),
-                hir::ItemKind::Use(_, _) => None,
+                hir::ItemKind::Use(_) => None,
                 hir::ItemKind::Static(_, ident, _, _) => Some(hir::DefPathData::ValueNs(ident.name)),
                 hir::ItemKind::Const(ident, _, _, _) => Some(hir::DefPathData::ValueNs(ident.name)),
                 hir::ItemKind::Fn { ident, .. } => Some(hir::DefPathData::ValueNs(ident.name)),
@@ -2575,7 +2578,7 @@ where
             hir::ItemKind::ExternCrate(symbol_hir, _) => {
                 matching_item!(ast::DefItemKind::ExternCrate(symbol_ast, _) if symbol_ast == symbol_hir)
             }
-            hir::ItemKind::Use(_, _) => None,
+            hir::ItemKind::Use(_) => None,
             hir::ItemKind::Static(_, _, _, _) => {
                 matching_item!(ast::DefItemKind::Static(_) => |item_ast| Some(item_ast.ident()) == item_hir.kind.ident())
             }
