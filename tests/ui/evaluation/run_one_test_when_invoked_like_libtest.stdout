@@ -1,0 +1,15 @@
+profiling reference test run
+
+applying mutation:
+- [fn_return_default] return `0` without evaluating the function body at tests/ui/evaluation/run_one_test_when_invoked_like_libtest.rs:16:1: 18:2
+
+ran 1 out of 1 test
+
+applying mutation:
+- [fn_return_default] return `1` without evaluating the function body at tests/ui/evaluation/run_one_test_when_invoked_like_libtest.rs:16:1: 18:2
+
+ran 1 out of 1 test
+
+mutations: 100.00%. 2 detected (0 timed out; 0 crashed); 0 undetected; 2 total
+     safe: 100.00%. 2 detected (0 timed out; 0 crashed); 0 undetected; 2 total
+   unsafe: none. 0 detected (0 timed out; 0 crashed); 0 undetected; 0 total

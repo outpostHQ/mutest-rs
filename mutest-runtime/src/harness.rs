@@ -1293,6 +1293,20 @@ fn mutest_simulate_main<S: SubstMap>(args: &[&str], tests: Vec<test::TestDescAnd
     }
 }
 
+/// Whether the arguments name tests, or ask for a list of them, as only libtest's do: every option
+/// of this harness is a flag.
+fn is_libtest_invocation(args: &[&str]) -> bool {
+    args.iter().skip(1).any(|&arg| !arg.starts_with('-') || arg == "--list")
+}
+
+#[test]
+fn test_is_libtest_invocation() {
+    assert!(is_libtest_invocation(&["harness", "durable::runs_until_killed", "--exact", "--nocapture"]));
+    assert!(is_libtest_invocation(&["harness", "--list", "--format", "terse"]));
+    assert!(!is_libtest_invocation(&["harness"]));
+    assert!(!is_libtest_invocation(&["harness", "--isolate=unsafe", "--metadata-out-root-dir=/tmp/json", "-v", "--exhaustive"]));
+}
+
 pub fn mutest_main_static(test_suite: TestSuite<'_>, meta_mutant: &'static MetaMutant<impl SubstMap + Sync>) {
     if let Ok(test_name) = env::var(test_runner::TEST_SUBPROCESS_INVOCATION) {
         // SAFETY: No other thread is running.
@@ -1309,17 +1323,26 @@ pub fn mutest_main_static(test_suite: TestSuite<'_>, meta_mutant: &'static MetaM
         mutest_isolated_worker(test, meta_mutant)
     }
 
-    // The analysis runs in a second process, so that this one can clean up after it.
-    if cfg!(any(unix, windows)) && !supervisor::is_worker() {
-        supervisor::supervise();
-    }
-
     let args = env::args().collect::<Vec<_>>();
     let args = args.iter().map(String::as_ref).collect::<Vec<&str>>();
 
     let (tests, external_tests_extra) = match test_suite {
         TestSuite::Tests(tests, external_tests_extra) => (tests, external_tests_extra),
     };
+
+    // A test that runs this binary again, to run one of its tests in a child process, names that
+    // test the way libtest takes it. Run it as libtest would, with no mutation active: a mutation
+    // analysis would run the test that started the child, which would start another child.
+    if is_libtest_invocation(&args) {
+        let args = args.iter().map(|&arg| arg.to_owned()).collect::<Vec<_>>();
+        let exit_code = test::test_main(&args, tests);
+        process::exit(if exit_code == process::ExitCode::SUCCESS { 0 } else { ERROR_EXIT_CODE });
+    }
+
+    // The analysis runs in a second process, so that this one can clean up after it.
+    if cfg!(any(unix, windows)) && !supervisor::is_worker() {
+        supervisor::supervise();
+    }
 
     let owned_tests = tests.iter().map(|test| make_owned_test_def(test)).collect::<Vec<_>>();
 
