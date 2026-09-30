@@ -88,102 +88,91 @@ pub(crate) fn dispatch() {
 #[cfg(target_os = "linux")]
 mod linux {
     use std::env;
-    use std::fs::File;
     use std::io::{Read, Write};
-    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::os::fd::{AsFd, OwnedFd};
     use std::os::unix::net::UnixStream;
-    use std::os::unix::process::{CommandExt, ExitStatusExt};
-    use std::process::{self, Child, ExitStatus};
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::{self, Child, ExitStatus, Stdio};
+    use std::sync::{Arc, Mutex, PoisonError};
     use std::thread;
     use std::time::Instant;
 
     use super::*;
 
-    const OWNER_FD: &str = "__MUTEST_TEST_OWNER_FD";
+    const OWNER: &str = "__MUTEST_TEST_OWNER";
     const TIMEOUT: &str = "__MUTEST_TEST_OWNER_TIMEOUT_NANOS";
     const READY: u8 = 0xa1;
     const EXITED: u8 = 0;
     const TIMED_OUT: u8 = 1;
     const CANCELLED: u8 = 2;
     const FRAME_LEN: usize = 14;
-    const DRAIN_QUANTUM: usize = 64 * 1024;
-
-    /// Sets or clears `flag` among a descriptor's flags, the ones `get` reads and `set` writes.
-    fn set_fd_flag(fd: i32, get: i32, set: i32, flag: i32, on: bool) -> io::Result<()> {
-        // SAFETY: `fcntl` only reads and writes the flags of a descriptor the caller holds open.
-        unsafe {
-            let flags = libc::fcntl(fd, get);
-            if flags < 0 || libc::fcntl(fd, set, if on { flags | flag } else { flags & !flag }) < 0 {
-                return Err(io::Error::last_os_error());
-            }
-        }
-        Ok(())
-    }
-
-    fn nonblocking(fd: i32) -> io::Result<()> {
-        set_fd_flag(fd, libc::F_GETFL, libc::F_SETFL, libc::O_NONBLOCK, true)
-    }
-
-    fn close_on_exec(fd: i32, on: bool) -> io::Result<()> {
-        set_fd_flag(fd, libc::F_GETFD, libc::F_SETFD, libc::FD_CLOEXEC, on)
-    }
 
     #[cfg(test)]
     fn scenario_is(name: &str) -> bool {
         env::var("MUTEST_LIFECYCLE_SCENARIO").is_ok_and(|scenario| scenario == name)
     }
 
-    struct Capture {
-        pipe: Option<File>,
+    /// What has been read from a pipe: at most `OUTPUT_LIMIT` bytes, and how many more there were.
+    #[derive(Default)]
+    struct Captured {
         bytes: Vec<u8>,
         discarded: usize,
+        error: Option<io::Error>,
+    }
+
+    /// A pipe read to its end on a thread of its own, so that a descendant holding it open cannot block the owner.
+    struct Capture {
+        output: Arc<Mutex<Captured>>,
+        reader: Option<thread::JoinHandle<()>>,
     }
 
     impl Capture {
-        fn new(pipe: Option<OwnedFd>) -> io::Result<Self> {
-            if let Some(pipe) = &pipe {
-                nonblocking(pipe.as_raw_fd())?;
-            }
-            Ok(Self {
-                pipe: pipe.map(File::from),
-                bytes: Vec::new(),
-                discarded: 0,
-            })
+        fn new(pipe: Option<impl Read + Send + 'static>) -> Self {
+            let output = Arc::new(Mutex::new(Captured::default()));
+            let reader = pipe.map(|mut pipe| {
+                let output = Arc::clone(&output);
+                thread::spawn(move || {
+                    let mut buffer = [0; 16384];
+                    loop {
+                        let read = pipe.read(&mut buffer);
+                        let mut output = output.lock().unwrap_or_else(PoisonError::into_inner);
+                        match read {
+                            Ok(0) => return,
+                            Ok(n) => {
+                                let keep = n.min(OUTPUT_LIMIT - output.bytes.len());
+                                output.bytes.extend_from_slice(&buffer[..keep]);
+                                output.discarded = output.discarded.saturating_add(n - keep);
+                            }
+                            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                            Err(error) => {
+                                output.error = Some(error);
+                                return;
+                            }
+                        }
+                    }
+                })
+            });
+            Self { output, reader }
         }
 
-        fn drain(&mut self) -> io::Result<()> {
-            let Some(pipe) = &mut self.pipe else {
-                return Ok(());
-            };
-            let mut buffer = [0; 16384];
-            let mut drained = 0;
-            while drained < DRAIN_QUANTUM {
-                match pipe.read(&mut buffer) {
-                    Ok(0) => {
-                        self.pipe = None;
-                        break;
-                    }
-                    Ok(n) => {
-                        let keep = n.min(OUTPUT_LIMIT - self.bytes.len());
-                        self.bytes.extend_from_slice(&buffer[..keep]);
-                        self.discarded = self.discarded.saturating_add(n - keep);
-                        drained += n;
-                    }
-                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
-                    Err(error) if error.kind() == io::ErrorKind::Interrupted => break,
-                    Err(error) => return Err(error),
-                }
-            }
-            Ok(())
+        /// Whether the pipe has been read to its end.
+        fn closed(&self) -> bool {
+            self.reader.as_ref().is_none_or(|reader| reader.is_finished())
         }
 
-        fn finish(mut self) -> Vec<u8> {
-            if self.discarded > 0 {
-                self.bytes.extend_from_slice(
-                    format!("\n[mutest truncated {} output bytes]\n", self.discarded).as_bytes(),
-                );
+        /// The last `len` bytes read so far.
+        fn tail(&self, len: usize) -> String {
+            let output = self.output.lock().unwrap_or_else(PoisonError::into_inner);
+            String::from_utf8_lossy(&output.bytes[output.bytes.len().saturating_sub(len)..]).into_owned()
+        }
+
+        fn finish(self) -> io::Result<Vec<u8>> {
+            let mut output = std::mem::take(&mut *self.output.lock().unwrap_or_else(PoisonError::into_inner));
+            if let Some(error) = output.error { return Err(error); }
+            if output.discarded > 0 {
+                output.bytes.extend_from_slice(format!("\n[mutest truncated {} output bytes]\n", output.discarded).as_bytes());
             }
-            self.bytes
+            Ok(output.bytes)
         }
     }
 
@@ -239,17 +228,14 @@ mod linux {
     }
 
     fn spawn_owner(mut command: Command, timeout: Option<Duration>) -> io::Result<Owner> {
-        let (channel, inherited) = UnixStream::pair()?;
+        let (channel, owner_end) = UnixStream::pair()?;
         channel.set_nonblocking(true)?;
-        let fd = inherited.as_raw_fd();
-        command.env(OWNER_FD, fd.to_string());
+        // NOTE: The owner receives its end of the channel as its stdin.
+        command.env(OWNER, "1").stdin(Stdio::from(OwnedFd::from(owner_end)));
         match timeout {
             Some(timeout) => command.env(TIMEOUT, timeout.as_nanos().to_string()),
             None => command.env_remove(TIMEOUT),
         };
-        // The descriptor stays close-on-exec here, so that owners spawned at the same time do not inherit it.
-        // SAFETY: After the fork this only calls `fcntl`, which is async-signal-safe.
-        unsafe { command.pre_exec(move || close_on_exec(fd, false)) };
         Ok(Owner { child: Some(command.spawn()?), channel, cleanup_reported: false })
     }
 
@@ -280,10 +266,7 @@ mod linux {
     }
 
     fn owner_failed(status: ExitStatus, stdout: &Capture, stderr: &Capture) -> io::Error {
-        let tail = |capture: &Capture| {
-            String::from_utf8_lossy(&capture.bytes[capture.bytes.len().saturating_sub(4096)..]).into_owned()
-        };
-        io::Error::other(format!("isolated owner failed: {status}; stdout: {}; stderr: {}", tail(stdout), tail(stderr)))
+        io::Error::other(format!("isolated owner failed: {status}; stdout: {}; stderr: {}", stdout.tail(4096), stderr.tail(4096)))
     }
 
     pub(super) fn run(
@@ -293,13 +276,11 @@ mod linux {
     ) -> io::Result<(TestResult, Duration, Vec<u8>)> {
         let mut owner = spawn_owner(command, timeout)?;
         let child = owner.child.as_mut().unwrap();
-        let mut stdout = Capture::new(child.stdout.take().map(OwnedFd::from))?;
-        let mut stderr = Capture::new(child.stderr.take().map(OwnedFd::from))?;
+        let stdout = Capture::new(child.stdout.take());
+        let stderr = Capture::new(child.stderr.take());
         let mut stage = Stage { deadline: Some(Instant::now() + STARTUP_TIMEOUT), ready: false, cancelled: false, exited: false };
         let mut frame = Vec::new();
         loop {
-            stdout.drain()?;
-            stderr.drain()?;
             read_completion(&mut owner.channel, &mut frame)?;
             if !stage.ready && frame.first() == Some(&READY) {
                 stage.start_executing(timeout);
@@ -320,7 +301,7 @@ mod linux {
                 stage.exited = true;
                 stage.allow(REPORT_TIMEOUT);
             }
-            if stage.exited && owner.cleanup_reported && stdout.pipe.is_none() && stderr.pipe.is_none() {
+            if stage.exited && owner.cleanup_reported && stdout.closed() && stderr.closed() {
                 break;
             }
             if stage.deadline.is_some_and(|deadline| Instant::now() >= deadline) {
@@ -329,8 +310,8 @@ mod linux {
             thread::sleep(POLL_INTERVAL);
         }
         let (result, elapsed) = decode(&frame, timeout)?;
-        let mut output = stdout.finish();
-        output.extend(stderr.finish());
+        let mut output = stdout.finish()?;
+        output.extend(stderr.finish()?);
         Ok((result, elapsed, output))
     }
 
@@ -463,8 +444,9 @@ mod linux {
             .map(|nanos| Duration::from_nanos(u64::try_from(nanos).unwrap_or(u64::MAX)));
         let child = Command::new(env::current_exe()?)
             .args(env::args_os().skip(1))
-            .env_remove(OWNER_FD)
+            .env_remove(OWNER)
             .env_remove(TIMEOUT)
+            .stdin(Stdio::null())
             .spawn()?;
         let start = Instant::now();
         channel.write_all(&[READY])?;
@@ -481,14 +463,13 @@ mod linux {
                     ) => {}
                 Err(error) => return Err(error),
             }
-            let mut status = 0;
-            // SAFETY: `status` is a valid place for `waitpid` to write; reaping any child also reaps adopted orphans.
-            let exited = unsafe { libc::waitpid(-1, &mut status, libc::WNOHANG) };
+            // NOTE: Reaping any child also reaps the orphans this owner adopted.
+            let (exited, status) = match crate::supervisor::reap_with_status(-1, libc::WNOHANG) {
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => (0, 0),
+                reaped => reaped?,
+            };
             if exited == child.id() as libc::pid_t {
                 return Ok((EXITED, status, start.elapsed()));
-            }
-            if exited < 0 && io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
-                return Err(io::Error::last_os_error());
             }
             if timeout.is_some_and(|timeout| start.elapsed() >= timeout) {
                 return Ok((TIMED_OUT, 0, start.elapsed()));
@@ -502,51 +483,36 @@ mod linux {
     #[cfg(test)]
     #[test]
     fn captured_output_limit_retains_exact_prefix_and_reports_discarded_bytes() {
-        let input = (0..OUTPUT_LIMIT + DRAIN_QUANTUM + 37)
-            .map(|index| (index % 251) as u8)
-            .collect::<Vec<_>>();
+        let input = (0..OUTPUT_LIMIT + 4133).map(|index| (index % 251) as u8).collect::<Vec<_>>();
         let (reader, mut writer) = UnixStream::pair().unwrap();
         let sent = input.clone();
         let sender = thread::spawn(move || writer.write_all(&sent).unwrap());
-        let mut capture = Capture::new(Some(reader.into())).unwrap();
+        let capture = Capture::new(Some(reader));
+        sender.join().unwrap();
         let deadline = Instant::now() + STARTUP_TIMEOUT;
-        while capture.pipe.is_some() {
-            capture.drain().unwrap();
-            assert!(
-                Instant::now() < deadline,
-                "bounded capture did not reach EOF"
-            );
+        while !capture.closed() {
+            assert!(Instant::now() < deadline, "bounded capture did not reach EOF");
             thread::yield_now();
         }
-        sender.join().unwrap();
-        assert_eq!(capture.bytes, input[..OUTPUT_LIMIT]);
-        assert_eq!(capture.discarded, DRAIN_QUANTUM + 37);
-        let output = capture.finish();
+        let output = capture.finish().unwrap();
         assert_eq!(&output[..OUTPUT_LIMIT], &input[..OUTPUT_LIMIT]);
-        assert_eq!(
-            &output[OUTPUT_LIMIT..],
-            format!("\n[mutest truncated {} output bytes]\n", DRAIN_QUANTUM + 37).as_bytes()
-        );
+        assert_eq!(&output[OUTPUT_LIMIT..], b"\n[mutest truncated 4133 output bytes]\n");
     }
 
     /// Runs as the owner when this process was started as one, and exits; returns otherwise.
     pub(super) fn dispatch() {
-        let Some(fd) = env::var_os(OWNER_FD) else {
+        if env::var_os(OWNER).is_none() {
             return;
-        };
-        let result = own(fd.to_str().and_then(|fd| fd.parse().ok()).filter(|&fd| fd >= 3));
+        }
+        let result = own();
         if let Err(error) = &result {
             eprintln!("mutation analysis incomplete: isolated owner: {error}");
         }
         process::exit(if result.is_ok() { 0 } else { 101 });
     }
 
-    fn own(fd: Option<i32>) -> io::Result<()> {
-        let fd = fd.ok_or_else(|| io::Error::other("invalid owner descriptor"))?;
-        // The test this owner starts must not inherit the channel.
-        close_on_exec(fd, true)?;
-        // SAFETY: The spawning monitor passed this descriptor for the channel alone, and it is claimed once.
-        let mut channel = unsafe { UnixStream::from_raw_fd(fd) };
+    fn own() -> io::Result<()> {
+        let mut channel = UnixStream::from(io::stdin().as_fd().try_clone_to_owned()?);
         channel.set_nonblocking(true)?;
         #[cfg(test)]
         if scenario_is("failure-setup") {

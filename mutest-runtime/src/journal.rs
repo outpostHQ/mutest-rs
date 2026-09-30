@@ -2,6 +2,7 @@
 
 use std::collections::BTreeSet;
 use std::env;
+use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::hash::{BuildHasher, RandomState};
 use std::io::{self, BufRead, BufReader, Seek, SeekFrom, Write};
@@ -13,7 +14,7 @@ use serde_json::{Value, json};
 
 use crate::harness::{MutationTestResult, MutationTestResults};
 
-const JOURNAL_VAR: &str = "__MUTEST_JOURNAL";
+pub(crate) const JOURNAL_VAR: &str = "__MUTEST_JOURNAL";
 
 fn result_name(result: MutationTestResult) -> &'static str {
     match result {
@@ -172,10 +173,8 @@ pub struct WorkerJournal {
 static WORKER_JOURNAL: OnceLock<Option<WorkerJournal>> = OnceLock::new();
 
 /// Must be called before any thread starts.
-pub fn open_for_worker() {
-    let journal = env::var_os(JOURNAL_VAR).map(|path| {
-        // SAFETY: No other thread is running yet.
-        unsafe { env::remove_var(JOURNAL_VAR) };
+pub fn open_for_worker(path: Option<OsString>) {
+    let journal = path.map(|path| {
         WorkerJournal::open(PathBuf::from(path)).unwrap_or_else(|| {
             eprintln!("cannot open supplied mutation journal");
             process::exit(mutest_exit_code::PANIC);

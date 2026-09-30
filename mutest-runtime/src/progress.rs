@@ -2,7 +2,7 @@
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::env;
+use std::ffi::OsString;
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -14,8 +14,8 @@ use serde_json::{Value, json};
 
 use super::{CompletedTest, Test, TestResult, subprocess, test};
 
-const DIRECTORY: &str = "MUTEST_PROGRESS_DIR";
-const NONCE: &str = "MUTEST_PROGRESS_NONCE";
+pub(crate) const DIRECTORY: &str = "MUTEST_PROGRESS_DIR";
+pub(crate) const NONCE: &str = "MUTEST_PROGRESS_NONCE";
 const RECORD_LIMIT: usize = 16 * 1024;
 const FILE_LIMIT: u64 = 64 * 1024 * 1024;
 static WRITER: OnceLock<Option<Mutex<Writer>>> = OnceLock::new();
@@ -176,7 +176,7 @@ fn create(directory: &Path, nonce: String) -> io::Result<Writer> {
     use std::os::unix::fs::OpenOptionsExt;
 
     let ticks = process_start_ticks()?;
-    let executable = std::fs::canonicalize(env::current_exe()?)?;
+    let executable = std::fs::canonicalize(std::env::current_exe()?)?;
     let executable = executable.to_str().ok_or_else(|| io::Error::other("executable path is not UTF-8"))?;
     let random = RandomState::new();
     let harness = format!("{:016x}{:016x}", random.hash_one(0), random.hash_one(1));
@@ -208,17 +208,11 @@ fn create(_directory: &Path, _nonce: String) -> io::Result<Writer> {
     Err(io::Error::new(io::ErrorKind::Unsupported, "progress records a process start time only on Linux"))
 }
 
-pub(crate) fn initialize() {
+pub(crate) fn initialize(directory: Option<OsString>, nonce: Option<OsString>) {
     WRITER.get_or_init(|| {
-        let directory = env::var_os(DIRECTORY).map(PathBuf::from);
-        let nonce = env::var_os(NONCE);
+        let directory = directory.map(PathBuf::from);
         if directory.is_none() && nonce.is_none() {
             return None;
-        }
-        // SAFETY: The harness initializes progress before starting threads or invoking tested code.
-        unsafe {
-            env::remove_var(DIRECTORY);
-            env::remove_var(NONCE);
         }
         let configured = nonce
             .map(|nonce| {

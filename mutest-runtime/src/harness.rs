@@ -1318,8 +1318,8 @@ fn mutest_simulate_main<S: SubstMap>(args: &[&str], tests: Vec<test::TestDescAnd
     crate::completion::finish(if failed_tests_count == 0 { exit_code::MISSED } else { exit_code::SUCCESS });
 }
 
-/// Set by the worker to its own executable, so that this binary run again by a test runs as libtest.
-const RUN_AS_LIBTEST_VAR: &str = "__MUTEST_RUN_AS_LIBTEST";
+/// Set by the supervisor to its worker's executable, so that this binary run again by a test runs as libtest.
+pub(crate) const RUN_AS_LIBTEST_VAR: &str = "__MUTEST_RUN_AS_LIBTEST";
 
 fn runs_as_libtest() -> bool {
     let Some(marked_exe) = env::var_os(RUN_AS_LIBTEST_VAR) else { return false; };
@@ -1350,22 +1350,17 @@ pub fn mutest_main_static(test_suite: TestSuite<'_>, meta_mutant: &'static MetaM
         TestSuite::Tests(tests, external_tests_extra) => (tests, external_tests_extra),
     };
 
-    if runs_as_libtest() {
+    // NOTE: A worker's own environment marks this binary to run as libtest, for the tests the worker starts.
+    let handoff = if cfg!(any(unix, windows)) { supervisor::take_worker_handoff() } else { Some(Default::default()) };
+    if handoff.is_none() && runs_as_libtest() {
         let exit_code = test::test_main(&env::args().collect::<Vec<_>>(), tests);
         process::exit(if exit_code == process::ExitCode::SUCCESS { 0 } else { ERROR_EXIT_CODE });
     }
+    let Some(handoff) = handoff else { supervisor::supervise() };
 
-    if cfg!(any(unix, windows)) && !supervisor::is_worker() {
-        supervisor::supervise();
-    }
-    // Without a path of its own, this binary cannot be run again by a test either.
-    if let Ok(exe) = env::current_exe() {
-        // SAFETY: No other thread is running yet.
-        unsafe { env::set_var(RUN_AS_LIBTEST_VAR, exe) };
-    }
-    test_runner::progress::initialize();
+    test_runner::progress::initialize(handoff.progress_directory, handoff.progress_nonce);
     test_runner::progress::require(args.contains(&"--require-progress"));
-    journal::open_for_worker();
+    journal::open_for_worker(handoff.journal);
 
     let owned_tests = tests.iter().map(|test| make_owned_test_def(test)).collect::<Vec<_>>();
 

@@ -1,6 +1,7 @@
 //! Runs the mutation analysis in a worker process, and kills what it leaves running.
 
 use std::env;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{self, Command, ExitStatus};
 use std::sync::OnceLock;
@@ -12,7 +13,7 @@ use crate::completion::{self, Completion};
 use crate::journal::Journal;
 
 #[cfg(target_os = "linux")]
-pub(crate) use sys::kill_descendants_until;
+pub(crate) use sys::{kill_descendants_until, reap_with_status};
 #[cfg(target_os = "linux")]
 pub use sys::{adopt_orphans, children};
 
@@ -29,16 +30,29 @@ fn run_start_before(now: Instant, elapsed_nanos: &str) -> Option<Instant> {
     now.checked_sub(Duration::from_nanos(elapsed_nanos.parse().ok()?))
 }
 
-/// Must be called before any thread starts.
-pub fn is_worker() -> bool {
-    let Ok(supervisor_pid) = env::var(SUPERVISOR_PID_VAR) else {
-        return false;
-    };
+/// What the supervisor hands its worker through the worker's environment.
+#[derive(Default)]
+pub(crate) struct Handoff {
+    pub(crate) journal: Option<OsString>,
+    pub(crate) progress_directory: Option<OsString>,
+    pub(crate) progress_nonce: Option<OsString>,
+}
+
+/// In a worker, takes what the supervisor handed it out of the environment, so that the processes its
+/// tests start do not inherit it; `None` in any other process. Must be called before any thread starts.
+pub(crate) fn take_worker_handoff() -> Option<Handoff> {
+    let supervisor_pid = env::var(SUPERVISOR_PID_VAR).ok()?;
     let run_elapsed = env::var(RUN_ELAPSED_VAR);
+    let handoff = Handoff {
+        journal: env::var_os(crate::journal::JOURNAL_VAR),
+        progress_directory: env::var_os(crate::test_runner::progress::DIRECTORY),
+        progress_nonce: env::var_os(crate::test_runner::progress::NONCE),
+    };
     // SAFETY: No other thread is running yet.
     unsafe {
-        env::remove_var(SUPERVISOR_PID_VAR);
-        env::remove_var(RUN_ELAPSED_VAR);
+        for var in [SUPERVISOR_PID_VAR, RUN_ELAPSED_VAR, crate::journal::JOURNAL_VAR, crate::test_runner::progress::DIRECTORY, crate::test_runner::progress::NONCE] {
+            env::remove_var(var);
+        }
     }
     if let Some(run_start) = run_elapsed
         .ok()
@@ -46,8 +60,9 @@ pub fn is_worker() -> bool {
     {
         let _ = RUN_START.set(run_start);
     }
-    after_initialization(sys::die_with(supervisor_pid.parse().ok()), || true)
+    after_initialization(sys::die_with(supervisor_pid.parse().ok()), || handoff)
         .unwrap_or_else(|status| exit_as(status, None))
+        .into()
 }
 
 pub fn supervise() -> ! {
@@ -107,8 +122,9 @@ fn after_cleanup(status: ExitStatus, cleanup: std::io::Result<()>) -> ExitStatus
 
 fn run_worker(run_start: Instant, journal: Option<&Journal>) -> ExitStatus {
     let current_exe = env::current_exe().expect("cannot resolve test executable path");
-    let mut cmd = Command::new(current_exe);
+    let mut cmd = Command::new(&current_exe);
     cmd.args(env::args_os().skip(1));
+    cmd.env(crate::harness::RUN_AS_LIBTEST_VAR, &current_exe);
     cmd.env(SUPERVISOR_PID_VAR, process::id().to_string());
     cmd.env(RUN_ELAPSED_VAR, run_start.elapsed().as_nanos().to_string());
     cmd.env_remove(exit_code::LOG_VAR);
@@ -159,7 +175,6 @@ mod sys {
     use std::mem;
     use std::os::unix::process::ExitStatusExt as _;
     use std::process::{Child, Command, ExitStatus};
-    use std::ptr;
     use std::sync::atomic::{AtomicI32, Ordering};
     use std::thread;
     use std::time::{Duration, Instant};
@@ -197,13 +212,18 @@ mod sys {
         }
     }
 
-    /// Reaps the child `pid`, or any child for -1, and returns its id; 0 if `WNOHANG` found none exited.
-    fn reap(pid: pid_t, flags: c_int) -> io::Result<pid_t> {
-        // SAFETY: A null status pointer is allowed.
-        match unsafe { libc::waitpid(pid, ptr::null_mut(), flags) } {
+    /// Reaps the child `pid`, or any child for -1, returning its id and wait status; id 0 if `WNOHANG` found none exited.
+    pub(crate) fn reap_with_status(pid: pid_t, flags: c_int) -> io::Result<(pid_t, c_int)> {
+        let mut status = 0;
+        // SAFETY: `status` is a valid place for `waitpid` to write the child's status.
+        match unsafe { libc::waitpid(pid, &mut status, flags) } {
             -1 => Err(io::Error::last_os_error()),
-            reaped => Ok(reaped),
+            reaped => Ok((reaped, status)),
         }
+    }
+
+    fn reap(pid: pid_t, flags: c_int) -> io::Result<pid_t> {
+        reap_with_status(pid, flags).map(|(reaped, _)| reaped)
     }
 
     extern "C" fn forward_signal(signal: c_int) {
