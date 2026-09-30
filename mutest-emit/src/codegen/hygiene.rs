@@ -1394,7 +1394,8 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                         // NOTE: If we encounter the same name relating to two different namespaces,
                         //       then the paths must be different, otherwise
                         //       the two imports will refer to the same names in the same namespaces.
-                        ident == next_ident && (namespace == next_namespace || matching_paths(path, next_path))
+                        //       Underscore imports introduce no name, so they only collide if their paths match.
+                        ident == next_ident && ((namespace == next_namespace && ident.name != kw::Underscore) || matching_paths(path, next_path))
                     }
 
                     _ => false,
