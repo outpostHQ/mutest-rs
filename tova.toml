@@ -1,0 +1,37 @@
+# What the agent hooks check here; see `generative-compilation --help`.
+workspaces = ["."]
+command = "check"
+timeout-secs = 200
+sandbox = true
+on-edit = "check"
+
+[[profile]]
+name = "default"
+
+[[profile]]
+name = "no-default-features"
+no-default-features = true
+
+[[profile]]
+name = "feature-mutest-driver/embed-runtime"
+no-default-features = true
+features = ["mutest-driver/embed-runtime"]
+
+[[profile]]
+name = "feature-mutest-inspector/embed-static-files"
+no-default-features = true
+features = ["mutest-inspector/embed-static-files"]
+
+[[profile]]
+name = "feature-mutest-inspector/standalone"
+no-default-features = true
+features = ["mutest-inspector/standalone"]
+
+[[profile]]
+name = "feature-mutest-json/rustc"
+no-default-features = true
+features = ["mutest-json/rustc"]
+
+[[profile]]
+name = "all-features"
+all-features = true

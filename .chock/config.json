@@ -1,0 +1,45 @@
+{
+  "$schema": "https://raw.githubusercontent.com/outpostHQ/chock/main/schema/config-v1.json",
+  "version": 1,
+  "enabled": [
+    "assertions",
+    "bigfiles",
+    "binsize",
+    "citations",
+    "codeslop",
+    "commits",
+    "complexity",
+    "deps",
+    "doc",
+    "dupdeps",
+    "duplication",
+    "features",
+    "hygiene",
+    "manifest",
+    "modcheck",
+    "nesting",
+    "placement",
+    "profile",
+    "slop",
+    "sort",
+    "source",
+    "supply",
+    "test",
+    "typos",
+    "unsafety",
+    "unused",
+    "wiring"
+  ],
+  "left_off": {
+    "coverage": "off until mutest-rs has a coverage harness: the driver embeds mutest-runtime, which must be built first, and an instrumented runtime would be linked into the uninstrumented crates the UI tests compile",
+    "crap": "off until mutest-rs has a coverage harness: the driver embeds mutest-runtime, which must be built first, and an instrumented runtime would be linked into the uninstrumented crates the UI tests compile",
+    "lint": "off by the owner's choice: upstream mutest-rs is not rustfmt-formatted or clippy-clean, and reformatting it would conflict every upstream merge"
+  },
+  "runner": [
+    "bin/test"
+  ],
+  "runner_tools": [
+    "cargo",
+    "rustup"
+  ]
+}

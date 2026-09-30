@@ -45,3 +45,10 @@ Network Trash Folder
 Temporary Items
 .apdisk
 rustc-ice-*.txt
+lcov.info
+kani-list.json
+.chock/last-run.json
+.chock/run.lock
+.chock/verdicts.json
+.chock/last-edit
+?*.chock
