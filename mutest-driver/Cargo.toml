@@ -44,3 +44,7 @@ embed-runtime = []
 
 [lints]
 workspace = true
+
+# The build script embeds mutest-runtime's rlib, so tova builds it before checking this package.
+[package.metadata.tova]
+prebuild = ["mutest-runtime"]
