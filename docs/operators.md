@@ -149,6 +149,24 @@ if buffer.len() != 0 {
     buffer.reserve(1024);
 ```
 
+## `fn_return_default`
+
+Return a fixed value from functions without evaluating their body.
+
+The values depend on the return type: `false` and `true`; `0`, `1` and, if signed, `-1` for integers; `0.0`, `1.0` and `-1.0` for floats; `""` and `"xyzzy"` for `&str` and `String`; `None` and `Some(..)` of these values for `Option`; `Ok(..)` of them for `Result`; empty and one-element vectors for `Vec`; and `Default::default()` for other types that implement `Default`. Functions returning any other type are not mutated.
+
+Replaces
+```rs
+fn is_power_of_two(n: u32) -> bool {
+    n != 0 && n & (n - 1) == 0
+```
+with
+```rs
+fn is_power_of_two(n: u32) -> bool {
+    return true;
+    n != 0 && n & (n - 1) == 0
+```
+
 ## `logical_op_and_or_swap`
 
 Swap logical `&&` for logical `||` and vice versa.
@@ -160,6 +178,41 @@ self.len() <= other.len() && self.iter().all(|v| other.contains(v))
 with
 ```rs
 self.len() <= other.len() || self.iter().all(|v| other.contains(v))
+```
+
+## `match_arm_delete`
+
+Delete match arms, so that the values they matched fall through to a later arm.
+
+Only arms before an unguarded catch-all arm are deleted, which keeps the match exhaustive.
+
+Replaces
+```rs
+match response.status() {
+    404 => None,
+    _ => Some(response.body()),
+}
+```
+with
+```rs
+match response.status() {
+    _ => Some(response.body()),
+}
+```
+
+## `match_guard_value`
+
+Replace the guards of match arms with `true` and with `false`.
+
+Guards that bind names with `let` patterns are not mutated, as the arm may use those names.
+
+Replaces
+```rs
+Some(len) if len > limit => truncate(buffer, limit),
+```
+with
+```rs
+Some(len) if true => truncate(buffer, limit),
 ```
 
 ## `math_op_add_mul_swap`
@@ -251,4 +304,32 @@ while i < buffer.len() {
 with
 ```rs
 while i >= buffer.len() {
+```
+
+## `struct_field_delete`
+
+Delete fields from struct expressions with a base expression, so that the value of the field is taken from the base instead.
+
+Only fields of `Copy` types are deleted, as moving a field out of the base may leave it unusable afterwards.
+
+Replaces
+```rs
+Options { verbose: true, ..defaults }
+```
+with
+```rs
+Options { ..defaults }
+```
+
+## `unary_op_delete`
+
+Delete `!` and `-` unary operators, so that the operand is used unchanged.
+
+Replaces
+```rs
+if !queue.is_empty() {
+```
+with
+```rs
+if queue.is_empty() {
 ```

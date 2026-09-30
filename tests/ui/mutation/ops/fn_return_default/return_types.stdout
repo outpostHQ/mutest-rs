@@ -1,0 +1,28 @@
+[fn_return_default] return `false` without evaluating the function body in a_bool at tests/ui/mutation/ops/fn_return_default/return_types.rs:8:1: 10:2
+  <-(0)- test
+
+[fn_return_default] return `true` without evaluating the function body in a_bool at tests/ui/mutation/ops/fn_return_default/return_types.rs:8:1: 10:2
+  <-(0)- test
+
+[fn_return_default] return `0` without evaluating the function body in an_int at tests/ui/mutation/ops/fn_return_default/return_types.rs:12:1: 14:2
+  <-(0)- test
+
+[fn_return_default] return `1` without evaluating the function body in an_int at tests/ui/mutation/ops/fn_return_default/return_types.rs:12:1: 14:2
+  <-(0)- test
+
+[fn_return_default] return `-1` without evaluating the function body in an_int at tests/ui/mutation/ops/fn_return_default/return_types.rs:12:1: 14:2
+  <-(0)- test
+
+[fn_return_default] return `0` without evaluating the function body in a_uint at tests/ui/mutation/ops/fn_return_default/return_types.rs:17:1: 19:2
+  <-(0)- test
+
+[fn_return_default] return `1` without evaluating the function body in a_uint at tests/ui/mutation/ops/fn_return_default/return_types.rs:17:1: 19:2
+  <-(0)- test
+
+[fn_return_default] return `""` without evaluating the function body in a_str at tests/ui/mutation/ops/fn_return_default/return_types.rs:21:1: 23:2
+  <-(0)- test
+
+[fn_return_default] return `"xyzzy"` without evaluating the function body in a_str at tests/ui/mutation/ops/fn_return_default/return_types.rs:21:1: 23:2
+  <-(0)- test
+
+9 mutations; 9 safe; 0 unsafe (0 tainted)

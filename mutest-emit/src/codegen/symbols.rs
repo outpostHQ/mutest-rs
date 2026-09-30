@@ -122,9 +122,12 @@ pub mod path {
         Default (::core::default::Default),
         default (::core::default::Default::default),
         None (::core::option::Option::None),
+        Ok (::core::result::Result::Ok),
         Option (::core::option::Option),
         panic (::core::panic),
         Some (::core::option::Option::Some),
+        string_from (::std::string::String::from),
+        vec_from (::std::vec::Vec::from),
         TestDescAndFn (::test::TestDescAndFn),
 
         ACTIVE_MUTANT_HANDLE (crate::mutest_generated::ACTIVE_MUTANT_HANDLE),

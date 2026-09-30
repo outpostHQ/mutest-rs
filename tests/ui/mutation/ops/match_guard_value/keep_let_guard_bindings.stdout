@@ -1,0 +1,13 @@
+[match_guard_value] replace match arm guard with `true` in ordinary at tests/ui/mutation/ops/match_guard_value/keep_let_guard_bindings.rs:18:5: 21:6
+  <-(0)- guard_bindings_remain_available_to_the_arm
+
+[match_guard_value] replace match arm guard with `false` in ordinary at tests/ui/mutation/ops/match_guard_value/keep_let_guard_bindings.rs:18:5: 21:6
+  <-(0)- guard_bindings_remain_available_to_the_arm
+
+[match_guard_value] replace match arm guard with `true` in nonbinding at tests/ui/mutation/ops/match_guard_value/keep_let_guard_bindings.rs:25:5: 28:6
+  <-(0)- guard_bindings_remain_available_to_the_arm
+
+[match_guard_value] replace match arm guard with `false` in nonbinding at tests/ui/mutation/ops/match_guard_value/keep_let_guard_bindings.rs:25:5: 28:6
+  <-(0)- guard_bindings_remain_available_to_the_arm
+
+4 mutations; 4 safe; 0 unsafe (0 tainted)

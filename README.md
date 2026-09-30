@@ -26,7 +26,10 @@ Currently, the following list of mutation operators are implemented:
 | `call_value_default_shadow` | Ignore return value of call by shadowing it with `Default::default()`. |
 | `continue_break_swap`       | Swap continue for break and vice versa.                                |
 | `eq_op_invert`              | Invert equality check.                                                 |
+| `fn_return_default`         | Return a fixed value without evaluating the function body.             |
 | `logical_op_and_or_swap`    | Swap logical *and* for logical *or* and vice versa.                    |
+| `match_arm_delete`          | Delete match arm, so its values fall through to a later arm.           |
+| `match_guard_value`         | Replace match arm guard with `true` or `false`.                        |
 | `math_op_add_mul_swap`      | Swap addition for multiplication and vice versa.                       |
 | `math_op_add_sub_swap`      | Swap addition for subtraction and vice versa.                          |
 | `math_op_div_rem_swap`      | Swap division for modulus and vice versa.                              |
@@ -34,6 +37,8 @@ Currently, the following list of mutation operators are implemented:
 | `range_limit_swap`          | Swap limit (inclusivity) of range expression.                          |
 | `relational_op_eq_swap`     | Include or remove the boundary (equality) of relational operator.      |
 | `relational_op_invert`      | Invert relation operator.                                              |
+| `struct_field_delete`       | Take field from the base of struct expression instead.                 |
+| `unary_op_delete`           | Delete `!` or `-` unary operator.                                      |
 
 For more information, and examples, see [docs/operators.md](docs/operators.md).
 

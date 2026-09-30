@@ -147,7 +147,10 @@ pub mod mutation_operators {
         CALL_VALUE_DEFAULT_SHADOW = "call_value_default_shadow";
         CONTINUE_BREAK_SWAP = "continue_break_swap";
         EQ_OP_INVERT = "eq_op_invert";
+        FN_RETURN_DEFAULT = "fn_return_default";
         LOGICAL_OP_AND_OR_SWAP = "logical_op_and_or_swap";
+        MATCH_ARM_DELETE = "match_arm_delete";
+        MATCH_GUARD_VALUE = "match_guard_value";
         MATH_OP_ADD_MUL_SWAP = "math_op_add_mul_swap";
         MATH_OP_ADD_SUB_SWAP = "math_op_add_sub_swap";
         MATH_OP_DIV_REM_SWAP = "math_op_div_rem_swap";
@@ -155,6 +158,8 @@ pub mod mutation_operators {
         RANGE_LIMIT_SWAP = "range_limit_swap";
         RELATIONAL_OP_EQ_SWAP = "relational_op_eq_swap";
         RELATIONAL_OP_INVERT = "relational_op_invert";
+        STRUCT_FIELD_DELETE = "struct_field_delete";
+        UNARY_OP_DELETE = "unary_op_delete";
     }
 }
 

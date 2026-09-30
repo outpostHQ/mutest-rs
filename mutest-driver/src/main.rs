@@ -464,7 +464,10 @@ pub fn main() -> process::ExitCode {
                         opts::CALL_VALUE_DEFAULT_SHADOW => const_op_ref!(mutest_operators::CallValueDefaultShadow { limit_scope_to_local_callees: false }),
                         opts::CONTINUE_BREAK_SWAP => const_op_ref!(mutest_operators::ContinueBreakSwap),
                         opts::EQ_OP_INVERT => const_op_ref!(mutest_operators::EqOpInvert),
+                        opts::FN_RETURN_DEFAULT => const_op_ref!(mutest_operators::FnReturnDefault),
                         opts::LOGICAL_OP_AND_OR_SWAP => const_op_ref!(mutest_operators::LogicalOpAndOrSwap),
+                        opts::MATCH_ARM_DELETE => const_op_ref!(mutest_operators::MatchArmDelete),
+                        opts::MATCH_GUARD_VALUE => const_op_ref!(mutest_operators::MatchGuardValue),
                         opts::MATH_OP_ADD_MUL_SWAP => const_op_ref!(mutest_operators::OpAddMulSwap),
                         opts::MATH_OP_ADD_SUB_SWAP => const_op_ref!(mutest_operators::OpAddSubSwap),
                         opts::MATH_OP_DIV_REM_SWAP => const_op_ref!(mutest_operators::OpDivRemSwap),
@@ -472,6 +475,8 @@ pub fn main() -> process::ExitCode {
                         opts::RANGE_LIMIT_SWAP => const_op_ref!(mutest_operators::RangeLimitSwap),
                         opts::RELATIONAL_OP_EQ_SWAP => const_op_ref!(mutest_operators::RelationalOpEqSwap),
                         opts::RELATIONAL_OP_INVERT => const_op_ref!(mutest_operators::RelationalOpInvert),
+                        opts::STRUCT_FIELD_DELETE => const_op_ref!(mutest_operators::StructFieldDelete),
+                        opts::UNARY_OP_DELETE => const_op_ref!(mutest_operators::UnaryOpDelete),
                         _ => unreachable!("invalid mutation operator name: `{op_name}`"),
                     }
                 })
