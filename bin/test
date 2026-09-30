@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Builds what the tests link against, then runs every crate's unit tests and the UI suite, reporting each failure.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+
+cargo build --release -p mutest-runtime || exit 1
+cargo build -p mutest-runtime || exit 1
+rustup target add aarch64-unknown-none || exit 1
+cargo build --release --target aarch64-unknown-none -p test-metadata-shim -p mutest-runtime-embedded-target-stub || exit 1
+
+status=0
+cargo test -p cargo-mutest --no-fail-fast || status=1
+cargo test --release -p mutest-driver --no-fail-fast || status=1
+cargo test --release -p mutest-emit --no-fail-fast || status=1
+cargo test -p mutest-exit-code --no-fail-fast || status=1
+cargo test -p mutest-runtime --no-fail-fast || status=1
+cargo test -p mutest-inspector --no-fail-fast || status=1
+cargo test -p mutest-tests --no-fail-fast || status=1
+cargo ui-test || status=1
+exit $status

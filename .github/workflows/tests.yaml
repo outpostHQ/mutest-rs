@@ -74,19 +74,6 @@ jobs:
         run: cargo install --force --path mutest-inspector
 
       # Bash on every runner: PowerShell would report only the last command's exit code.
-      - name: Run unit tests
+      - name: Run unit and UI tests
         shell: bash
-        run: |
-          status=0
-          cargo test -p cargo-mutest --no-fail-fast -- --color=always || status=1
-          cargo test --release -p mutest-driver --no-fail-fast -- --color=always || status=1
-          cargo test --release -p mutest-emit --no-fail-fast -- --color=always || status=1
-          cargo test -p mutest-exit-code --no-fail-fast -- --color=always || status=1
-          cargo test -p mutest-runtime --no-fail-fast -- --color=always || status=1
-          cargo test -p mutest-inspector --no-fail-fast -- --color=always || status=1
-          cargo test -p mutest-tests --no-fail-fast -- --color=always || status=1
-          exit $status
-
-      - name: Run UI tests
-        if: ${{ !cancelled() }}
-        run: cargo ui-test
+        run: bash bin/test
