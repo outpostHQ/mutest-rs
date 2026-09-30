@@ -568,7 +568,7 @@ pub fn locally_visible_def_path<'tcx>(tcx: TyCtxt<'tcx>, def_id: hir::DefId, mut
 }
 
 /// Query override for `visible_parent_map` with our fix applied from
-/// https://github.com/rust-lang/rust/pull/159881.
+/// <https://github.com/rust-lang/rust/pull/159881>.
 /// See `tests/ui/hygiene/paths/doc_hidden_reexport_of_transitive_dep_item`.
 ///
 /// Do not use directly, instead call `TyCtxt::visible_parent_map` as normal.

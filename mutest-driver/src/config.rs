@@ -15,7 +15,7 @@ pub enum CrateKind {
     /// Integration tests link against this version of the mutant.
     MutantForExternalTests(ExternalTargets),
     /// External integration test crate that links against a generic mutated crate
-    /// (see [`MutantForExternalTests`]).
+    /// (see [`CrateKind::MutantForExternalTests`]).
     IntegrationTest,
 }
 
