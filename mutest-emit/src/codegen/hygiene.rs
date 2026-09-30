@@ -416,7 +416,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
         };
         match res::locally_visible_def_path(self.tcx, def_id, current_scope) {
             Ok(visible_path) => { return visible_path; }
-            Err(adjusted_scope) => {
+            Err(adjusted_scope) => self.super_path_through_common_mod(def_id).unwrap_or_else(|| {
                 span_bug!(span, "`{def}` is not defined in {scope} and is not otherwise accessible here",
                     def = self.tcx.def_path_str(def_id),
                     scope = match adjusted_scope.is_top_level_module() {
@@ -424,8 +424,33 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                         false => format!("the scope `{}`", self.tcx.def_path_str(adjusted_scope)),
                     },
                 );
-            }
+            }),
         }
+    }
+
+    /// A `super` path to a local item in another branch of the module tree, through the nearest module containing both,
+    /// for items that no path from the crate root reaches, such as those in modules inside function bodies.
+    fn super_path_through_common_mod(&self, def_id: hir::DefId) -> Option<res::DefPath<'tcx>> {
+        let local_def_id = def_id.as_local()?;
+        let current_scope = self.current_scope?;
+        let containing_mod = self.tcx.parent_module_from_def_id(local_def_id).to_def_id();
+        let mut common_mod = match self.tcx.def_kind(current_scope) {
+            hir::DefKind::Mod => current_scope,
+            _ => self.tcx.parent_module_from_def_id(current_scope.as_local()?).to_def_id(),
+        };
+        let mut supers = 0;
+        while !self.tcx.is_descendant_of(containing_mod, common_mod) {
+            common_mod = self.tcx.parent_module_from_def_id(common_mod.as_local()?).to_def_id();
+            supers += 1;
+        }
+
+        let mut path = res::locally_visible_def_path(self.tcx, def_id, common_mod).ok()?;
+        let [through @ .., _] = path.segments.as_slice() else { return None; };
+        // NOTE: `super` never reaches into a function body, so the path may only pass through modules.
+        let through_mods = through.iter().all(|segment| self.tcx.def_kind(segment.def_id) == hir::DefKind::Mod);
+        if supers == 0 || !through_mods || !matches!(path.root, res::DefPathRootKind::Local) { return None; }
+        path.root = res::DefPathRootKind::Parent { supers };
+        Some(path)
     }
 
     #[track_caller]
