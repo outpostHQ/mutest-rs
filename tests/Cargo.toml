@@ -3,6 +3,7 @@
 [package]
 name = "mutest-tests"
 version = "0.0.0"
+license = "Apache-2.0 OR MIT"
 edition = "2024"
 
 [dependencies]
