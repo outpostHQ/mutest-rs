@@ -646,7 +646,7 @@ fn receive_monitor_message(running_tests: &HashMap<test::TestId, RunningTest>, t
 
 fn run_tests_with_concurrency<E, F>(
     tests: Vec<Test>,
-    mut on_test_event: F,
+    on_test_event: F,
     test_run_strategy: TestRunStrategy,
     no_capture: bool,
     concurrency: usize,
@@ -655,137 +655,177 @@ where
     F: FnMut(TestEvent, &mut Vec<(test::TestId, Test)>) -> Result<Flow, E>,
 {
     assert!(concurrency > 0, "test concurrency must be positive");
-    let tests = tests.into_iter().enumerate()
+    let mut remaining = tests.into_iter().enumerate()
         .map(|(i, test)| (test::TestId(i), test))
         .filter(|(_, test)| matches!(test.test_fn, test::TestFn::StaticTestFn(_) | test::TestFn::DynTestFn(_)))
         .collect::<Vec<_>>();
-
-    let mut remaining_tests = tests;
     // Reverse the list of remaining tests so that we can `pop` from the queue in order.
-    remaining_tests.reverse();
-
-    type RunningTestMap = HashMap<test::TestId, RunningTest>;
-    let mut running_tests: RunningTestMap = Default::default();
-    let mut lingering_tests: RunningTestMap = Default::default();
-
-    let (test_tx, test_rx) = mpsc::channel::<MonitorMessage>();
+    remaining.reverse();
 
     let supports_threads = !cfg!(target_os = "emscripten") && !cfg!(target_family = "wasm");
     let synchronous = matches!(&test_run_strategy, TestRunStrategy::InProcess(_))
-        && remaining_tests.iter().all(|(_, test)| test.timeout.is_none());
+        && remaining.iter().all(|(_, test)| test.timeout.is_none());
     if !supports_threads && !synchronous {
         panic!("isolated tests and timeouts require thread support");
     }
-    if concurrency == 1 && synchronous {
-        macro event($event:expr) {
-            if let Flow::Stop = on_test_event($event, &mut remaining_tests)? {
-                let remaining_tests = remaining_tests.into_iter().map(|(_, test)| test).collect();
-                return Ok((remaining_tests, vec![]));
-            }
-        }
 
-        while let Some((id, test)) = remaining_tests.pop() {
-            event!(TestEvent::Queue(1, remaining_tests.len()));
+    let (sender, receiver) = mpsc::channel::<MonitorMessage>();
+    let scheduler = Scheduler {
+        remaining,
+        running: HashMap::new(),
+        lingering: HashMap::new(),
+        sender,
+        receiver,
+        strategy: test_run_strategy,
+        no_capture,
+        on_test_event,
+    };
+    match concurrency == 1 && synchronous {
+        true => scheduler.run_serially(),
+        false => scheduler.run_concurrently(concurrency),
+    }
+}
+
+/// The tests of one run: those still queued, those running, and in-process tests abandoned at their timeout.
+struct Scheduler<F> {
+    remaining: Vec<(test::TestId, Test)>,
+    running: HashMap<test::TestId, RunningTest>,
+    lingering: HashMap<test::TestId, RunningTest>,
+    sender: mpsc::Sender<MonitorMessage>,
+    receiver: mpsc::Receiver<MonitorMessage>,
+    strategy: TestRunStrategy,
+    no_capture: bool,
+    on_test_event: F,
+}
+
+impl<E, F> Scheduler<F>
+where
+    F: FnMut(TestEvent, &mut Vec<(test::TestId, Test)>) -> Result<Flow, E>,
+{
+    fn emit(&mut self, event: TestEvent) -> Result<Flow, E> {
+        (self.on_test_event)(event, &mut self.remaining)
+    }
+
+    fn emit_queue(&mut self) -> Result<Flow, E> {
+        self.emit(TestEvent::Queue(self.running.len(), self.remaining.len()))
+    }
+
+    /// The tests not yet started, and the tests still running when the run ended.
+    fn finish(self) -> (Vec<Test>, Vec<RunningTest>) {
+        (self.remaining.into_iter().map(|(_, test)| test).collect(), self.lingering.into_values().collect())
+    }
+
+    /// Runs in-process tests without timeouts one after another, joining each before starting the next.
+    fn run_serially(mut self) -> Result<(Vec<Test>, Vec<RunningTest>), E> {
+        if let Flow::Continue = self.run_each_to_its_end()? {
+            self.emit(TestEvent::Queue(0, 0))?;
+        }
+        Ok(self.finish())
+    }
+
+    fn run_each_to_its_end(&mut self) -> Result<Flow, E> {
+        while let Some((id, test)) = self.remaining.pop() {
+            let Flow::Continue = self.emit(TestEvent::Queue(1, self.remaining.len()))? else { return Ok(Flow::Stop) };
 
             let desc = test.desc.clone();
-
-            let join_handle = run_test(id, test, None, test_tx.clone(), test_run_strategy.clone(), None, no_capture);
-            event!(TestEvent::Wait(desc, join_handle.as_ref().map(|h| h.thread_id())));
-            let MonitorMessage::Completed(mut completed_test) = test_rx.recv().unwrap() else { unreachable!() };
+            let join_handle = run_test(id, test, None, self.sender.clone(), self.strategy.clone(), None, self.no_capture);
+            let Flow::Continue = self.emit(TestEvent::Wait(desc, join_handle.as_ref().map(|h| h.thread_id())))? else { return Ok(Flow::Stop) };
+            let MonitorMessage::Completed(mut completed_test) = self.receiver.recv().unwrap() else { unreachable!() };
 
             if let Some(join_handle) = join_handle {
                 join_in_process(join_handle, &mut completed_test);
             }
 
             progress::end(&completed_test, true);
-            event!(TestEvent::Result(completed_test));
+            let Flow::Continue = self.emit(TestEvent::Result(completed_test))? else { return Ok(Flow::Stop) };
         }
+        Ok(Flow::Continue)
+    }
 
-        event!(TestEvent::Queue(0, 0));
-
-        let remaining_tests = remaining_tests.into_iter().map(|(_, test)| test).collect();
-        return Ok((remaining_tests, vec![]));
-    } else {
-        macro event($event:expr) {
-            match on_test_event($event, &mut remaining_tests) {
-                Ok(Flow::Continue) => {}
-                stopped => {
-                    if let TestRunStrategy::InIsolatedChildProcess(_) = &test_run_strategy
-                        && let Err(message) = cleanup_isolated_tests(&mut running_tests, &test_rx)
-                    {
-                        incomplete_isolation(&message);
-                    }
-                    stopped?;
-                    lingering_tests.extend(running_tests.drain());
-                    let remaining_tests = remaining_tests.into_iter().map(|(_, test)| test).collect();
-                    let lingering_tests = lingering_tests.into_values().collect();
-                    return Ok((remaining_tests, lingering_tests));
-                }
-            }
+    /// Keeps up to `concurrency` tests running at once. A run the caller stops, or whose callback fails,
+    /// first cleans up its isolated tests, and returns the tests still running as lingering.
+    fn run_concurrently(mut self, concurrency: usize) -> Result<(Vec<Test>, Vec<RunningTest>), E> {
+        let flow = self.run_until_all_finish(concurrency);
+        if let TestRunStrategy::InIsolatedChildProcess(_) = &self.strategy
+            && let Err(message) = cleanup_isolated_tests(&mut self.running, &self.receiver)
+        {
+            incomplete_isolation(&message);
         }
+        flow?;
+        self.lingering.extend(self.running.drain());
+        Ok(self.finish())
+    }
 
-        while !running_tests.is_empty() || !remaining_tests.is_empty() {
-            event!(TestEvent::Queue(running_tests.len(), remaining_tests.len()));
+    fn run_until_all_finish(&mut self, concurrency: usize) -> Result<Flow, E> {
+        while !self.running.is_empty() || !self.remaining.is_empty() {
+            let Flow::Continue = self.emit_queue()? else { return Ok(Flow::Stop) };
+            let Flow::Continue = self.start_queued_tests(concurrency)? else { return Ok(Flow::Stop) };
+            let Flow::Continue = self.abandon_timed_out_tests()? else { return Ok(Flow::Stop) };
+            if self.running.is_empty() { break; }
+            let Flow::Continue = self.finish_next_test()? else { return Ok(Flow::Stop) };
+        }
+        Ok(Flow::Continue)
+    }
 
-            while running_tests.len() < concurrency && let Some((id, test)) = remaining_tests.pop() {
-                event!(TestEvent::Queue(running_tests.len(), remaining_tests.len()));
+    fn start_queued_tests(&mut self, concurrency: usize) -> Result<Flow, E> {
+        while self.running.len() < concurrency && let Some((id, test)) = self.remaining.pop() {
+            let Flow::Continue = self.emit_queue()? else { return Ok(Flow::Stop) };
 
-                let desc = test.desc.clone();
-                let timeout = test.timeout;
+            let desc = test.desc.clone();
+            let timeout = test.timeout;
 
-                let (control_tx, control_rx) = mpsc::channel::<ControlMsg>();
-                let active_signal = match &test_run_strategy {
-                    TestRunStrategy::InProcess(_) => Some(Arc::new(AtomicBool::new(true))),
-                    TestRunStrategy::InIsolatedChildProcess(_) => None,
-                };
-                let join_handle = run_test(id, test, Some(control_rx), test_tx.clone(), test_run_strategy.clone(), active_signal.clone(), no_capture);
-                let thread_id = join_handle.as_ref().map(|handle| handle.thread_id());
-                running_tests.insert(id, RunningTest { desc: desc.clone(), timeout, start_time: Instant::now(), control_tx, join_handle, active_signal });
-                event!(TestEvent::Wait(desc, thread_id));
-            }
-
-            if let TestRunStrategy::InProcess(_) = &test_run_strategy {
-                for test_id in timed_out_in_process_tests(&running_tests) {
-                    let running_test = running_tests.remove(&test_id).unwrap();
-                    event!(TestEvent::Queue(running_tests.len(), remaining_tests.len()));
-
-                    let completed_test = abandon_timed_out_test(test_id, &running_test);
-                    lingering_tests.insert(test_id, running_test);
-                    progress::end(&completed_test, false);
-                    event!(TestEvent::Result(completed_test));
-                }
-            }
-
-            if running_tests.is_empty() { break; }
-
-            let Some(message) = receive_monitor_message(&running_tests, &test_rx, &test_run_strategy) else { continue; };
-            let mut completed_test = match message {
-                MonitorMessage::Completed(test) => test,
-                MonitorMessage::Incomplete { id: _, message } => abort_isolated_tests(&mut running_tests, &test_rx, &message),
+            let (control_tx, control_rx) = mpsc::channel::<ControlMsg>();
+            let active_signal = match &self.strategy {
+                TestRunStrategy::InProcess(_) => Some(Arc::new(AtomicBool::new(true))),
+                TestRunStrategy::InIsolatedChildProcess(_) => None,
             };
+            let join_handle = run_test(id, test, Some(control_rx), self.sender.clone(), self.strategy.clone(), active_signal.clone(), self.no_capture);
+            let thread_id = join_handle.as_ref().map(|handle| handle.thread_id());
+            self.running.insert(id, RunningTest { desc: desc.clone(), timeout, start_time: Instant::now(), control_tx, join_handle, active_signal });
+            let Flow::Continue = self.emit(TestEvent::Wait(desc, thread_id))? else { return Ok(Flow::Stop) };
+        }
+        Ok(Flow::Continue)
+    }
 
-            let Some(running_test) = running_tests.remove(&completed_test.id) else {
-                // The test completion corresponds to a test that has been previously marked as timed out.
-                // In this case, the completion was caused by changes in the active mutations and should be considered bogus.
-                continue;
-            };
+    /// Reports in-process tests past their timeout as timed out, and leaves their threads lingering.
+    fn abandon_timed_out_tests(&mut self) -> Result<Flow, E> {
+        let TestRunStrategy::InProcess(_) = &self.strategy else { return Ok(Flow::Continue) };
+        for test_id in timed_out_in_process_tests(&self.running) {
+            let running_test = self.running.remove(&test_id).unwrap();
+            let Flow::Continue = self.emit_queue()? else { return Ok(Flow::Stop) };
 
-            match (running_test.join_handle, &test_run_strategy) {
-                (Some(join_handle), TestRunStrategy::InIsolatedChildProcess(_)) => {
-                    if let Err(message) = join_isolated(join_handle) { abort_isolated_tests(&mut running_tests, &test_rx, &message); }
-                }
-                (Some(join_handle), TestRunStrategy::InProcess(_)) => join_in_process(join_handle, &mut completed_test),
-                (None, _) => {}
+            let completed_test = abandon_timed_out_test(test_id, &running_test);
+            self.lingering.insert(test_id, running_test);
+            progress::end(&completed_test, false);
+            let Flow::Continue = self.emit(TestEvent::Result(completed_test))? else { return Ok(Flow::Stop) };
+        }
+        Ok(Flow::Continue)
+    }
+
+    fn finish_next_test(&mut self) -> Result<Flow, E> {
+        let Some(message) = receive_monitor_message(&self.running, &self.receiver, &self.strategy) else { return Ok(Flow::Continue) };
+        let mut completed_test = match message {
+            MonitorMessage::Completed(test) => test,
+            MonitorMessage::Incomplete { id: _, message } => abort_isolated_tests(&mut self.running, &self.receiver, &message),
+        };
+
+        let Some(running_test) = self.running.remove(&completed_test.id) else {
+            // The test completion corresponds to a test that has been previously marked as timed out.
+            // In this case, the completion was caused by changes in the active mutations and should be considered bogus.
+            return Ok(Flow::Continue);
+        };
+
+        match (running_test.join_handle, &self.strategy) {
+            (Some(join_handle), TestRunStrategy::InIsolatedChildProcess(_)) => {
+                if let Err(message) = join_isolated(join_handle) { abort_isolated_tests(&mut self.running, &self.receiver, &message); }
             }
-
-            event!(TestEvent::Queue(running_tests.len(), remaining_tests.len()));
-            progress::end(&completed_test, true);
-            event!(TestEvent::Result(completed_test));
+            (Some(join_handle), TestRunStrategy::InProcess(_)) => join_in_process(join_handle, &mut completed_test),
+            (None, _) => {}
         }
 
-        let remaining_tests = remaining_tests.into_iter().map(|(_, test)| test).collect();
-        let lingering_tests = lingering_tests.into_values().collect();
-        return Ok((remaining_tests, lingering_tests));
+        let Flow::Continue = self.emit_queue()? else { return Ok(Flow::Stop) };
+        progress::end(&completed_test, true);
+        self.emit(TestEvent::Result(completed_test))
     }
 }
 
@@ -949,11 +989,56 @@ mod tests {
         assert!(flood == [vec![0xfe; FLOOD_BYTES], vec![0xfd; FLOOD_BYTES]].concat(), "flood output was not captured whole");
     }
 
+    /// One lifecycle scenario's reactions to scheduler events, and the results it saw.
+    struct ScenarioRun<'a> {
+        root: &'a Path,
+        scenario: &'a str,
+        concurrency: usize,
+        cancelled: bool,
+        waits: usize,
+        results: Vec<(usize, TestResult)>,
+    }
+
+    impl ScenarioRun<'_> {
+        fn observe(&mut self, event: TestEvent) -> Result<Flow, &'static str> {
+            match event {
+                TestEvent::Wait(_, _) => {
+                    self.waits += 1;
+                    if self.waits == self.concurrency && self.cancelled { return self.cancel(); }
+                }
+                TestEvent::Result(test) => self.record(test),
+                TestEvent::Queue(_, _) => {}
+            }
+            Ok(Flow::Continue)
+        }
+
+        /// Stops the run once every test holds a descendant: `callback-error` by failing, the others with `Stop`.
+        fn cancel(&self) -> Result<Flow, &'static str> {
+            for id in 0..self.concurrency { fixture_wait(&self.root.join(id.to_string()), "holder"); }
+            if self.scenario == "callback-error" { Err("callback rejected") } else { Ok(Flow::Stop) }
+        }
+
+        fn record(&mut self, test: CompletedTest) {
+            assert!(!self.scenario.starts_with("failure-"), "infrastructure failure delivered a test result");
+            if self.scenario == "flood" { assert_flood_captured_whole(&test.stdout); }
+            fixture_marker(self.root, &format!("result-{}", test.id.0));
+            self.results.push((test.id.0, test.result));
+        }
+
+        fn expected(&self) -> Vec<(usize, TestResult)> {
+            match self.scenario {
+                _ if self.cancelled => vec![],
+                "out-of-order" => vec![(1, TestResult::Ok), (0, TestResult::Ok)],
+                "timeout" => (0..self.concurrency).map(|id| (id, TestResult::TimedOut)).collect(),
+                _ => (0..self.concurrency).map(|id| (id, TestResult::Ok)).collect(),
+            }
+        }
+    }
+
     fn lifecycle_scheduler(root: PathBuf, scenario: String) {
         let concurrency = if scenario.ends_with("-serial") { 1 } else { 2 };
-        let scenario = scenario.trim_end_matches("-serial").to_owned();
-        let cancelled = matches!(scenario.as_str(), "cancel" | "cancel-unlimited" | "callback-error");
-        let timeout = match scenario.as_str() {
+        let scenario = scenario.trim_end_matches("-serial");
+        let timeout = match scenario {
             "cancel-unlimited" | "failure-owner-exit" => None,
             _ => Some(Duration::from_secs(2)),
         };
@@ -962,27 +1047,9 @@ mod tests {
             test.desc.name = test::DynTestName(id.to_string());
             test
         }).collect();
-        let mut results = Vec::new();
-        let mut waits = 0;
-        let returned = run_tests_with_concurrency(tests, |event, _| -> Result<Flow, &'static str> {
-            match event {
-                TestEvent::Wait(_, _) => {
-                    waits += 1;
-                    if waits == concurrency && cancelled {
-                        for id in 0..concurrency { fixture_wait(&root.join(id.to_string()), "holder"); }
-                        return if scenario == "callback-error" { Err("callback rejected") } else { Ok(Flow::Stop) };
-                    }
-                }
-                TestEvent::Result(test) => {
-                    assert!(!scenario.starts_with("failure-"), "infrastructure failure delivered a test result");
-                    if scenario == "flood" { assert_flood_captured_whole(&test.stdout); }
-                    fixture_marker(&root, &format!("result-{}", test.id.0));
-                    results.push((test.id.0, test.result));
-                }
-                _ => {}
-            }
-            Ok(Flow::Continue)
-        }, lifecycle_strategy(root.clone(), scenario.clone()), false, concurrency);
+        let cancelled = matches!(scenario, "cancel" | "cancel-unlimited" | "callback-error");
+        let mut run = ScenarioRun { root: &root, scenario, concurrency, cancelled, waits: 0, results: Vec::new() };
+        let returned = run_tests_with_concurrency(tests, |event, _| run.observe(event), lifecycle_strategy(root.clone(), scenario.to_owned()), false, concurrency);
         if scenario == "callback-error" {
             assert_eq!(returned.unwrap_err(), "callback rejected");
         } else {
@@ -991,19 +1058,14 @@ mod tests {
             assert!(lingering.is_empty(), "isolated monitors outlived scheduler");
         }
 
-        let expected: Vec<(usize, TestResult)> = match scenario.as_str() {
-            _ if cancelled => vec![],
-            "out-of-order" => vec![(1, TestResult::Ok), (0, TestResult::Ok)],
-            "timeout" => (0..concurrency).map(|id| (id, TestResult::TimedOut)).collect(),
-            _ => (0..concurrency).map(|id| (id, TestResult::Ok)).collect(),
-        };
-        if scenario != "out-of-order" { results.sort_by_key(|(id, _)| *id); }
-        assert_eq!(results, expected, "{scenario}");
+        let expected = run.expected();
+        if scenario != "out-of-order" { run.results.sort_by_key(|(id, _)| *id); }
+        assert_eq!(run.results, expected, "{scenario}");
 
         for id in 0..concurrency {
             let test_root = root.join(id.to_string());
             assert_reaped(&test_root.join("child"), &format!("{scenario}: child"));
-            if !matches!(scenario.as_str(), "flood" | "out-of-order") {
+            if !matches!(scenario, "flood" | "out-of-order") {
                 assert_reaped(&test_root.join("holder"), &format!("{scenario}: holder"));
             }
         }

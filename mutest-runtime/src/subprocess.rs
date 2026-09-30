@@ -259,6 +259,28 @@ mod linux {
         fn allow(&mut self, bound: Duration) {
             self.deadline = Some(Instant::now() + bound);
         }
+
+        /// Advances on what the owner has written: `READY` starts the test, and a whole frame reports its cleanup.
+        fn read(&mut self, frame: &[u8], owner: &mut Owner, timeout: Option<Duration>) {
+            if !self.ready && frame.first() == Some(&READY) {
+                self.start_executing(timeout);
+            }
+            if !owner.cleanup_reported && frame.len() == FRAME_LEN {
+                owner.cleanup_reported = true;
+                self.allow(REPORT_TIMEOUT);
+            }
+        }
+
+        /// Passes a requested cancellation on to an owner that has neither reported nor exited yet.
+        fn forward_cancellation(&mut self, owner: &mut Owner, control: Option<&mpsc::Receiver<ControlMsg>>) -> io::Result<()> {
+            if self.cancelled || owner.cleanup_reported || self.exited || !cancel_requested(control) {
+                return Ok(());
+            }
+            cancel(&mut owner.channel)?;
+            self.cancelled = true;
+            self.allow(CLEANUP_TIMEOUT + REPORT_TIMEOUT);
+            Ok(())
+        }
     }
 
     fn cancel_requested(control: Option<&mpsc::Receiver<ControlMsg>>) -> bool {
@@ -282,18 +304,8 @@ mod linux {
         let mut frame = Vec::new();
         loop {
             read_completion(&mut owner.channel, &mut frame)?;
-            if !stage.ready && frame.first() == Some(&READY) {
-                stage.start_executing(timeout);
-            }
-            if !owner.cleanup_reported && frame.len() == FRAME_LEN {
-                owner.cleanup_reported = true;
-                stage.allow(REPORT_TIMEOUT);
-            }
-            if !stage.cancelled && !owner.cleanup_reported && !stage.exited && cancel_requested(control.as_ref()) {
-                cancel(&mut owner.channel)?;
-                stage.cancelled = true;
-                stage.allow(CLEANUP_TIMEOUT + REPORT_TIMEOUT);
-            }
+            stage.read(&frame, &mut owner, timeout);
+            stage.forward_cancellation(&mut owner, control.as_ref())?;
             if let Some(status) = owner.try_wait()? {
                 if !status.success() {
                     return Err(owner_failed(status, &stdout, &stderr));
