@@ -1,3 +1,5 @@
+cargo-features = ["profile-rustflags"]
+
 [workspace]
 resolver = "3"
 members = [
@@ -23,3 +25,11 @@ debug_assert_with_mut_call = "warn"
 inefficient_to_string = "warn"
 mem_forget = "warn"
 rc_buffer = "warn"
+
+# Full metadata in every rlib, and a crate identity namespace that keeps the injected runtime's
+# dependencies apart from the tested crate's. Profile flags apply on top of `RUSTFLAGS`.
+[profile.dev]
+rustflags = ["-Zembed-metadata=yes", "-Cmetadata=mutest-runtime-private-v1"]
+
+[profile.release]
+rustflags = ["-Zembed-metadata=yes", "-Cmetadata=mutest-runtime-private-v1"]

@@ -14,8 +14,6 @@ use std::path::{self, Path, PathBuf};
 
 #[path = "../build_support/dependency_dirs.rs"]
 mod dependency_dirs;
-#[path = "../build_support/runtime_contract.rs"]
-mod runtime_contract;
 
 use dependency_dirs::dependency_dirs;
 
@@ -129,7 +127,6 @@ fn holds_llvm_bitcode(rlib_path: &Path) -> bool {
 }
 
 fn main() {
-    runtime_contract::enforce();
     let profile = env::var("PROFILE").unwrap();
 
     let build_script_out_dir_path = PathBuf::from(env::var("OUT_DIR").unwrap());

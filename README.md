@@ -61,8 +61,6 @@ cargo install --force --path cargo-mutest
 
 > `mutest-driver` embeds the release build of `mutest-runtime`, so build the runtime first. The installed driver unpacks it into `target/mutest/mutest_deps` of the package it tests.
 
-> This workspace builds with `-Zembed-metadata=yes -Cmetadata=mutest-runtime-private-v1` (see `.cargo/config.toml`), and the build scripts refuse to build without them. Setting `RUSTFLAGS` replaces both, so include them in it.
-
 ## Usage
 
 Run the `cargo mutest run` subcommand against a standard Cargo package or workspace directory containing your crate.
