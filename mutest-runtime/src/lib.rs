@@ -39,4 +39,11 @@ pub use harness::*;
 mod metadata;
 pub use metadata::*;
 
+mod journal;
+mod completion;
+mod supervisor;
+#[cfg(target_os = "linux")]
+#[doc(hidden)]
+pub use supervisor::{adopt_orphans, children};
+
 pub use test_runner::is_test_thread_active;

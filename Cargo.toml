@@ -5,6 +5,7 @@ members = [
     "mutest-driver",
     "mutest-driver-cli",
     "mutest-emit",
+    "mutest-exit-code",
     "mutest-inspector",
     "mutest-json",
     "mutest-operators",

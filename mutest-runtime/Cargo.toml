@@ -18,6 +18,7 @@ edition = "2024"
 crate-type = ["rlib"]
 
 [dependencies]
+mutest-exit-code = { path = "../mutest-exit-code" }
 mutest-json = { path = "../mutest-json" }
 
 # Injected dependencies:
@@ -30,6 +31,9 @@ __mutest_runtime_public_dep_phf = { package = "phf", version = "0.14", features 
 
 serde = "1.0"
 serde_json = "1.0"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [lints]
 workspace = true

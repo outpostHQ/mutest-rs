@@ -1,4 +1,4 @@
-//@ run: fail
+//@ run: exit 1
 //@ stdout
-//@ stderr: empty
+//@ stderr
 //@ mutest-flags: --parallel-mutants

@@ -7,12 +7,61 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader};
 use std::iter;
-use std::path::{self, Path};
+use std::path::{self, Path, PathBuf};
 use std::process::{self, Command, Stdio};
 use std::str;
 use std::time::Instant;
 
 mod diff;
+
+// Adopt leaked children so they cannot escape the test runner's cleanup.
+mod orphans {
+    #[cfg(target_os = "linux")]
+    mod sys {
+        use std::ptr;
+
+        use libc::pid_t;
+
+        pub fn adopt() {
+            mutest_runtime::adopt_orphans().expect("UI runner child-subreaper setup failed");
+        }
+
+        pub fn adopted() -> Vec<u32> {
+            mutest_runtime::children().into_iter().map(|pid| pid as u32).collect()
+        }
+
+        pub fn kill_and_reap(pid: u32) {
+            // SAFETY: This child is unreaped, so its pid cannot have been reused.
+            unsafe {
+                libc::kill(pid as pid_t, libc::SIGKILL);
+                libc::waitpid(pid as pid_t, ptr::null_mut(), 0);
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    mod sys {
+        pub fn adopt() {}
+        pub fn adopted() -> Vec<u32> { vec![] }
+        pub fn kill_and_reap(_pid: u32) {}
+    }
+
+    pub use sys::{adopt, adopted};
+
+    /// Kill the adopted children that were not adopted before, returning how many there were.
+    // NOTE: Reparented descendants may appear after their parents are killed.
+    pub fn kill_adopted_since(before: &[u32]) -> usize {
+        let mut left_running = 0;
+        loop {
+            let adopted = adopted().into_iter().filter(|pid| !before.contains(pid)).collect::<Vec<_>>();
+            if adopted.is_empty() { return left_running; }
+            if left_running == 0 { left_running = adopted.len(); }
+            for pid in adopted {
+                sys::kill_and_reap(pid);
+            }
+        }
+    }
+}
 
 #[derive(Debug)]
 enum ExpectationVerdict {
@@ -34,6 +83,14 @@ enum Expectation {
     StdOut { empty: bool },
     /// //@ stderr
     StdErr { empty: bool },
+    /// //@ eval-stream
+    EvalStream,
+}
+
+struct Outputs<'a> {
+    stdout: &'a str,
+    stderr: &'a str,
+    eval_stream: &'a str,
 }
 
 impl Expectation {
@@ -41,89 +98,139 @@ impl Expectation {
         match self {
             Expectation::StdOut { .. } => "stdout",
             Expectation::StdErr { .. } => "stderr",
+            Expectation::EvalStream => "evaluation stream",
         }
     }
 
-    pub fn check(&self, path: &Path, stdout: &str, stderr: &str) -> ExpectationVerdict {
-        match self {
-            &Expectation::StdOut { empty: expect_empty } | &Expectation::StdErr { empty: expect_empty } => {
-                let (out_name, out, out_path) = match self {
-                    Expectation::StdOut { .. } => ("stdout", stdout, path.with_extension("stdout")),
-                    Expectation::StdErr { .. } => ("stderr", stderr, path.with_extension("stderr")),
-                    #[expect(unreachable_patterns)]
-                    _ => unreachable!(),
+    fn output<'a>(&self, path: &Path, outputs: &Outputs<'a>) -> (&'a str, PathBuf, bool) {
+        match *self {
+            Expectation::StdOut { empty } => (outputs.stdout, path.with_extension("stdout"), empty),
+            Expectation::StdErr { empty } => (outputs.stderr, path.with_extension("stderr"), empty),
+            Expectation::EvalStream => (outputs.eval_stream, path.with_extension("jsonl"), false),
+        }
+    }
+
+    pub fn check(&self, path: &Path, outputs: &Outputs<'_>) -> ExpectationVerdict {
+        let out_name = self.display_name();
+        let (out, out_path, expect_empty) = self.output(path, outputs);
+
+        if expect_empty {
+            if !out.is_empty() {
+                let diff_text = diff::display_diff("", out).unwrap();
+                return ExpectationVerdict::Unmet {
+                    reason: format!("{out_name} is not empty"),
+                    error: Some(diff_text),
                 };
+            }
+        } else {
+            if !out_path.exists() { return ExpectationVerdict::Unblessed; }
 
-                if expect_empty {
-                    if !out.is_empty() {
-                        let diff_text = diff::display_diff("", out).unwrap();
-                        return ExpectationVerdict::Unmet {
-                            reason: format!("{out_name} is not empty"),
-                            error: Some(diff_text),
-                        };
-                    }
-                } else {
-                    if !out_path.exists() { return ExpectationVerdict::Unblessed; }
-
-                    let expected_out = fs::read_to_string(&out_path).expect(&format!("cannot read {}", out_path.display()));
-                    if *out != expected_out {
-                        let diff_text = diff::display_diff(&expected_out, out).unwrap();
-                        return ExpectationVerdict::Unmet {
-                            reason: format!("{out_name} does not match expected output"),
-                            error: Some(diff_text),
-                        };
-                    }
-                }
-
-
-                ExpectationVerdict::Met
+            let expected_out = fs::read_to_string(&out_path).expect(&format!("cannot read {}", out_path.display()));
+            if *out != expected_out {
+                let diff_text = diff::display_diff(&expected_out, out).unwrap();
+                return ExpectationVerdict::Unmet {
+                    reason: format!("{out_name} does not match expected output"),
+                    error: Some(diff_text),
+                };
             }
         }
+
+        ExpectationVerdict::Met
     }
 
-    pub fn bless(&self, path: &Path, stdout: &str, stderr: &str, dry_run: bool) -> BlessVerdict {
-        match self {
-            &Expectation::StdOut { empty: expect_empty } | &Expectation::StdErr { empty: expect_empty } => {
-                if expect_empty { return BlessVerdict::UpToDate; }
+    pub fn bless(&self, path: &Path, outputs: &Outputs<'_>, dry_run: bool) -> BlessVerdict {
+        let (out, out_path, expect_empty) = self.output(path, outputs);
+        if expect_empty { return BlessVerdict::UpToDate; }
 
-                let (_out_name, out, out_path) = match self {
-                    Expectation::StdOut { .. } => ("stdout", stdout, path.with_extension("stdout")),
-                    Expectation::StdErr { .. } => ("stderr", stderr, path.with_extension("stderr")),
-                    #[expect(unreachable_patterns)]
-                    _ => unreachable!(),
-                };
+        let previous_out = out_path.exists().then(|| fs::read_to_string(&out_path).expect(&format!("cannot read {}", out_path.display())));
 
-                let previous_out = out_path.exists().then(|| fs::read_to_string(&out_path).expect(&format!("cannot read {}", out_path.display())));
+        if previous_out.as_deref() != Some(out) {
+            if !dry_run {
+                fs::write(&out_path, out).expect(&format!("cannot write {}", out_path.display()));
+            }
 
-                if previous_out.as_deref() != Some(out) {
-                    if !dry_run {
-                        fs::write(&out_path, out).expect(&format!("cannot write {}", out_path.display()));
-                    }
-
-                    return match previous_out {
-                        Some(previous_out) => {
-                            let diff_text = diff::display_diff(&previous_out, out).unwrap();
-                            BlessVerdict::Changed(diff_text)
-                        }
-                        None => BlessVerdict::New
-                    }
+            return match previous_out {
+                Some(previous_out) => {
+                    let diff_text = diff::display_diff(&previous_out, out).unwrap();
+                    BlessVerdict::Changed(diff_text)
                 }
-
-                BlessVerdict::UpToDate
+                None => BlessVerdict::New
             }
         }
+
+        BlessVerdict::UpToDate
     }
+}
+
+/// Remove the fields of evaluation stream events that differ from run to run.
+fn normalize_eval_stream(stream: &str) -> String {
+    stream.lines()
+        .map(|line| {
+            let Ok(serde_json::Value::Object(mut event)) = serde_json::from_str(line) else { return format!("{line}\n"); };
+            for varying in ["time", "thread_id", "test_exec_time"] {
+                event.remove(varying);
+            }
+            format!("{}\n", serde_json::Value::Object(event))
+        })
+        .collect()
+}
+
+#[test]
+fn test_normalize_eval_stream() {
+    let stream = concat!(
+        "{\"format_version\":1}\n",
+        "{\"event\":\"test_start\",\"time\":1203,\"mutation_id\":1,\"test_name\":\"test\",\"thread_id\":2}\n",
+        "{\"event\":\"test_result\",\"time\":5821,\"mutation_id\":1,\"test_name\":\"test\",\"test_exec_time\":4618,\"test_result\":\"failed\"}\n",
+    );
+
+    assert_eq!(normalize_eval_stream(stream), concat!(
+        "{\"format_version\":1}\n",
+        "{\"event\":\"test_start\",\"mutation_id\":1,\"test_name\":\"test\"}\n",
+        "{\"event\":\"test_result\",\"mutation_id\":1,\"test_name\":\"test\",\"test_result\":\"failed\"}\n",
+    ));
+}
+
+/// Replace the paths of retained analysis journals, which differ from run to run, and remove the journals.
+fn normalize_retained_journal_paths(stderr: &str) -> String {
+    const PREFIX: &str = "incomplete analysis journal retained at ";
+    stderr.split_inclusive('\n')
+        .map(|line| {
+            let Some(path) = line.strip_prefix(PREFIX) else { return line.to_owned(); };
+            let path = Path::new(path.trim_end_matches('\n'));
+            if path.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.starts_with("mutest-journal-")) {
+                let _ = fs::remove_file(path);
+            }
+            format!("{PREFIX}$RETAINED_JOURNAL{}", if line.ends_with('\n') { "\n" } else { "" })
+        })
+        .collect()
+}
+
+#[test]
+fn test_normalize_retained_journal_paths() {
+    let journal = env::temp_dir().join(format!("mutest-journal-{}-test", process::id()));
+    fs::write(&journal, "").unwrap();
+    let stderr = format!("mutation analysis incomplete\nincomplete analysis journal retained at {}\nother warning\n", journal.display());
+
+    assert_eq!(normalize_retained_journal_paths(&stderr), "mutation analysis incomplete\nincomplete analysis journal retained at $RETAINED_JOURNAL\nother warning\n");
+    assert!(!journal.exists());
 }
 
 const BUILD_OUT_DIR: &str = "target/mutest_test/debug/deps";
 const AUX_OUT_DIR: &str = "target/mutest_test/debug/deps/auxiliary";
+const EVAL_STREAM_OUT_DIR: &str = "target/mutest_test/json";
 
 struct Opts {
     pub filters: Option<Vec<String>>,
     pub bless: bool,
     pub dry_run: bool,
     pub verbosity: u8,
+    /// The `mutest-driver` binary in Cargo's target directory.
+    pub driver: PathBuf,
+    /// The `cargo-mutest` binary, passed to generated programs in `CARGO_MUTEST_VAR`.
+    pub cargo_mutest: PathBuf,
 }
+
+const CARGO_MUTEST_VAR: &str = "MUTEST_TESTS_CARGO_MUTEST";
 
 struct TestRunResults {
     pub ignored_tests_count: usize,
@@ -277,16 +384,17 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
     let mut expectations = BTreeSet::new();
     let mut mutest_prints = BTreeSet::new();
     let mut exec_build_artifact = false;
-    let mut expect_run_fail = false;
+    let mut expected_run_exit_code = mutest_exit_code::SUCCESS;
     let mut mutest_outputs: Vec<&str> = vec!["info"];
     for directive in &directives {
         match directive.as_str() {
-            action_directive @ ("print-tests" | "print-call-graph" | "print-targets" | "print-mutations" | "print-code" | "build" | "build: fail" | "run" | "run: fail") => {
+            action_directive if matches!(action_directive, "print-tests" | "print-call-graph" | "print-targets" | "print-mutations" | "print-code" | "build" | "build: fail" | "run")
+                || action_directive.starts_with("run: exit ") => {
                 // NOTE: The invariant here is that the moment any action directive resulting in the `test-bin` output is used,
                 //       then no other action directive of any kind can be specified afterwards.
                 //       This ensures the following:
                 //         1. `print-*` action directives must appear before any other action directive, e.g. `build`, and
-                //         2. the `build`, `build: fail`, `run`, `run: fail` action directives are mutually exclusive.
+                //         2. the `build`, `build: fail`, `run`, `run: exit <CODE>` action directives are mutually exclusive.
                 if mutest_outputs.contains(&"test-bin") {
                     results.ignored_tests_count += 1;
                     log_test(&name, TestResult::Ignored, Some("invalid action directives"));
@@ -304,9 +412,14 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
                         exec_build_artifact = true;
                         mutest_outputs.push("test-bin");
                     }
-                    "run: fail" => {
+                    _ if let Some(exit_code) = action_directive.strip_prefix("run: exit ") => {
+                        let Ok(exit_code) = exit_code.trim().parse() else {
+                            results.ignored_tests_count += 1;
+                            log_test(&name, TestResult::Ignored, Some(&format!("invalid directive: `{action_directive}` names no exit code")));
+                            return;
+                        };
                         exec_build_artifact = true;
-                        expect_run_fail = true;
+                        expected_run_exit_code = exit_code;
                         mutest_outputs.push("test-bin");
                     }
                     "print-tests" => {
@@ -344,6 +457,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
             "stdout: empty" => { expectations.insert(Expectation::StdOut { empty: true }); }
             "stderr" => { expectations.insert(Expectation::StdErr { empty: false }); }
             "stderr: empty" => { expectations.insert(Expectation::StdErr { empty: true }); }
+            "eval-stream" => { expectations.insert(Expectation::EvalStream); }
 
             _ if directive.starts_with("aux-build:") => {}
             _ if directive.starts_with("rustc-flags:") => {}
@@ -416,7 +530,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         let edition = edition.unwrap_or("2018");
 
         // Run mutest-driver in rustc mode, disabling mutations.
-        let mut cmd = Command::new("target/release/mutest-driver");
+        let mut cmd = Command::new(&opts.driver);
         cmd.arg("--rustc");
 
         cmd.arg(&aux_path);
@@ -470,7 +584,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         }
     }
 
-    let mut cmd = Command::new("target/release/mutest-driver");
+    let mut cmd = Command::new(&opts.driver);
     cmd.arg(&path);
     cmd.args(["--crate-name", &test_crate_name]);
     cmd.arg(format!("--edition={edition}"));
@@ -567,9 +681,28 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         return;
     }
 
+    let mut eval_stream = String::new();
+
     if exec_build_artifact {
-        let build_artifact_path = Path::new(BUILD_OUT_DIR).join(test_crate_name);
+        let build_artifact_path = Path::new(BUILD_OUT_DIR).join(&test_crate_name);
         let mut cmd = Command::new(&build_artifact_path);
+        // NOTE: The generated program logs each exit code it reports to `cargo mutest` here.
+        let exit_code_log = path::absolute(Path::new(BUILD_OUT_DIR).join(format!("{test_crate_name}.exit-codes"))).expect("cannot resolve the exit code log path");
+        let _ = fs::remove_file(&exit_code_log);
+        cmd.env(mutest_exit_code::LOG_VAR, &exit_code_log);
+        cmd.env(CARGO_MUTEST_VAR, &opts.cargo_mutest);
+
+        // NOTE: The directory is removed once the stream has been read.
+        let eval_stream_dir = expectations.contains(&Expectation::EvalStream).then(|| {
+            let dir = path::absolute(Path::new(EVAL_STREAM_OUT_DIR).join(&test_crate_name)).expect("cannot resolve the evaluation stream directory");
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).unwrap_or_else(|error| panic!("cannot create `{}`: {error}", dir.display()));
+            dir
+        });
+        if let Some(dir) = &eval_stream_dir {
+            cmd.arg(format!("--metadata-out-root-dir={}", dir.display()));
+            cmd.arg("--Zwrite-json-eval-stream");
+        }
 
         let run_env = directives.iter().filter_map(|d| d.strip_prefix("run-env:").map(str::trim))
             .flat_map(|env| {
@@ -597,9 +730,20 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         let full_stdout = &mut stdout;
         let full_stderr = &mut stderr;
 
+        let orphans_before = orphans::adopted();
         let output = cmd.output().expect(&format!("cannot spawn generated program `{}`", build_artifact_path.display()));
+        // Kill leaks before they accumulate across later tests.
+        let left_running = orphans::kill_adopted_since(&orphans_before);
         let stdout = String::from_utf8(output.stdout).unwrap();
         let stderr = String::from_utf8(output.stderr).unwrap();
+        let stderr = normalize_retained_journal_paths(&stderr);
+
+        if let Some(dir) = &eval_stream_dir {
+            eval_stream = normalize_eval_stream(&fs::read_to_string(dir.join("evaluation.jsonl")).unwrap_or_default());
+            let _ = fs::remove_dir_all(dir);
+        }
+        let recorded_exit_codes = mutest_exit_code::read(&fs::read_to_string(&exit_code_log).unwrap_or_default());
+        let _ = fs::remove_file(&exit_code_log);
 
         if opts.verbosity >= 1 {
             if let Some(exit_code) = output.status.code() {
@@ -609,16 +753,21 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
             eprintln!("stderr:\n{}", stderr);
         }
 
-        let expected_exit_code = match expect_run_fail {
-            true => 101,
-            false => 0,
+        let failure = if output.status.code() != Some(expected_run_exit_code) {
+            Some(match output.status.code() {
+                Some(exit_code) => format!("process exited with code {exit_code}, expected {expected_run_exit_code}"),
+                None => format!("process exited without exit code, expected {expected_run_exit_code}"),
+            })
+        } else if recorded_exit_codes != [expected_run_exit_code] {
+            Some(format!("recorded exit codes {recorded_exit_codes:?} for `cargo mutest`, expected [{expected_run_exit_code}]"))
+        } else if left_running >= 1 {
+            Some(format!("left {left_running} processes running after it exited"))
+        } else {
+            None
         };
-        if output.status.code() != Some(expected_exit_code) {
+        if let Some(reason) = failure {
             results.failed_tests_count += 1;
-            log_test(&name, TestResult::Failed, Some(&match output.status.code() {
-                Some(exit_code) => format!("process exited with code {exit_code}, expected {expected_exit_code}"),
-                None => format!("process exited without exit code, expected {expected_exit_code}"),
-            }));
+            log_test(&name, TestResult::Failed, Some(&reason));
             eprintln!("stdout:\n{}", stdout);
             eprintln!("stderr:\n{}", stderr);
             return;
@@ -639,9 +788,14 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         full_stderr.push_str(&stderr);
     }
 
+    // DefaultHasher output can change between Rust releases.
+    let stdout = stdout.replace(&crate_hash, "$HASH");
+    let stderr = stderr.replace(&crate_hash, "$HASH");
+    let outputs = Outputs { stdout: &stdout, stderr: &stderr, eval_stream: &eval_stream };
+
     if opts.bless {
         let bless_verdicts = expectations.iter()
-            .map(|expectation| expectation.bless(&path, &stdout, &stderr, opts.dry_run))
+            .map(|expectation| expectation.bless(&path, &outputs, opts.dry_run))
             .collect::<Vec<_>>();
 
         if bless_verdicts.iter().all(|v| matches!(v, BlessVerdict::UpToDate)) {
@@ -667,7 +821,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         }
     } else {
         let expectation_verdicts = expectations.iter()
-            .map(|expectation| expectation.check(&path, &stdout, &stderr))
+            .map(|expectation| expectation.check(&path, &outputs))
             .collect::<Vec<_>>();
 
         if expectation_verdicts.iter().all(|v| matches!(v, ExpectationVerdict::Met)) {
@@ -729,23 +883,33 @@ fn main() {
 
     let filters = matches.get_one::<String>("filter").map(|s| s.split(",").map(|f| f.trim().to_owned()).collect::<Vec<_>>());
 
+    let target_dir = cargo_metadata::MetadataCommand::new().no_deps().exec()
+        .expect("could not retrieve Cargo metadata")
+        .target_directory
+        .into_std_path_buf();
+
     let opts = Opts {
         filters,
         bless,
         dry_run,
         verbosity,
+        driver: target_dir.join("release").join(format!("mutest-driver{}", env::consts::EXE_SUFFIX)),
+        cargo_mutest: target_dir.join("release").join(format!("cargo-mutest{}", env::consts::EXE_SUFFIX)),
     };
 
-    // Ensure we are testing latest mutest-driver.
+    // Ensure we are testing latest mutest-driver and cargo-mutest.
     let mut cmd = Command::new("cargo");
-    cmd.args(["build", "--release", "-p", "mutest-driver"]);
+    cmd.args(["build", "--release", "-p", "mutest-driver", "-p", "cargo-mutest"]);
     cmd.stdout(Stdio::inherit());
     cmd.stderr(Stdio::inherit());
     if !cmd.output().expect("cannot spawn cargo").status.success() {
-        eprintln!("`cargo build --release -p mutest-driver` failed");
+        eprintln!("`cargo build --release -p mutest-driver -p cargo-mutest` failed");
         process::exit(1);
     }
     eprintln!();
+
+    // NOTE: Only after the build, so that a daemon Cargo starts is not taken for a test's orphan.
+    orphans::adopt();
 
     let mut results = TestRunResults {
         ignored_tests_count: 0,

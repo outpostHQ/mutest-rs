@@ -13,11 +13,15 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use mutest_exit_code as exit_code;
+
 use crate::config::{self, Options};
 use crate::detections::{MutationDetectionMatrix, print_mutation_detection_matrix};
 use crate::flakiness::{MutationFlakinessMatrix, print_mutation_flakiness_epilogue, print_mutation_flakiness_matrix};
 use crate::metadata::{self, CargoTargetKind, ExternalTestsExtra, MetaMutant, Mutant, MutationMeta, MutationParallelism, MutationSafety, StandaloneMutantMeta, SubstLocIdx, SubstMap, SubstMeta, TestSuite};
+use crate::journal::{self, WorkerJournal};
 use crate::subsumption::{MutationSubsumptionMatrix, print_mutation_subsumption_matrix};
+use crate::supervisor;
 use crate::test_runner;
 use crate::thread_pool::ThreadPool;
 use crate::write::{EvaluationStreamWriter, write_evaluation};
@@ -222,7 +226,8 @@ pub enum LingeringTestEvent {
 }
 
 pub struct LingeringTestMonitoringThread {
-    running_test_sender: mpsc::Sender<Vec<(test_runner::RunningTest, &'static MutationMeta)>>,
+    running_test_sender: Option<mpsc::Sender<Vec<(test_runner::RunningTest, &'static MutationMeta)>>>,
+    join_handle: Option<thread::JoinHandle<()>>,
 }
 
 impl LingeringTestMonitoringThread {
@@ -285,16 +290,22 @@ impl LingeringTestMonitoringThread {
         };
 
         let thread = thread::Builder::new().name("lingering_test_monitoring_thread".to_owned());
-        let _join_handle = match thread.spawn(job) {
+        let join_handle = match thread.spawn(job) {
             Ok(join_handle) => join_handle,
             Err(e) => panic!("failed to spawn thread for monitoring lingering tests: {e}"),
         };
 
-        Self { running_test_sender }
+        Self { running_test_sender: Some(running_test_sender), join_handle: Some(join_handle) }
     }
 
     pub fn submit_lingering_tests(&self, lingering_tests: Vec<(test_runner::RunningTest, &'static MutationMeta)>) {
-        self.running_test_sender.send(lingering_tests).expect("lingering test monitoring thread crashed");
+        self.running_test_sender.as_ref().expect("monitor already finished").send(lingering_tests).expect("lingering test monitoring thread crashed");
+    }
+
+    fn finish(monitor: Arc<Self>) {
+        let mut monitor = Arc::try_unwrap(monitor).unwrap_or_else(|_| panic!("lingering monitor still in use"));
+        drop(monitor.running_test_sender.take());
+        monitor.join_handle.take().unwrap().join().expect("lingering callbacks failed");
     }
 }
 
@@ -487,7 +498,6 @@ pub struct MutationOpStats {
 }
 
 pub struct MutationAnalysisResults {
-    pub all_test_runs_failed_successfully: bool,
     pub total_mutations_count: usize,
     pub total_safe_mutations_count: usize,
     pub undetected_mutations_count: usize,
@@ -513,8 +523,6 @@ impl MutationAnalysisResults {
 
         match mutation_result.result {
             MutationTestResult::Undetected => {
-                self.all_test_runs_failed_successfully = false;
-
                 self.undetected_mutations_count += 1;
                 op_stats.undetected_mutations_count += 1;
                 if let MutationSafety::Safe = mutation.safety {
@@ -544,17 +552,33 @@ impl MutationAnalysisResults {
     }
 }
 
-fn run_mutation_analysis<S: SubstMap + Sync>(
-    opts: &Options,
-    tests: &[test_runner::Test],
+fn journal_started(journal: Option<&WorkerJournal>, mutations: &[&'static MutationMeta]) {
+    if let Some(journal) = journal {
+        journal.started(&mutations.iter().map(|mutation| mutation.id).collect::<Vec<_>>());
+    }
+}
+
+fn journal_finished(journal: Option<&WorkerJournal>, mutation: &MutationMeta, mutation_result: &MutationTestResults) {
+    if let Some(journal) = journal { journal.finished(mutation.id, mutation_result); }
+}
+
+struct MutationAnalysis<'a, S: SubstMap + 'static> {
+    opts: &'a Options,
+    tests: &'a [test_runner::Test],
     external_tests_extra: Option<&'static ExternalTestsExtra>,
     meta_mutant: &'static MetaMutant<S>,
+}
+
+fn run_mutation_analysis<S: SubstMap + Sync>(
+    analysis: &MutationAnalysis<'_, S>,
     thread_pool: Option<ThreadPool>,
     lingering_test_monitoring_thread: Arc<LingeringTestMonitoringThread>,
     eval_stream_writer: Option<EvaluationStreamWriter>,
+    journal: Option<&WorkerJournal>,
 ) -> MutationAnalysisResults {
+    let &MutationAnalysis { opts, tests, external_tests_extra, meta_mutant } = analysis;
+
     let mut results = MutationAnalysisResults {
-        all_test_runs_failed_successfully: true,
         total_mutations_count: 0,
         total_safe_mutations_count: 0,
         undetected_mutations_count: 0,
@@ -602,10 +626,12 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                     prioritize_tests_by_distance(&mut tests, external_tests_extra, &[mutant.mutation]);
                 }
 
+                journal_started(journal, &[mutant.mutation]);
                 let (mut run_results, lingering_tests) = run_tests(tests, external_tests_extra, Mutant::Mutation(mutant), opts.exhaustive, opts.mutation_isolation, thread_pool.clone(), eval_stream_writer.clone(), opts.verbosity);
                 lingering_test_monitoring_thread.submit_lingering_tests(lingering_tests);
 
                 let Some(mutation_result) = run_results.remove(&mutant.mutation.id) else { unreachable!() };
+                journal_finished(journal, mutant.mutation, &mutation_result);
                 if let MutationTestResult::Undetected = mutation_result.result {
                     print!("{}", mutant.mutation.undetected_diagnostic);
                 }
@@ -652,11 +678,13 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                 }
                 maximize_mutation_parallelism(&mut tests, external_tests_extra, batched_mutant.mutations);
 
+                journal_started(journal, batched_mutant.mutations);
                 let (mut run_results, lingering_tests) = run_tests(tests, external_tests_extra, Mutant::Batch(batched_mutant), opts.exhaustive, opts.mutation_isolation, thread_pool.clone(), eval_stream_writer.clone(), opts.verbosity);
                 lingering_test_monitoring_thread.submit_lingering_tests(lingering_tests);
 
                 for mutation in batched_mutant.mutations {
                     let Some(mutation_result) = run_results.remove(&mutation.id) else { unreachable!() };
+                    journal_finished(journal, mutation, &mutation_result);
                     if let MutationTestResult::Undetected = mutation_result.result {
                         print!("{}", mutation.undetected_diagnostic);
                     }
@@ -667,7 +695,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
         MutationParallelism::DynamicallyScheduled(mutants, mutation_conflicts) => {
             let Some(thread_pool) = &thread_pool else {
                 println!("dynamic, parallel scheduling of mutations requires a thread pool: rerun with `--use-thread-pool`");
-                process::exit(ERROR_EXIT_CODE);
+                process::exit(exit_code::USAGE);
             };
             let max_thread_count = thread_pool.max_thread_count();
 
@@ -747,6 +775,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                             result
                         };
 
+                        journal_started(journal, &[mutant.mutation]);
                         let thread = thread::Builder::new().name(format!("mutation {}", mutant.mutation.id));
                         let handle = match thread.spawn(job) {
                             Ok(handle) => handle,
@@ -765,6 +794,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                     let mutation = completed_mutant.mutant.mutation;
 
                     let Ok(mutation_result) = completed_mutant.join_handle.join() else { unreachable!() };
+                    journal_finished(journal, mutation, &mutation_result);
                     if let MutationTestResult::Undetected = mutation_result.result {
                         print!("{}", mutation.undetected_diagnostic);
                     }
@@ -854,7 +884,8 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
     let mode = match () {
         _ if let Some(flakes_arg) = args.iter().flat_map(|arg| arg.strip_prefix("--flakes=")).next() => {
             let Some(iterations_count) = flakes_arg.parse::<usize>().ok() else {
-                panic!("flaky analysis iterations count must be a valid integer");
+                println!("invalid flakiness iterations count `{flakes_arg}`: expected a whole number");
+                process::exit(exit_code::USAGE);
             };
             config::Mode::Flakes { iterations_count }
         }
@@ -911,12 +942,15 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
         mutation_isolation: match args.iter().flat_map(|arg| arg.strip_prefix("--isolate=")).next() {
             None | Some("unsafe") => config::MutationIsolation::Unsafe,
             Some("all") => config::MutationIsolation::All,
-            Some(arg) => panic!("unexpected option: --isolate={arg}"),
+            Some(arg) => {
+                println!("invalid isolation mode `{arg}`: expected `unsafe` or `all`");
+                process::exit(exit_code::USAGE);
+            }
         },
         use_thread_pool: args.contains(&"--use-thread-pool"),
     };
 
-    let t_start = Instant::now();
+    let t_start = supervisor::run_start();
     let mut write_duration = Duration::ZERO;
 
     let eval_stream_writer = match &opts.write_opts {
@@ -928,10 +962,7 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
 
     println!("profiling reference test run");
     let t_test_profiling_start = Instant::now();
-    let mut profiled_tests = match profile_tests(tests) {
-        Ok(tests) => tests,
-        Err(_) => { process::exit(ERROR_EXIT_CODE); }
-    };
+    let Ok(mut profiled_tests) = profile_tests(tests);
     let test_profiling_duration = t_test_profiling_start.elapsed();
 
     let failed_profiled_tests = profiled_tests.iter().filter(|test| !matches!(test.result, test_runner::TestResult::Ignored | test_runner::TestResult::Ok)).collect::<Vec<_>>();
@@ -940,7 +971,7 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
             println!("  test {} ... fail", failed_profiled_test.test.desc.name.as_slice());
         }
         println!("not all tests passed, cannot continue");
-        process::exit(ERROR_EXIT_CODE);
+        process::exit(exit_code::BASELINE_FAILED);
     }
 
     sort_profiled_tests_by_exec_time(&mut profiled_tests);
@@ -1018,9 +1049,13 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
         }
     }));
 
+    let analysis = MutationAnalysis { opts: &opts, tests: &tests, external_tests_extra, meta_mutant };
+
     match opts.mode {
         config::Mode::Evaluate => {
-            let results = run_mutation_analysis(&opts, &tests, external_tests_extra, meta_mutant, thread_pool, lingering_test_monitoring_thread.clone(), eval_stream_writer);
+            let results = run_mutation_analysis(&analysis, thread_pool, lingering_test_monitoring_thread.clone(), eval_stream_writer, journal::worker());
+            #[cfg(all(test, target_os = "linux"))]
+            regression_fixture::after_mutations();
 
             if let Some(write_opts) = &opts.write_opts {
                 let t_write_start = Instant::now();
@@ -1037,7 +1072,7 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
                 print_mutation_subsumption_matrix(&mutation_subsumption_matrix, meta_mutant.mutations, !opts.exhaustive);
             }
 
-            drop(lingering_test_monitoring_thread);
+            LingeringTestMonitoringThread::finish(lingering_test_monitoring_thread);
 
             print_mutation_analysis_epilogue(&results, opts.verbosity);
 
@@ -1050,9 +1085,7 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
                 );
             }
 
-            if !results.all_test_runs_failed_successfully {
-                process::exit(ERROR_EXIT_CODE);
-            }
+            crate::completion::finish(verdict_exit_code(&results));
         }
 
         config::Mode::Flakes { iterations_count } => {
@@ -1064,7 +1097,8 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
                 println!("running iteration {iteration} out of {iterations_count}");
                 println!();
 
-                let iteration_results = run_mutation_analysis(&opts, &tests, external_tests_extra, meta_mutant, thread_pool.clone(), lingering_test_monitoring_thread.clone(), eval_stream_writer.clone());
+                // The journal names each mutation once, and every iteration runs them all again.
+                let iteration_results = run_mutation_analysis(&analysis, thread_pool.clone(), lingering_test_monitoring_thread.clone(), eval_stream_writer.clone(), None);
 
                 if let Some(()) = &opts.print_opts.detection_matrix {
                     print_mutation_detection_matrix(&iteration_results.mutation_detection_matrix, &tests, !opts.exhaustive);
@@ -1088,7 +1122,7 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
                 results.push(iteration_results);
             }
 
-            drop(lingering_test_monitoring_thread);
+            LingeringTestMonitoringThread::finish(lingering_test_monitoring_thread);
 
             if let Some(write_opts) = &opts.write_opts {
                 let t_write_start = Instant::now();
@@ -1110,8 +1144,16 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
                 iterations = t_flaky_iterations_start.elapsed(),
                 write = write_duration,
             );
+            crate::completion::finish(exit_code::SUCCESS);
         }
     }
+}
+
+fn verdict_exit_code(results: &MutationAnalysisResults) -> i32 {
+    exit_code::worst([
+        (results.undetected_mutations_count > 0).then_some(exit_code::MISSED),
+        (results.timed_out_mutations_count > 0).then_some(exit_code::TIMED_OUT),
+    ].into_iter().flatten())
 }
 
 const MUTEST_ISOLATED_WORKER_MUTATION_ID: &str = "__MUTEST_ISOLATED_WORKER_MUTATION_ID";
@@ -1151,6 +1193,7 @@ fn mutest_simulate_main<S: SubstMap>(args: &[&str], tests: Vec<test::TestDescAnd
     let total_tests_count = tests.len();
     let mut failed_tests_count = 0;
     let mut ignored_tests_count = 0;
+    let mut crashed_tests_count = 0;
 
     // SAFETY: No other thread is running yet, no one else is reading from the handle yet.
     unsafe { active_mutant_handle.replace(Some(mutant.substitutions.clone())); }
@@ -1179,10 +1222,13 @@ fn mutest_simulate_main<S: SubstMap>(args: &[&str], tests: Vec<test::TestDescAnd
                     }
 
                     | test_runner::TestResult::Failed
-                    | test_runner::TestResult::FailedMsg(_)
-                    | test_runner::TestResult::CrashedMsg(_) => {
+                    | test_runner::TestResult::FailedMsg(_) => {
                         println!("test {} ... \x1b[1;31mFAILED\x1b[0m", test.desc.name.as_slice());
                         failed_tests_count += 1;
+                    }
+                    test_runner::TestResult::CrashedMsg(_) => {
+                        println!("test {} ... crashed (incomplete)", test.desc.name.as_slice());
+                        crashed_tests_count += 1;
                     }
 
                     test_runner::TestResult::TimedOut => unreachable!(),
@@ -1200,13 +1246,18 @@ fn mutest_simulate_main<S: SubstMap>(args: &[&str], tests: Vec<test::TestDescAnd
             let mutation_id = mutant.mutation.id;
             Arc::new(move |cmd| {
                 cmd.env(MUTEST_ISOLATED_WORKER_MUTATION_ID, mutation_id.to_string());
+                #[cfg(all(test, target_os = "linux"))]
+                if env::var("MUTEST_REGRESSION_SCENARIO").is_ok_and(|scenario| scenario == "unsafe-simulate") {
+                    cmd.args(["--exact", "supervisor::tests::regressions::runtime_fixture_entry", "--test-threads=1", "--nocapture"]);
+                }
             })
         }),
     };
 
-    match test_runner::run_tests(tests_to_run, on_test_event, test_run_strategy, false) {
-        Ok(_) => {}
-        Err(_) => { process::exit(ERROR_EXIT_CODE); }
+    let Ok(_) = test_runner::run_tests(tests_to_run, on_test_event, test_run_strategy, false);
+    if crashed_tests_count > 0 {
+        eprintln!("simulation incomplete: {crashed_tests_count} isolated tests crashed");
+        process::exit(exit_code::PANIC);
     }
 
     println!("test result: {result}. {passed} passed; {failed} failed; {ignored} ignored",
@@ -1225,12 +1276,19 @@ fn mutest_simulate_main<S: SubstMap>(args: &[&str], tests: Vec<test::TestDescAnd
         );
     }
 
-    if failed_tests_count != 0 {
-        process::exit(ERROR_EXIT_CODE);
-    }
+    crate::completion::finish(if failed_tests_count == 0 { exit_code::MISSED } else { exit_code::SUCCESS });
 }
 
-pub fn mutest_main_static(test_suite: TestSuite, meta_mutant: &'static MetaMutant<impl SubstMap + Sync>) {
+/// Set by the worker to its own executable, so that this binary run again by a test runs as libtest.
+const RUN_AS_LIBTEST_VAR: &str = "__MUTEST_RUN_AS_LIBTEST";
+
+fn runs_as_libtest() -> bool {
+    let Some(marked_exe) = env::var_os(RUN_AS_LIBTEST_VAR) else { return false; };
+    env::current_exe().is_ok_and(|exe| exe.as_os_str() == marked_exe)
+}
+
+pub fn mutest_main_static(test_suite: TestSuite<'_>, meta_mutant: &'static MetaMutant<impl SubstMap + Sync>) {
+    test_runner::dispatch_subprocess_owner();
     if let Ok(test_name) = env::var(test_runner::TEST_SUBPROCESS_INVOCATION) {
         // SAFETY: No other thread is running.
         unsafe { env::remove_var(test_runner::TEST_SUBPROCESS_INVOCATION) };
@@ -1253,20 +1311,35 @@ pub fn mutest_main_static(test_suite: TestSuite, meta_mutant: &'static MetaMutan
         TestSuite::Tests(tests, external_tests_extra) => (tests, external_tests_extra),
     };
 
+    if runs_as_libtest() {
+        let exit_code = test::test_main(&env::args().collect::<Vec<_>>(), tests);
+        process::exit(if exit_code == process::ExitCode::SUCCESS { 0 } else { ERROR_EXIT_CODE });
+    }
+
+    if cfg!(any(unix, windows)) && !supervisor::is_worker() {
+        supervisor::supervise();
+    }
+    // Without a path of its own, this binary cannot be run again by a test either.
+    if let Ok(exe) = env::current_exe() {
+        // SAFETY: No other thread is running yet.
+        unsafe { env::set_var(RUN_AS_LIBTEST_VAR, exe) };
+    }
+    journal::open_for_worker();
+
     let owned_tests = tests.iter().map(|test| make_owned_test_def(test)).collect::<Vec<_>>();
 
     if let Some(mutation_id_str) = args.iter().flat_map(|arg| arg.strip_prefix("--simulate=")).next() {
         let Some(mutation_id) = mutation_id_str.parse::<u32>().ok() else {
             println!("invalid mutation id `{mutation_id_str}`");
-            process::exit(ERROR_EXIT_CODE);
+            process::exit(exit_code::USAGE);
         };
         let Some(mutant) = meta_mutant.find_mutant_with_mutation(mutation_id) else {
             println!("cannot find mutation with id {mutation_id}");
-            process::exit(ERROR_EXIT_CODE);
+            process::exit(exit_code::USAGE);
         };
         let Mutant::Mutation(mutant) = mutant else {
             println!("cannot simulate individual mutations: mutations are baked into batches, disable mutation batching");
-            process::exit(ERROR_EXIT_CODE);
+            process::exit(exit_code::USAGE);
         };
 
         return mutest_simulate_main(&args, owned_tests, mutant, meta_mutant.active_mutant_handle);
@@ -1274,3 +1347,6 @@ pub fn mutest_main_static(test_suite: TestSuite, meta_mutant: &'static MetaMutan
 
     mutest_main(&args, owned_tests, external_tests_extra, meta_mutant)
 }
+
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) mod regression_fixture;

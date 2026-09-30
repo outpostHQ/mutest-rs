@@ -227,6 +227,7 @@ dependencies = [
  "clap",
  "color-print",
  "mutest-driver-cli",
+ "mutest-exit-code",
  "mutest-operators",
  "serde",
  "toml",
@@ -748,6 +749,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "mutest-exit-code"
+version = "0.0.0"
+
+[[package]]
 name = "mutest-inspector"
 version = "0.0.0"
 dependencies = [
@@ -784,6 +789,8 @@ dependencies = [
 name = "mutest-runtime"
 version = "0.0.0"
 dependencies = [
+ "libc",
+ "mutest-exit-code",
  "mutest-json",
  "phf",
  "serde",
@@ -811,7 +818,11 @@ version = "0.0.0"
 dependencies = [
  "cargo_metadata",
  "clap",
+ "libc",
+ "mutest-exit-code",
+ "mutest-runtime",
  "path-slash",
+ "serde_json",
  "similar",
 ]
 

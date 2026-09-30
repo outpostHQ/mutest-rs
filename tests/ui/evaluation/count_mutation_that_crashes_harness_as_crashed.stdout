@@ -1,0 +1,5 @@
+profiling reference test run
+
+applying mutation:
+- [fn_return_default] return `Default::default()` without evaluating the function body at tests/ui/evaluation/count_mutation_that_crashes_harness_as_crashed.rs:11:5: 13:6
+

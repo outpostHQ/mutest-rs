@@ -1,4 +1,4 @@
-//@ run: fail
+//@ run: exit 2
 //@ stdout
 //@ stderr: empty
 
