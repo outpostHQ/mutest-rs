@@ -556,7 +556,7 @@ pub fn main() -> process::ExitCode {
             let batching_algorithm_arg = mutest_arg_matches.get_one::<String>("mutant-batch-algorithm").map(String::as_str);
 
             match (batching_algorithm_arg, mutest_arg_matches.value_source("mutant-batch-algorithm"), mutation_parallelism_config) {
-                // Mutation batching is overriden through Cargo package config.
+                // Mutation batching is overridden through Cargo package config.
                 (_, None | Some(clap::parser::ValueSource::DefaultValue), Some(mutation_parallelism_config)) => {
                     match mutation_parallelism_config {
                         // Mutation batching is explicitly disabled through Cargo package config.
@@ -568,7 +568,7 @@ pub fn main() -> process::ExitCode {
                     }
                 }
 
-                // Mutation batching algorith is disabled through the CLI, either explicitly or through the defaults.
+                // Mutation batching algorithm is disabled through the CLI, either explicitly or through the defaults.
                 (None | Some(opts::NONE), _, _) => break 'mutation_parallelism None,
                 // Some mutation batching algorithm is enabled through the CLI.
                 _ => {}

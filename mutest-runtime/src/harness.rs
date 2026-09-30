@@ -269,7 +269,7 @@ impl LingeringTestMonitoringThread {
                         Err(e) => test_runner::TestResult::from_task(completed_running_test.desc.should_panic, Err(e.as_ref()), completed_running_test.timeout, Some(exec_time)),
                     };
 
-                    // TODO: Retreive "real" completed test by keeping around the test_rx used to send it, along with the running test.
+                    // TODO: Retrieve "real" completed test by keeping around the test_rx used to send it, along with the running test.
                     let completed_test = test_runner::CompletedTest {
                         // FIXME: Retrieve real test ID, or use consistent test IDs everywhere.
                         id: test::TestId(0),
