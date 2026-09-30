@@ -127,6 +127,11 @@ pub fn track_invocation_fingerprint(sess: &Session, invocation_fingerprint: Opti
         Symbol::intern("MUTEST_FINGERPRINT"),
         invocation_fingerprint.map(Symbol::intern),
     ));
+    // NOTE: `cargo mutest` sets the driver's stamp, so that Cargo rebuilds a run's crates after the driver changes.
+    sess.env_depinfo.borrow_mut().insert((
+        Symbol::intern("MUTEST_DRIVER_STAMP"),
+        std::env::var("MUTEST_DRIVER_STAMP").ok().map(|stamp| Symbol::intern(&stamp)),
+    ));
 }
 
 pub fn base_compiler_config_from_parts(compiler_config: &CompilerConfig, invocation_fingerprint: Option<String>) -> CompilerConfig {

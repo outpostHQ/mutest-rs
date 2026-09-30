@@ -523,6 +523,26 @@ fn each_run_reports_through_its_own_files_inside_the_target_directory() {
     assert_ne!(RunReports::new(Path::new("target/mutest"), 8765).build_failure_marker, reports.build_failure_marker);
 }
 
+/// The driver binary's size and modification time, which change whenever it is rebuilt.
+fn driver_stamp(driver: &Path) -> String {
+    let Ok(metadata) = fs::metadata(driver) else { return String::new(); };
+    let modified = metadata.modified().ok().and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok()).unwrap_or_default();
+    format!("{}-{}", metadata.len(), modified.as_nanos())
+}
+
+#[test]
+fn a_rebuilt_driver_has_another_stamp() {
+    let driver = env::temp_dir().join(format!("mutest-driver-stamp-{}", process::id()));
+    fs::write(&driver, "old").unwrap();
+    let old = driver_stamp(&driver);
+    fs::write(&driver, "rebuilt").unwrap();
+    let rebuilt = driver_stamp(&driver);
+    fs::remove_file(&driver).unwrap();
+
+    assert_ne!(old, rebuilt);
+    assert_eq!(driver_stamp(&driver), "");
+}
+
 fn is_harness_internal_var(var: &OsStr) -> bool {
     var.as_encoded_bytes().starts_with(b"__MUTEST_")
 }
@@ -683,6 +703,8 @@ fn run_cargo_with_mutest_driver(cargo_invocation: &CargoInvocation, matches: &cl
     let mut path = env::current_exe().expect("current executable path invalid");
     path.set_file_name("mutest-driver");
     if cfg!(windows) { path.set_extension("exe"); }
+    // NOTE: Cargo does not rebuild after the compiler wrapper changes, so each crate depends on the driver's stamp.
+    cmd.env("MUTEST_DRIVER_STAMP", driver_stamp(&path));
     cmd.env("RUSTC_WORKSPACE_WRAPPER", path);
 
     if matches.get_flag("no-emit-metadata") {

@@ -66,8 +66,8 @@ fn environment(used: impl IntoIterator<Item = (String, Option<String>)>, get: im
     for &name in CONTEXT {
         values.insert(name.to_owned(), get(name)?);
     }
-    // NOTE: The fingerprint only makes Cargo track mutest's arguments; a replay has its own.
-    values.extend(used.into_iter().filter(|(name, _)| name != "MUTEST_FINGERPRINT"));
+    // NOTE: These only make Cargo track mutest's arguments and driver; a replay has its own.
+    values.extend(used.into_iter().filter(|(name, _)| name != "MUTEST_FINGERPRINT" && name != "MUTEST_DRIVER_STAMP"));
     Ok(values.into_iter().collect())
 }
 
@@ -234,6 +234,7 @@ mod tests {
             ("REQUIRED".to_owned(), Some("read".to_owned())),
             ("ABSENT".to_owned(), None),
             ("MUTEST_FINGERPRINT".to_owned(), Some("fingerprint".to_owned())),
+            ("MUTEST_DRIVER_STAMP".to_owned(), Some("stamp".to_owned())),
         ];
 
         let recorded = environment(used, |name| Ok(ambient.get(name).map(|value| (*value).to_owned()))).unwrap()
@@ -243,6 +244,7 @@ mod tests {
         assert_eq!(recorded.get("ABSENT"), Some(&None));
         assert_eq!(recorded.get("UNRELATED"), None);
         assert_eq!(recorded.get("MUTEST_FINGERPRINT"), None);
+        assert_eq!(recorded.get("MUTEST_DRIVER_STAMP"), None);
     }
 
     #[test]
