@@ -1,0 +1,7 @@
+[continue_break_swap] swap continue for break in fields at tests/ui/mutation/ops/continue_break_swap/avoid_swapping_break_for_continue_after_move.rs:12:13: 12:21
+  <-(0)- test
+
+[continue_break_swap] swap break for continue in short_words_before_a_long_one at tests/ui/mutation/ops/continue_break_swap/avoid_swapping_break_for_continue_after_move.rs:31:13: 31:18
+  <-(0)- test
+
+2 mutations; 2 safe; 0 unsafe (0 tainted)

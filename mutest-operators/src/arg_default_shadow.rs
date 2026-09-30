@@ -7,6 +7,28 @@ use mutest_emit::codegen::symbols::{Ident, path};
 use rustc_data_structures::smallvec::{SmallVec, smallvec};
 use rustc_data_structures::thin_vec::thin_vec;
 
+/// Whether `impl Trait` appears anywhere in the type, e.g. `Option<impl Read>`.
+fn mentions_impl_trait(ty: &ast::Ty) -> bool {
+    struct ImplTraitFinder {
+        found: bool,
+    }
+
+    impl<'ast> ast::visit::Visitor<'ast> for ImplTraitFinder {
+        fn visit_ty(&mut self, ty: &'ast ast::Ty) {
+            if let ast::TyKind::ImplTrait(..) = ty.kind {
+                self.found = true;
+                return;
+            }
+
+            ast::visit::walk_ty(self, ty);
+        }
+    }
+
+    let mut finder = ImplTraitFinder { found: false };
+    ast::visit::Visitor::visit_ty(&mut finder, ty);
+    finder.found
+}
+
 fn find_ident_pats<'ast>(pat: &'ast ast::Pat) -> Vec<&'ast ast::Pat> {
     fn find_ident_pats_impl<'ast>(pat: &'ast ast::Pat, ident_pats: &mut Vec<&'ast ast::Pat>) {
         if let ast::PatKind::Ident(..) = &pat.kind {
@@ -86,7 +108,7 @@ impl<'a> Operator<'a> for ArgDefaultShadow {
     type Mutation = ArgDefaultShadowMutation;
 
     fn try_apply(&self, mcx: &MutCtxt) -> Mutations<Self::Mutation> {
-        let MutCtxt { opts, tcx, crate_res, def_res, def_site: def, item_hir: f_hir, body_res, location } = *mcx;
+        let MutCtxt { opts, tcx, crate_res, def_res, def_site: def, item_hir: f_hir, body_res, location, value_is_borrowed: _ } = *mcx;
 
         let MutLoc::FnParam(param, f) = location else { return Mutations::none(); };
 
@@ -125,6 +147,9 @@ impl<'a> Operator<'a> for ArgDefaultShadow {
                 let opaque_ty_handling = ty::print::OpaqueTyHandling::Infer;
                 ty::ast_repr(tcx, crate_res, def_res, Some(scope), def, param_ty, def_path_handling, opaque_ty_handling, opts.sanitize_macro_expns, f_hir.owner_id.to_def_id())
             }) else { continue; };
+
+            // NOTE: `impl Trait` is not allowed in the type of a let binding.
+            if mentions_impl_trait(&param_ty_ast) { continue; }
 
             // Default::default();
             let default = ast::mk::expr_call_path(def, path::default(def), thin_vec![]);

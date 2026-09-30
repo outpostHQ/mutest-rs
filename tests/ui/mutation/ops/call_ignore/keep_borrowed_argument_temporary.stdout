@@ -1,0 +1,31 @@
+[call_delete] delete call to `core::str::<impl str>::len` and replace it with `Default::default()` in consume at tests/ui/mutation/ops/call_ignore/keep_borrowed_argument_temporary.rs:12:5: 12:16
+  <-(1)- temporary_lives_through_the_outer_call
+
+[call_value_default_shadow] ignore return value of call to `core::str::<impl str>::len` by shadowing it with `Default::default()` in consume at tests/ui/mutation/ops/call_ignore/keep_borrowed_argument_temporary.rs:12:5: 12:16
+  <-(1)- temporary_lives_through_the_outer_call
+
+[call_delete] delete call to `consume` and replace it with `Default::default()` in borrowed_argument at tests/ui/mutation/ops/call_ignore/keep_borrowed_argument_temporary.rs:16:5: 16:44
+  <-(0)- temporary_lives_through_the_outer_call
+
+[call_value_default_shadow] ignore return value of call to `consume` by shadowing it with `Default::default()` in borrowed_argument at tests/ui/mutation/ops/call_ignore/keep_borrowed_argument_temporary.rs:16:5: 16:44
+  <-(0)- temporary_lives_through_the_outer_call
+
+[call_delete] delete call to `consume` and replace it with `Default::default()` in stable_borrow at tests/ui/mutation/ops/call_ignore/keep_borrowed_argument_temporary.rs:20:5: 20:29
+  <-(0)- temporary_lives_through_the_outer_call
+
+[call_value_default_shadow] ignore return value of call to `consume` by shadowing it with `Default::default()` in stable_borrow at tests/ui/mutation/ops/call_ignore/keep_borrowed_argument_temporary.rs:20:5: 20:29
+  <-(0)- temporary_lives_through_the_outer_call
+
+[call_delete] delete call to `identity` and replace it with `Default::default()` in stable_borrow at tests/ui/mutation/ops/call_ignore/keep_borrowed_argument_temporary.rs:20:13: 20:28
+  <-(0)- temporary_lives_through_the_outer_call
+
+[call_value_default_shadow] ignore return value of call to `identity` by shadowing it with `Default::default()` in stable_borrow at tests/ui/mutation/ops/call_ignore/keep_borrowed_argument_temporary.rs:20:13: 20:28
+  <-(0)- temporary_lives_through_the_outer_call
+
+[call_delete] delete call to `consume` and replace it with `Default::default()` in owned_from_temporary at tests/ui/mutation/ops/call_ignore/keep_borrowed_argument_temporary.rs:24:5: 24:34
+  <-(0)- temporary_lives_through_the_outer_call
+
+[call_value_default_shadow] ignore return value of call to `consume` by shadowing it with `Default::default()` in owned_from_temporary at tests/ui/mutation/ops/call_ignore/keep_borrowed_argument_temporary.rs:24:5: 24:34
+  <-(0)- temporary_lives_through_the_outer_call
+
+10 mutations; 10 safe; 0 unsafe (0 tainted)

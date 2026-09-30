@@ -1,8 +1,10 @@
 use mutest_emit::{Mutation, Operator};
 use mutest_emit::analysis::hir;
+use mutest_emit::analysis::ty;
 use mutest_emit::codegen::ast;
 use mutest_emit::codegen::mutation::{MutCtxt, MutLoc, Mutations, Subst, SubstDef, SubstLoc};
 use rustc_data_structures::smallvec::smallvec;
+use rustc_middle::ty::TyCtxt;
 
 pub const CONTINUE_BREAK_SWAP: &str = "continue_break_swap";
 
@@ -44,6 +46,66 @@ impl Mutation for ContinueBreakSwapMutation {
     }
 }
 
+/// Whether the loop's position accepts `()`, which a `loop` becomes once it has a `break`.
+fn loop_may_become_unit<'tcx>(tcx: TyCtxt<'tcx>, typeck: &ty::TypeckResults<'tcx>, loop_hir: &'tcx hir::Expr<'tcx>) -> bool {
+    if typeck.expr_ty_adjusted(loop_hir) == tcx.types.unit { return true; }
+
+    let hir::Node::Stmt(stmt) = tcx.parent_hir_node(loop_hir.hir_id) else { return false; };
+    let hir::Node::Block(block) = tcx.parent_hir_node(stmt.hir_id) else { return false; };
+    let last_in_block = block.expr.is_none() && block.stmts.last().is_some_and(|last| last.hir_id == stmt.hir_id);
+    if !last_in_block { return true; }
+
+    // NOTE: The loop ends the block, so the block's type follows the loop's.
+    let hir::Node::Expr(block_expr) = tcx.parent_hir_node(block.hir_id) else { return false; };
+    typeck.expr_ty_adjusted(block_expr) == tcx.types.unit
+}
+
+/// Whether the loop moves a value declared outside of it, which a `continue` would move again.
+fn loop_moves_outer_value<'tcx>(tcx: TyCtxt<'tcx>, typeck: &'tcx ty::TypeckResults<'tcx>, body_owner: hir::LocalDefId, body_id: hir::BodyId, loop_hir: &'tcx hir::Expr<'tcx>) -> bool {
+    use rustc_hir_typeck::expr_use_visitor::{Delegate, ExprUseVisitor, PlaceBase, PlaceWithHirId};
+    use rustc_lint::LateContext;
+    use rustc_middle::mir::FakeReadCause;
+
+    struct OuterMoveFinder<'tcx> {
+        tcx: TyCtxt<'tcx>,
+        loop_hir_id: hir::HirId,
+        found: bool,
+    }
+
+    impl<'tcx> Delegate<'tcx> for OuterMoveFinder<'tcx> {
+        fn consume(&mut self, place_with_id: &PlaceWithHirId<'tcx>, _diag_expr_id: hir::HirId) {
+            let declared_at = match place_with_id.place.base {
+                PlaceBase::Local(hir_id) => hir_id,
+                PlaceBase::Upvar(upvar_id) => upvar_id.var_path.hir_id,
+                PlaceBase::Rvalue | PlaceBase::StaticItem => return,
+            };
+            if !self.tcx.hir_parent_id_iter(declared_at).any(|hir_id| hir_id == self.loop_hir_id) {
+                self.found = true;
+            }
+        }
+
+        fn use_cloned(&mut self, _place_with_id: &PlaceWithHirId<'tcx>, _diag_expr_id: hir::HirId) {}
+        fn borrow(&mut self, _place_with_id: &PlaceWithHirId<'tcx>, _diag_expr_id: hir::HirId, _bk: ty::BorrowKind) {}
+        fn mutate(&mut self, _assignee_place: &PlaceWithHirId<'tcx>, _diag_expr_id: hir::HirId) {}
+        fn fake_read(&mut self, _place_with_id: &PlaceWithHirId<'tcx>, _cause: FakeReadCause, _diag_expr_id: hir::HirId) {}
+    }
+
+    // NOTE: `ExprUseVisitor` is only constructible from a lint context, like in clippy.
+    let cx = LateContext {
+        tcx,
+        enclosing_body: Some(body_id),
+        typeck_results: Some(typeck),
+        param_env: tcx.param_env(body_owner),
+        effective_visibilities: tcx.effective_visibilities(()),
+        last_node_with_lint_attrs: tcx.local_def_id_to_hir_id(body_owner),
+        generics: None,
+        only_module: false,
+    };
+    let mut finder = OuterMoveFinder { tcx, loop_hir_id: loop_hir.hir_id, found: false };
+    let Ok(()) = ExprUseVisitor::for_clippy(&cx, body_owner, &mut finder).walk_expr(loop_hir);
+    finder.found
+}
+
 /// Swap continue expressions for break expressions and vice versa.
 pub struct ContinueBreakSwap;
 
@@ -51,7 +113,7 @@ impl<'a> Operator<'a> for ContinueBreakSwap {
     type Mutation = ContinueBreakSwapMutation;
 
     fn try_apply(&self, mcx: &MutCtxt) -> Mutations<Self::Mutation> {
-        let MutCtxt { opts: _, tcx, crate_res: _, def_res: _, def_site: def, item_hir: f_hir, body_res, location } = *mcx;
+        let MutCtxt { opts: _, tcx, crate_res: _, def_res: _, def_site: def, item_hir: f_hir, body_res, location, value_is_borrowed: _ } = *mcx;
 
         let MutLoc::FnBodyExpr(expr, _) = location else { return Mutations::none(); };
 
@@ -72,8 +134,17 @@ impl<'a> Operator<'a> for ContinueBreakSwap {
 
         let (hir::ExprKind::Continue(destination) | hir::ExprKind::Break(destination, _)) = expr_hir.kind else { unreachable!() };
         let target_hir_id = destination.target_id.unwrap();
+        // NOTE: A `break` may target a labeled block, which cannot be continued.
+        let hir::Node::Expr(target_hir @ hir::Expr { kind: hir::ExprKind::Loop(..), .. }) = tcx.hir_node(target_hir_id) else { return Mutations::none(); };
+
         let target_ty = typeck.node_type(target_hir_id);
-        if target_ty != tcx.types.unit && target_ty != tcx.types.never { return Mutations::none(); }
+        let compiles = match &expr.kind {
+            // NOTE: A `loop` without a `break` has type `!`, which becomes `()` once a `continue` is swapped for one.
+            ast::ExprKind::Continue(_) if target_ty == tcx.types.never => loop_may_become_unit(tcx, typeck, target_hir),
+            ast::ExprKind::Break(..) if loop_moves_outer_value(tcx, typeck, f_hir.owner_id.def_id, body_hir.id(), target_hir) => false,
+            _ => target_ty == tcx.types.unit || target_ty == tcx.types.never,
+        };
+        if !compiles { return Mutations::none(); }
 
         let mutation = Self::Mutation {
             original_expr: expr.kind.clone(),

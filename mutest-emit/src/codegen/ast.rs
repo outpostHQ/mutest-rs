@@ -879,6 +879,15 @@ pub mod mk {
         self::stmt_local(sp, mutbl, ident, ty, ast::LocalKind::Init(expr))
     }
 
+    // `super let $ident = $expr;`
+    pub fn stmt_super_let(sp: Span, ident: Ident, expr: Box<ast::Expr>) -> ast::Stmt {
+        let ast::StmtKind::Let(mut local) = self::stmt_let(sp, false, ident, None, expr).kind else {
+            unreachable!("stmt_let produces a let statement");
+        };
+        local.super_ = Some(sp);
+        self::stmt(sp, ast::StmtKind::Let(local))
+    }
+
     pub fn stmt_let_else(sp: Span, mutbl: bool, ident: Ident, ty: Option<Box<ast::Ty>>, expr: Box<ast::Expr>, els: Box<ast::Block>) -> ast::Stmt {
         self::stmt_local(sp, mutbl, ident, ty, ast::LocalKind::InitElse(expr, els))
     }

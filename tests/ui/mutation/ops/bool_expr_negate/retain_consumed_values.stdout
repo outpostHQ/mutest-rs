@@ -1,0 +1,73 @@
+[bool_expr_negate] negate boolean expression in used at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:20:13: 20:18
+  <-(0)- consumed_results_remain_observable
+
+[bool_expr_negate] negate boolean expression in used at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:21:13: 21:18
+  <-(0)- consumed_results_remain_observable
+
+[bool_expr_negate] negate boolean expression in used at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:22:13: 22:18
+  <-(0)- consumed_results_remain_observable
+
+[bool_expr_negate] negate boolean expression in used at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:23:19: 23:37
+  <-(0)- consumed_results_remain_observable
+
+[bool_expr_negate] negate boolean expression in used at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:24:8: 24:13
+  <-(0)- consumed_results_remain_observable
+
+[bool_expr_negate] negate boolean expression in used at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:25:11: 25:16
+  <-(0)- consumed_results_remain_observable
+
+[bool_expr_negate] negate boolean expression in used at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:26:5: 26:10
+  <-(0)- consumed_results_remain_observable
+
+[bool_expr_negate] negate boolean expression in returned at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:29:43: 29:48
+  <-(0)- consumed_results_remain_observable
+
+[bool_expr_negate] negate boolean expression in wrappers at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:33:7: 33:12
+  <-(0)- consumed_results_remain_observable
+
+[bool_expr_negate] negate boolean expression in wrappers at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:34:15: 34:20
+  <-(0)- consumed_results_remain_observable
+
+[bool_expr_negate] negate boolean expression in wrappers at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:35:5: 35:30
+  <-(0)- consumed_results_remain_observable
+
+[bool_expr_negate] negate boolean expression in wrappers at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:35:15: 35:20
+  <-(0)- consumed_results_remain_observable
+
+[bool_expr_negate] negate boolean expression in wrappers at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:35:23: 35:28
+  <-(0)- consumed_results_remain_observable
+
+[bool_expr_negate] negate boolean expression in question at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:39:20: 39:25
+  <-(0)- consumed_results_remain_observable
+
+[bool_expr_negate] negate boolean expression in question at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:40:13: 40:21
+  <-(0)- consumed_results_remain_observable
+
+[bool_expr_negate] negate boolean expression in question at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:41:8: 41:16
+  <-(0)- consumed_results_remain_observable
+
+[bool_expr_negate] negate boolean expression in question at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:41:29: 41:34
+  <-(0)- consumed_results_remain_observable
+
+[bool_expr_negate] negate boolean expression in short_circuit at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:47:6: 47:55
+  <-(0)- consumed_results_remain_observable
+
+[bool_expr_negate] negate boolean expression in short_circuit at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:47:6: 47:28
+  <-(0)- consumed_results_remain_observable
+
+[bool_expr_negate] negate boolean expression in short_circuit at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:47:22: 47:27
+  <-(0)- consumed_results_remain_observable
+
+[bool_expr_negate] negate boolean expression in short_circuit at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:47:32: 47:55
+  <-(0)- consumed_results_remain_observable
+
+[bool_expr_negate] negate boolean expression in short_circuit at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:47:48: 47:54
+  <-(0)- consumed_results_remain_observable
+
+[bool_expr_negate] negate boolean expression in short_circuit at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:47:60: 47:82
+  <-(0)- consumed_results_remain_observable
+
+[bool_expr_negate] negate boolean expression in short_circuit at tests/ui/mutation/ops/bool_expr_negate/retain_consumed_values.rs:47:76: 47:81
+  <-(0)- consumed_results_remain_observable
+
+24 mutations; 24 safe; 0 unsafe (0 tainted)

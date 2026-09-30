@@ -4,11 +4,52 @@ use mutest_emit::analysis::hir;
 use mutest_emit::analysis::res;
 use mutest_emit::analysis::ty::{self, Ty};
 use mutest_emit::codegen::ast;
-use mutest_emit::codegen::mutation::{MutCtxt, MutLoc, Mutations, Subst, SubstDef, SubstLoc};
+use mutest_emit::codegen::mutation::{MutCtxt, MutLoc, Mutations, Subst, SubstDef, SubstLoc, borrows_own_temporary};
 use mutest_emit::codegen::symbols::{Ident, path, kw};
 use rustc_data_structures::smallvec::smallvec;
 use rustc_data_structures::thin_vec::thin_vec;
 use rustc_middle::ty::TyCtxt;
+
+/// Whether a value of the type may hold a borrow.
+fn may_contain_borrow(ty: Ty<'_>) -> bool {
+    match ty.kind() {
+        ty::Ref(..) | ty::Dynamic(..) | ty::Param(..) | ty::Alias(..) => true,
+        ty::Adt(_, args) => args.iter().any(|arg| arg.as_region().is_some() || arg.as_type().is_some_and(may_contain_borrow)),
+        ty::Tuple(types) => types.iter().any(may_contain_borrow),
+        ty::Array(element, _) | ty::Slice(element) => may_contain_borrow(*element),
+        _ => false,
+    }
+}
+
+/// Whether the expression is, or borrows from, a place that outlives the call, rather than a temporary.
+fn borrows_stable_place(expr: &hir::Expr<'_>) -> bool {
+    match expr.kind {
+        hir::ExprKind::Path(_) => true,
+        hir::ExprKind::AddrOf(_, _, base) | hir::ExprKind::Field(base, _)
+        | hir::ExprKind::Index(base, _, _) | hir::ExprKind::Unary(hir::UnOp::Deref, base)
+        | hir::ExprKind::DropTemps(base) => borrows_stable_place(base),
+        _ => false,
+    }
+}
+
+/// Whether the call's result may borrow from an argument temporary.
+fn may_borrow_argument_temporary<'tcx>(typeck: &ty::TypeckResults<'tcx>, expr: &'tcx hir::Expr<'tcx>) -> bool {
+    let may_escape = |arg: &hir::Expr<'tcx>| may_contain_borrow(typeck.expr_ty_adjusted(arg)) && !borrows_stable_place(arg);
+    match expr.kind {
+        hir::ExprKind::Call(_, args) => args.iter().any(may_escape),
+        hir::ExprKind::MethodCall(_, receiver, args, _) => may_escape(receiver) || args.iter().any(may_escape),
+        _ => unreachable!(),
+    }
+}
+
+/// Whether `Default::default()` would still compile in place of the call.
+fn default_fits_in_place<'tcx>(tcx: TyCtxt<'tcx>, f: hir::LocalDefId, typeck: &ty::TypeckResults<'tcx>, expr: &'tcx hir::Expr<'tcx>, expr_ty: Ty<'tcx>) -> bool {
+    // NOTE: Argument temporaries are dropped at the end of the substitution's match arm.
+    if may_contain_borrow(expr_ty) && may_borrow_argument_temporary(typeck, expr) { return false; }
+    // NOTE: The replacement is checked at the coerced type too, e.g. `Arc<dyn Trait>` for `Arc::new(x)`.
+    let expr_ty_adjusted = typeck.expr_ty_adjusted(expr);
+    expr_ty_adjusted == expr_ty || ty::impls_trait(tcx, f, expr_ty_adjusted, res::traits::Default(tcx), vec![])
+}
 
 fn non_default_call<'tcx>(tcx: TyCtxt<'tcx>, f: hir::LocalDefId, body: hir::BodyId, expr: &'tcx hir::Expr<'tcx>, limit_scope_to_local_callees: bool) -> Option<(hir::DefId, Ty<'tcx>)> {
     // Calls to functions that take no arguments (including self) are ignored, because they are likely
@@ -26,6 +67,8 @@ fn non_default_call<'tcx>(tcx: TyCtxt<'tcx>, f: hir::LocalDefId, body: hir::Body
     let expr_ty = typeck.expr_ty(expr);
     if expr_ty == tcx.types.unit || expr_ty == tcx.types.never { return None; }
     if !ty::impls_trait(tcx, f, expr_ty, res::traits::Default(tcx), vec![]) { return None; }
+
+    if !default_fits_in_place(tcx, f, typeck, expr, expr_ty) { return None; }
 
     let Some((callee, _)) = res::callee(typeck, expr) else { return None; };
     if limit_scope_to_local_callees && !callee.is_local() { return None; }
@@ -96,9 +139,11 @@ impl<'a> Operator<'a> for CallValueDefaultShadow {
     type Mutation = CallValueDefaultShadowMutation;
 
     fn try_apply(&self, mcx: &MutCtxt) -> Mutations<Self::Mutation> {
-        let MutCtxt { opts, tcx, crate_res, def_res, def_site: def, item_hir: f_hir, body_res, location } = *mcx;
+        let MutCtxt { opts, tcx, crate_res, def_res, def_site: def, item_hir: f_hir, body_res, location, value_is_borrowed } = *mcx;
 
         let MutLoc::FnBodyExpr(expr, _f) = location else { return Mutations::none(); };
+        // NOTE: A match arm is its own temporary scope, so neither borrowed values nor borrows of temporaries can be replaced.
+        if value_is_borrowed || borrows_own_temporary(expr) { return Mutations::none(); }
         let Some(body_hir) = f_hir.body else { return Mutations::none(); };
 
         let (ast::ExprKind::Call(..) | ast::ExprKind::MethodCall(..)) = expr.kind else { return Mutations::none(); };
@@ -170,9 +215,11 @@ impl<'a> Operator<'a> for CallDelete {
     type Mutation = CallDeleteMutation;
 
     fn try_apply(&self, mcx: &MutCtxt) -> Mutations<Self::Mutation> {
-        let MutCtxt { opts: _, tcx, crate_res: _, def_res: _, def_site: def, item_hir: f_hir, body_res, location } = *mcx;
+        let MutCtxt { opts: _, tcx, crate_res: _, def_res: _, def_site: def, item_hir: f_hir, body_res, location, value_is_borrowed } = *mcx;
 
         let MutLoc::FnBodyExpr(expr, _f) = location else { return Mutations::none(); };
+        // NOTE: A match arm is its own temporary scope, so neither borrowed values nor borrows of temporaries can be replaced.
+        if value_is_borrowed || borrows_own_temporary(expr) { return Mutations::none(); }
         let Some(body_hir) = f_hir.body else { return Mutations::none(); };
 
         let (ast::ExprKind::Call(..) | ast::ExprKind::MethodCall(..)) = expr.kind else { return Mutations::none(); };

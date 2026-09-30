@@ -1,9 +1,27 @@
 use mutest_emit::{Mutation, Operator};
+use mutest_emit::analysis::hir;
 use mutest_emit::codegen::ast;
 use mutest_emit::codegen::mutation::{MutCtxt, MutLoc, Mutations, Subst, SubstDef, SubstLoc};
 use mutest_emit::codegen::symbols::{Ident, Symbol, sym};
 use rustc_data_structures::smallvec::smallvec;
 use rustc_data_structures::thin_vec::thin_vec;
+use rustc_middle::ty::TyCtxt;
+
+/// Whether the expression is a statement whose value is discarded, e.g. `a == b;`.
+fn is_discarded_statement_result(tcx: TyCtxt<'_>, mut expr_id: hir::HirId) -> bool {
+    for (parent_id, parent) in tcx.hir_parent_iter(expr_id) {
+        match parent {
+            hir::Node::Expr(hir::Expr { kind: hir::ExprKind::DropTemps(inner), .. }) if inner.hir_id == expr_id => {
+                expr_id = parent_id;
+            }
+            hir::Node::Stmt(stmt) => {
+                return matches!(stmt.kind, hir::StmtKind::Semi(root) if root.hir_id == expr_id);
+            }
+            _ => return false,
+        }
+    }
+    false
+}
 
 pub const BOOL_EXPR_NEGATE: &str = "bool_expr_negate";
 
@@ -31,7 +49,7 @@ impl<'a> Operator<'a> for BoolExprNegate {
     type Mutation = BoolExprNegateMutation;
 
     fn try_apply(&self, mcx: &MutCtxt) -> Mutations<Self::Mutation> {
-        let MutCtxt { opts: _, tcx, crate_res: _, def_res: _, def_site: def, item_hir: f_hir, body_res, location } = *mcx;
+        let MutCtxt { opts: _, tcx, crate_res: _, def_res: _, def_site: def, item_hir: f_hir, body_res, location, value_is_borrowed: _ } = *mcx;
 
         let MutLoc::FnBodyExpr(expr, _f) = location else { return Mutations::none(); };
 
@@ -43,6 +61,8 @@ impl<'a> Operator<'a> for BoolExprNegate {
         let Some(expr_hir) = body_res.hir_expr(expr) else { unreachable!() };
         let expr_ty = typeck.expr_ty(expr_hir);
         if expr_ty != tcx.types.bool { return Mutations::none(); }
+        // NOTE: Negating a discarded value has no effect.
+        if is_discarded_statement_result(tcx, expr_hir.hir_id) { return Mutations::none(); }
 
         let unambiguous_base_expr = match &expr.kind {
             // NOTE: Calls to generic functions with generic return types (e.g. `Default::default`)

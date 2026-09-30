@@ -21,9 +21,17 @@ pub fn register(sess: &Session, krate: &mut ast::Crate) {
             ast::mk::tt_token_joint(DUMMY_SP, ast::TokenKind::Ident(sym::mutest, ast::token::IdentKind::Normal)),
         ])),
     );
+    // #![feature(super_let)], used by the bindings of substitution arms.
+    let feature_super_let_attr = ast::mk::attr_inner(g, DUMMY_SP,
+        Ident::new(sym::feature, DUMMY_SP),
+        ast::mk::attr_args_delimited(DUMMY_SP, ast::token::Delimiter::Parenthesis, ast::mk::token_stream(vec![
+            ast::mk::tt_token_joint(DUMMY_SP, ast::TokenKind::Ident(sym::super_let, ast::token::IdentKind::Normal)),
+        ])),
+    );
 
     krate.attrs.push(feature_register_tool_attr);
     krate.attrs.push(register_tool_mutest_attr);
+    krate.attrs.push(feature_super_let_attr);
 }
 
 pub fn ignore<'tcx, I>(attrs: I) -> bool
