@@ -624,6 +624,13 @@ struct MutationAnalysis<'a, S: SubstMap + 'static> {
     meta_mutant: &'static MetaMutant<S>,
 }
 
+/// Whether a mutation may run alongside others whose substitutions are active in this process.
+/// Conflicts matter only within a process; isolated, each test runs with only its own mutation.
+fn runs_alongside<'a>(mutation: &MutationMeta, others: impl IntoIterator<Item = &'a MutationMeta>, conflicts: &metadata::MutationConflictsMeta, isolation: config::MutationIsolation) -> bool {
+    isolation == config::MutationIsolation::All
+        || others.into_iter().all(|other| !conflicts.conflicting_mutations(mutation.id, other.id))
+}
+
 fn run_mutation_analysis<S: SubstMap + Sync>(
     analysis: &MutationAnalysis<'_, S>,
     thread_pool: Option<ThreadPool>,
@@ -770,16 +777,9 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
 
                 while active_thread_count + newly_scheduled_mutants.len() < max_thread_count && !remaining_mutants.is_empty() {
                     let Some(mutant) = remaining_mutants.extract_if(.., |mutant| {
-                        // Conflicts matter only within a process; isolated, each test runs with only its own mutation.
-                        if let config::MutationIsolation::All = opts.mutation_isolation { return true; }
-                        let mutation_id = mutant.mutation.id;
-                        for newly_scheduled_mutant in &newly_scheduled_mutants {
-                            if mutation_conflicts.conflicting_mutations(mutation_id, newly_scheduled_mutant.mutation.id) { return false; }
-                        }
-                        for running_mutant in running_mutants.values() {
-                            if mutation_conflicts.conflicting_mutations(mutation_id, running_mutant.mutant.mutation.id) { return false; }
-                        }
-                        true
+                        let others = newly_scheduled_mutants.iter().map(|scheduled| scheduled.mutation)
+                            .chain(running_mutants.values().map(|running| running.mutant.mutation));
+                        runs_alongside(mutant.mutation, others, mutation_conflicts, opts.mutation_isolation)
                     }) .next() else { break; };
 
                     newly_scheduled_mutants.push(&mutant);
