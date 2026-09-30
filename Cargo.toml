@@ -26,10 +26,10 @@ inefficient_to_string = "warn"
 mem_forget = "warn"
 rc_buffer = "warn"
 
-# Full metadata in every rlib, and a crate identity namespace that keeps the injected runtime's
-# dependencies apart from the tested crate's. Profile flags apply on top of `RUSTFLAGS`.
+# Full metadata in every rlib, an identity namespace for the injected runtime's dependencies, and the trait
+# solver the runtime's `generic_const_exprs` needs, stated so rustc need not warn. Applied on top of `RUSTFLAGS`.
 [profile.dev]
-rustflags = ["-Zembed-metadata=yes", "-Cmetadata=mutest-runtime-private-v1"]
+rustflags = ["-Zembed-metadata=yes", "-Cmetadata=mutest-runtime-private-v1", "-Znext-solver=coherence"]
 
 [profile.release]
-rustflags = ["-Zembed-metadata=yes", "-Cmetadata=mutest-runtime-private-v1"]
+rustflags = ["-Zembed-metadata=yes", "-Cmetadata=mutest-runtime-private-v1", "-Znext-solver=coherence"]
