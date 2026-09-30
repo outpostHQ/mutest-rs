@@ -228,7 +228,6 @@ dependencies = [
  "color-print",
  "mutest-driver-cli",
  "mutest-exit-code",
- "mutest-operators",
  "serde",
  "toml",
 ]

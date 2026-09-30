@@ -15,7 +15,6 @@ edition = "2024"
 [dependencies]
 mutest-driver-cli = { path = "../mutest-driver-cli" }
 mutest-exit-code = { path = "../mutest-exit-code" }
-mutest-operators = { path = "../mutest-operators" }
 
 cargo_metadata = "0.23"
 clap = { version = "4", features = ["cargo"] }
