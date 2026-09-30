@@ -14,6 +14,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 
+use mutest_driver::build_status;
 use mutest_driver::cargo_package_config;
 use mutest_driver::config::{self, Config};
 use mutest_driver::passes::external_mutant::RustcInvocation;
@@ -147,6 +148,21 @@ const UNSTABLE_OPTIONS: &[UnstableOption] = mutest_driver_cli::extend_const_slic
 
 const BUG_REPORT_URL: &str = "https://github.com/zalanlevai/mutest-rs/issues/new";
 
+/// Runs `f`, recording a failure of one of the mutation run's own builds, so that the other drivers of the run stop.
+fn run_recording_build_failure(label: &str, owned_by_run: bool, f: impl FnOnce()) -> process::ExitCode {
+    match rustc_driver::catch_fatal_errors(f) {
+        Ok(()) => process::ExitCode::SUCCESS,
+        Err(_) => {
+            // A build stopped because another failed is not named: the one that failed already is.
+            if owned_by_run && let Some(marker_path) = build_status::marker_path() && mutest_emit::stop::requested().is_none() {
+                build_status::record_failure(&marker_path, label);
+            }
+            process::ExitCode::FAILURE
+        }
+    }
+}
+
+
 pub fn main() -> process::ExitCode {
     let early_dcx = EarlyDiagCtxt::new(ErrorOutputType::default());
     let mut args = rustc_driver::args::raw_args(&early_dcx);
@@ -228,9 +244,13 @@ pub fn main() -> process::ExitCode {
         .or_else(|| env::var("MUTEST_ARGS").ok().map(|args| args.split(' ').map(ToOwned::to_owned).collect::<Vec<_>>()));
     let mutest_args_str = mutest_args.as_ref().map(|mutest_args| mutest_args.join(" "));
 
+    let build_label = build_status::build_label(&args, env::var("CARGO_PKG_NAME").ok().as_deref(), test_target, env::current_dir().ok().as_deref());
+    let owned_by_run = build_status::belongs_to_run(&args, env::var_os("MUTEST_REPLAY_REQUEST").is_some(),
+        env::var_os("MUTEST_TARGET_DIR_ROOT").map(PathBuf::from).as_deref());
+
     // Fall back to a rustc invocation if mutest is not "enabled" for the given crate based on invocation.
     if info_query || (cargo_invocation && !primary_package) || proc_macro_target || (bin_target && !test_target) {
-        return rustc_driver::catch_with_exit_code(|| {
+        return run_recording_build_failure(&build_label, owned_by_run, || {
             rustc_driver::run_compiler(&args, &mut RustcCallbacks { mutest_args: mutest_args_str })
         });
     }
@@ -247,8 +267,8 @@ pub fn main() -> process::ExitCode {
         mutest_driver_cli::check_unstable_options(&mutest_arg_matches, UNSTABLE_OPTIONS);
     }
 
-    rustc_driver::catch_with_exit_code(|| {
-        let (Some(compiler_config), crate_types) = mutest_driver::passes::parse_compiler_args(&args) else {
+    run_recording_build_failure(&build_label, owned_by_run, || {
+        let (Some(mut compiler_config), crate_types) = mutest_driver::passes::parse_compiler_args(&args) else {
             early_dcx.early_fatal("no compiler configuration was generated");
         };
 
@@ -261,6 +281,10 @@ pub fn main() -> process::ExitCode {
         }
 
         let early_dcx = EarlyDiagCtxt::new(compiler_config.opts.error_format);
+
+        if let Some(marker_path) = build_status::marker_path() {
+            build_status::stop_once_the_build_has_failed(marker_path);
+        }
 
         let cargo_target_kind = fetch_cargo_target_kind(&compiler_config.input);
 

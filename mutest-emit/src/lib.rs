@@ -37,5 +37,6 @@ extern crate itertools;
 pub mod analysis;
 pub mod codegen;
 pub mod session;
+pub mod stop;
 
 pub use codegen::mutation::{Mutation, Operator};
