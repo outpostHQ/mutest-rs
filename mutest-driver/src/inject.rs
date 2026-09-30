@@ -26,15 +26,25 @@ fn extract_file(path: &Path, content: &[u8]) {
 
     if existing_file_up_to_date { return; }
 
-    fs::write(path, content).expect(&format!("cannot write file `{}`", path.display()));
+    // NOTE: The file is written aside and renamed into place, so that concurrent drivers never link a partial one.
+    let mut temp_file_name = path.file_name().expect("extracted file has no name").to_owned();
+    temp_file_name.push(format!(".{}.tmp", std::process::id()));
+    let temp_path = path.with_file_name(temp_file_name);
+    fs::write(&temp_path, content).unwrap_or_else(|error| panic!("cannot write file `{}`: {error}", temp_path.display()));
+    if let Err(error) = fs::rename(&temp_path, path) {
+        let _ = fs::remove_file(&temp_path);
+        // NOTE: Windows refuses to replace a file another process has open, which is fine if it is already up to date.
+        if fs::read(path).is_ok_and(|file_content| file_content == content) { return; }
+        panic!("cannot write file `{}`: {error}", path.display());
+    }
 }
 
 const MUTEST_EXTRACTED_DEPS_DIR_NAME: &str = "mutest_deps";
 
 #[cfg(feature = "embed-runtime")]
-pub fn extract_runtime_crate_and_deps(target_dir_root_path: &Path) {
+fn extract_runtime_crate_and_deps(target_dir_root_path: &Path) {
     let mutest_deps_dir_path = target_dir_root_path.join(MUTEST_EXTRACTED_DEPS_DIR_NAME);
-    fs::create_dir_all(&mutest_deps_dir_path).expect(&format!("cannot create directory `{}`", mutest_deps_dir_path.display()));
+    fs::create_dir_all(&mutest_deps_dir_path).unwrap_or_else(|error| panic!("cannot create directory `{}`: {error}", mutest_deps_dir_path.display()));
 
     extract_file(&mutest_deps_dir_path.join(rlib_catalog::MUTEST_RUNTIME_RLIB_FILENAME), rlib_catalog::MUTEST_RUNTIME_RLIB_DATA);
     for (dep_file_name, dep_data) in rlib_catalog::MUTEST_RUNTIME_EXTERN_DEPS_DATA {
@@ -66,13 +76,18 @@ pub fn inject_runtime_crate_and_deps(config: &Config, compiler_config: &mut Comp
     let host_triple = host_tuple();
     let target_triple = compiler_config.opts.target_triple.tuple();
 
-    let mutest_host_artifacts_dir_path = if cfg!(feature = "embed-runtime") {
+    // Only the host runtime is embedded; other targets use the search path.
+    let runtime_embedded = cfg!(feature = "embed-runtime") && target_triple == host_triple && !config.opts.unstable_flags.embedded;
+    #[cfg(feature = "embed-runtime")]
+    if runtime_embedded { extract_runtime_crate_and_deps(&config.target_dir_root()); }
+
+    let mutest_host_artifacts_dir_path = if runtime_embedded {
         &config.target_dir_root().join(MUTEST_EXTRACTED_DEPS_DIR_NAME)
     } else {
         config.mutest_search_path.as_deref().unwrap_or(Path::new(COMPILETIME_ARTIFACTS_DIR))
     };
 
-    let mutest_host_deps_dir_path = if cfg!(feature = "embed-runtime") {
+    let mutest_host_deps_dir_path = if runtime_embedded {
         mutest_host_artifacts_dir_path
     } else {
         match &config.mutest_search_path {
@@ -84,12 +99,6 @@ pub fn inject_runtime_crate_and_deps(config: &Config, compiler_config: &mut Comp
     let mutest_target_artifacts_dir_path = match target_triple == host_triple {
         true => mutest_host_artifacts_dir_path,
         false => {
-            if cfg!(feature = "embed-runtime") {
-                let mut diag = early_dcx.early_struct_fatal("mutest-rs with runtime embedding does not support cross-compilation");
-                diag.note(format!("target: `{target_triple}`"));
-                diag.emit();
-            }
-
             let profile = mutest_host_artifacts_dir_path.file_name().expect("invalid mutest search path");
             let root_dir_path = mutest_host_artifacts_dir_path.parent().expect("invalid mutest search path");
 
@@ -217,12 +226,7 @@ pub fn inject_test_crate_shim_if_no_target_std(config: &Config, compiler_config:
         diag.emit();
     }
 
-    if cfg!(feature = "embed-runtime") {
-        let mut diag = early_dcx.early_struct_fatal("mutest-rs with runtime embedding does not support cross-compilation");
-        diag.note(format!("target: `{target_triple}`"));
-        diag.emit();
-    }
-
+    // The shim is never embedded: it is looked for in a mutest-rs build directory.
     let mutest_host_artifacts_dir_path = config.mutest_search_path.as_deref().unwrap_or(Path::new(COMPILETIME_ARTIFACTS_DIR));
 
     let mutest_target_artifacts_dir_path = {

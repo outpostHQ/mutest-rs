@@ -38,7 +38,8 @@ rand_seeder = "0.5"
 cargo_metadata = "0.23"
 
 [features]
-default = []
+# Installed drivers must retain their runtime after the build directory is removed.
+default = ["embed-runtime"]
 embed-runtime = []
 
 [lints]
