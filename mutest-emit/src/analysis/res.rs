@@ -16,7 +16,7 @@ use crate::analysis::hir::{self, CRATE_DEF_ID, CRATE_MOD_ID, LOCAL_CRATE, DefKin
 use crate::analysis::hir::intravisit::Visitor;
 use crate::analysis::ty::{self, Ty};
 use crate::codegen::ast;
-use crate::codegen::symbols::{ExpnKind, DUMMY_SP, Ident, Span, Symbol, sym, kw};
+use crate::codegen::symbols::{ExpnKind, DUMMY_SP, Ident, Symbol, sym, kw};
 use crate::codegen::symbols::hygiene::AstPass;
 
 pub struct CrateResolutions<'tcx> {
@@ -637,7 +637,7 @@ pub fn visible_parent_map<'tcx>(tcx: TyCtxt<'tcx>) -> hir::DefIdMap<hir::DefId> 
     visible_parent_map
 }
 
-pub fn visible_def_paths<'tcx>(tcx: TyCtxt<'tcx>, crate_res: &CrateResolutions<'tcx>, def_id: hir::DefId, scope: Option<hir::DefId>, ignore_reexport: Option<hir::DefId>, span: Span, limit: Option<NonZeroUsize>) -> SmallVec<[DefPath<'tcx>; 1]> {
+pub fn visible_def_paths<'tcx>(tcx: TyCtxt<'tcx>, crate_res: &CrateResolutions<'tcx>, def_id: hir::DefId, scope: Option<hir::DefId>, ignore_reexport: Option<hir::DefId>, limit: Option<NonZeroUsize>) -> SmallVec<[DefPath<'tcx>; 1]> {
     let mut impl_parents = parent_iter(tcx, def_id).enumerate().filter(|&(_, def_id)| matches!(tcx.def_kind(def_id), hir::DefKind::Impl { of_trait: _ }));
     match impl_parents.next() {
         // `..::{impl#?}::$assoc_item::..` path.
@@ -734,7 +734,9 @@ pub fn visible_def_paths<'tcx>(tcx: TyCtxt<'tcx>, crate_res: &CrateResolutions<'
                 }
             }
 
-            span_bug!(span, "expected `{}` to be reached through another crate either through the extern prelude or an `extern crate` item", tcx.def_path_str(def_id));
+            // NOTE: A transitive dependency that nothing re-exports cannot be named from here,
+            //       just like in the `Some(None)` cases above.
+            return smallvec![];
         }
     };
 
@@ -792,8 +794,8 @@ pub fn visible_def_paths<'tcx>(tcx: TyCtxt<'tcx>, crate_res: &CrateResolutions<'
     paths
 }
 
-pub fn visible_def_path<'tcx>(tcx: TyCtxt<'tcx>, crate_res: &CrateResolutions<'tcx>, def_id: hir::DefId, scope: Option<hir::DefId>, ignore_reexport: Option<hir::DefId>, span: Span) -> Option<DefPath<'tcx>> {
-    visible_def_paths(tcx, crate_res, def_id, scope, ignore_reexport, span, NonZeroUsize::new(1)).into_iter().next()
+pub fn visible_def_path<'tcx>(tcx: TyCtxt<'tcx>, crate_res: &CrateResolutions<'tcx>, def_id: hir::DefId, scope: Option<hir::DefId>, ignore_reexport: Option<hir::DefId>) -> Option<DefPath<'tcx>> {
+    visible_def_paths(tcx, crate_res, def_id, scope, ignore_reexport, NonZeroUsize::new(1)).into_iter().next()
 }
 
 macro interned {

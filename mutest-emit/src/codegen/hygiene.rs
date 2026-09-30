@@ -406,7 +406,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
             }
         }
 
-        if let Some(visible_path) = res::visible_def_path(self.tcx, self.crate_res, def_id, self.current_scope, ignore_reexport, span) {
+        if let Some(visible_path) = res::visible_def_path(self.tcx, self.crate_res, def_id, self.current_scope, ignore_reexport) {
             return visible_path;
         }
 
