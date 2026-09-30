@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use mutest_emit::analysis::call_graph::{EntryPointAssocs, EntryPoints, Targeting, TargetReachability};
 use mutest_emit::analysis::hir;
+use mutest_emit::analysis::tests::Test;
 use mutest_emit::codegen::ast;
 use mutest_emit::codegen::harness::{CargoMetadata, CargoTargetKind, MetaMutant};
 use mutest_emit::codegen::symbols::{Symbol, span_diagnostic_ord};
@@ -107,6 +108,15 @@ fn perform_codegen<'tcx, 'ent, 'trg, 'm>(
             &tcx.sess.psess.attr_id_generator,
         ),
     );
+}
+
+/// The tests mutations can reach, and how the harness keeps its test cases. A test linking no mutant crate is
+/// reached by none: it is no entry point, or its own helpers would be mutated, and its harness is built without it.
+fn reached_tests<'t>(crate_kind: &config::CrateKind, external_meta_mutant_crate: Option<hir::CrateNum>, tests: &'t [Test]) -> (&'t [Test], fn(&rustc_session::Session, &[Test], &mut ast::Crate)) {
+    match (crate_kind.produces_mutations(), external_meta_mutant_crate) {
+        (false, None) => (&[], mutest_emit::codegen::expansion::strip_test_cases),
+        _ => (tests, mutest_emit::codegen::expansion::clean_up_test_cases),
+    }
 }
 
 pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
@@ -263,7 +273,7 @@ pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
                     }
                 }
             }).flatten();
-            let skipped_integration_test = !opts.crate_kind.produces_mutations() && external_meta_mutant_crate.is_none();
+            let (reached_tests, finish_test_cases) = reached_tests(&opts.crate_kind, external_meta_mutant_crate, &tests);
 
             let all_mutable_fns_count = mutest_emit::analysis::call_graph::all_mutable_fns(tcx, external_meta_mutant_crate, &tests).count();
 
@@ -278,11 +288,7 @@ pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
                     (entry_points, targets, external_targets.json_definitions.clone())
                 }
                 _ => {
-                    // A skipped test is no entry point, or its own helpers would be mutated.
-                    let entry_points = match skipped_integration_test {
-                        false => EntryPoints::Tests(&tests),
-                        true => EntryPoints::Tests(&[]),
-                    };
+                    let entry_points = EntryPoints::Tests(reached_tests);
 
                     let targeting = match external_meta_mutant_crate {
                         None => Targeting::LocalMutables,
@@ -426,11 +432,7 @@ pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
                 //       using the built-in codegen mechanism.
                 if !opts.unstable_flags.embedded {
                     // Undo `#[test]` macro expansions, since these are only valid with hygiene information.
-                    match skipped_integration_test {
-                        false => mutest_emit::codegen::expansion::clean_up_test_cases(sess, &tests, &mut generated_crate_ast),
-                        // No mutation reaches these tests, so the harness is built without them.
-                        true => mutest_emit::codegen::expansion::strip_test_cases(sess, &tests, &mut generated_crate_ast),
-                    }
+                    finish_test_cases(sess, &tests, &mut generated_crate_ast);
                 }
             }
 

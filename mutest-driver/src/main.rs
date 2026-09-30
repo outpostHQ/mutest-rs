@@ -163,8 +163,9 @@ fn run_recording_build_failure(label: &str, owned_by_run: bool, f: impl FnOnce()
     }
 }
 
-/// Reports the compilation of a specialized mutant crate back to the driver that requested it.
-fn write_replay_result(result_path: &Path, run: mutest_driver::RunResult, early_dcx: &EarlyDiagCtxt) {
+/// Reports the compilation of a specialized mutant crate back to the driver that requested it, if one did.
+fn write_replay_result(result_path: Option<PathBuf>, run: mutest_driver::RunResult, early_dcx: &EarlyDiagCtxt) {
+    let Some(result_path) = result_path else { return; };
     let Some(analysis) = run.analysis_pass else { early_dcx.early_fatal("the specialized mutant crate compilation produced no analysis") };
     let result = replay::ResultRecord {
         analysis,
@@ -172,7 +173,15 @@ fn write_replay_result(result_path: &Path, run: mutest_driver::RunResult, early_
         metadata: run.compilation_pass.as_ref().map(|pass| pass.outputs.path(rustc_session::config::OutputType::Metadata).as_path().to_owned()),
         dependencies: run.compilation_pass.map(|pass| pass.dependencies).unwrap_or_default(),
     };
-    replay::write(result_path, &result).unwrap_or_else(|error| early_dcx.early_fatal(error));
+    replay::write(&result_path, &result).unwrap_or_else(|error| early_dcx.early_fatal(error));
+}
+
+/// The replay this process compiles, if any, whose artifacts carry the request's suffix.
+fn read_replay_request(compiler_config: &mut CompilerConfig, early_dcx: &EarlyDiagCtxt) -> Option<replay::Request> {
+    let path = env::var_os("MUTEST_REPLAY_REQUEST")?;
+    let request = replay::read::<replay::Request>(Path::new(&path)).unwrap_or_else(|error| early_dcx.early_fatal(error));
+    compiler_config.opts.cg.extra_filename.push_str(&request.suffix);
+    Some(request)
 }
 
 pub fn main() -> process::ExitCode {
@@ -235,9 +244,6 @@ pub fn main() -> process::ExitCode {
     // HACK: This is an imperfect list of possible info queries, but matches what clippy-driver and cargo-miri does.
     let info_query = args.iter().any(|arg| arg == "-vV" || arg.starts_with("--print"));
 
-    let cargo_invocation = rustc_session::utils::was_invoked_from_cargo();
-    let primary_package = env::var("CARGO_PRIMARY_PACKAGE").is_ok();
-
     let test_target = args.iter().any(|arg| arg == "--test")
         // NOTE: We attempt to mutate testing targets even if the libtest harness is disabled.
         //       This is required for supporting alternative test harnesses, such as embedded-test.
@@ -294,17 +300,10 @@ pub fn main() -> process::ExitCode {
 
         let early_dcx = EarlyDiagCtxt::new(compiler_config.opts.error_format);
 
-        if let Some(marker_path) = build_status::marker_path() {
-            build_status::stop_once_the_build_has_failed(marker_path);
-        }
+        build_status::stop_once_the_build_has_failed();
 
         // NOTE: A driver started to compile a specialized mutant crate receives its request through a file.
-        let replay_request = env::var_os("MUTEST_REPLAY_REQUEST").map(|path| {
-            replay::read::<replay::Request>(Path::new(&path)).unwrap_or_else(|error| early_dcx.early_fatal(error))
-        });
-        if let Some(request) = &replay_request {
-            compiler_config.opts.cg.extra_filename.push_str(&request.suffix);
-        }
+        let replay_request = read_replay_request(&mut compiler_config, &early_dcx);
         let cargo_target_kind = replay_request.as_ref().map_or_else(|| fetch_cargo_target_kind(&compiler_config.input), |request| request.cargo_target_kind);
 
         let mut package_config = cargo_package_config::fetch_merged_cargo_package_config(&early_dcx);
@@ -314,7 +313,7 @@ pub fn main() -> process::ExitCode {
             let report_timings = mutest_arg_matches.get_flag("timings");
 
             // NOTE: The error is already reported; raising it keeps it from being reported as an ICE.
-            let Ok(compilation_pass) = mutest_driver::passes::external_mutant::recompilable_dep_crate::compile_recompilable_dep_crate(&compiler_config, &args, !cargo_invocation || primary_package) else { FatalError.raise() };
+            let Ok(compilation_pass) = mutest_driver::passes::external_mutant::recompilable_dep_crate::compile_recompilable_dep_crate(&compiler_config, &args) else { FatalError.raise() };
 
             if report_timings {
                 println!("compilation took {compilation:.2?}",
@@ -329,17 +328,17 @@ pub fn main() -> process::ExitCode {
 
         let replay_result = replay_request.as_ref().map(|request| request.result.clone());
         let replay_metadata_directory = replay_request.as_ref().map(|request| request.metadata_directory.clone());
-        let crate_kind = if let Some(request) = replay_request {
-            config::CrateKind::MutantForExternalTests(request.targets.decode().unwrap_or_else(|error| early_dcx.early_fatal(error)))
-        } else {
+        let crate_kind = {
             use crate::crate_kind as opts;
 
-            match crate_kind_arg {
-                Some(opts::MUTANT_WITH_INTERNAL_TESTS) => config::CrateKind::MutantWithInternalTests,
-                Some(opts::MUTABLE_DEP_FOR_EXTERNAL_TESTS) => unreachable!(),
-                Some(opts::INTEGRATION_TESTS) => config::CrateKind::IntegrationTest,
+            match (replay_request, crate_kind_arg) {
+                (Some(request), _) => config::CrateKind::MutantForExternalTests(request.targets.decode().unwrap_or_else(|error| early_dcx.early_fatal(error))),
 
-                None | Some(opts::INFER) => match cargo_target_kind {
+                (None, Some(opts::MUTANT_WITH_INTERNAL_TESTS)) => config::CrateKind::MutantWithInternalTests,
+                (None, Some(opts::MUTABLE_DEP_FOR_EXTERNAL_TESTS)) => unreachable!(),
+                (None, Some(opts::INTEGRATION_TESTS)) => config::CrateKind::IntegrationTest,
+
+                (None, None | Some(opts::INFER)) => match cargo_target_kind {
                     None => match guess_test_type(&compiler_config.input) {
                         TestType::UnitTest | TestType::Unknown => config::CrateKind::MutantWithInternalTests,
                         TestType::IntegrationTest => config::CrateKind::IntegrationTest,
@@ -734,8 +733,6 @@ pub fn main() -> process::ExitCode {
 
         // NOTE: The error is already reported; raising it keeps it from being reported as an ICE.
         let run = mutest_driver::run(config).unwrap_or_else(|_| FatalError.raise());
-        if let Some(result_path) = replay_result {
-            write_replay_result(&result_path, run, &early_dcx);
-        }
+        write_replay_result(replay_result, run, &early_dcx);
     })
 }

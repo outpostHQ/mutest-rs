@@ -32,9 +32,10 @@ fn artifact_paths(tcx: TyCtxt<'_>, outputs: &OutputFilenames) -> Vec<PathBuf> {
     artifacts
 }
 
-/// Compiles a crate and records its invocation. A `candidate` crate is also marked as one
-/// that integration tests may mutate.
-pub fn compile_recompilable_dep_crate(compiler_config: &CompilerConfig, args: &[String], candidate: bool) -> CompilerResult<RecompilableDepCrateCompilationResult> {
+/// Compiles a crate and records its invocation. A crate Cargo was asked for, or one built without Cargo,
+/// is also marked as one that integration tests may mutate.
+pub fn compile_recompilable_dep_crate(compiler_config: &CompilerConfig, args: &[String]) -> CompilerResult<RecompilableDepCrateCompilationResult> {
+    let candidate = !rustc_session::utils::was_invoked_from_cargo() || std::env::var_os("CARGO_PRIMARY_PACKAGE").is_some();
     let mut compiler_config = base_compiler_config_from_parts(compiler_config, None);
 
     // NOTE: Disable all MIR optimizations in all cases to ensure identical MIRs

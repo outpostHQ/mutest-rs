@@ -75,7 +75,8 @@ pub fn build_failed(marker_path: &Path) -> bool {
 }
 
 /// Stop analysis after a sibling compiler fails because Cargo will discard the build.
-pub fn stop_once_the_build_has_failed(marker_path: PathBuf) {
+pub fn stop_once_the_build_has_failed() {
+    let Some(marker_path) = marker_path() else { return; };
     thread::spawn(move || {
         while !build_failed(&marker_path) {
             thread::sleep(POLL_INTERVAL);
