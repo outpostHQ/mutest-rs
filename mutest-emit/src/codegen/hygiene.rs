@@ -171,6 +171,15 @@ struct MacroExpansionSanitizer<'tcx, 'op> {
     allow_internal_unstables: FxIndexSet<Symbol>,
 }
 
+/// How many `super` segments a `super{::super}*` path prefix has, which may start with a `self` that changes nothing.
+fn super_count(segments: &[ast::PathSegment]) -> Option<usize> {
+    let supers = match segments {
+        [self_segment, supers @ ..] if self_segment.ident.name == kw::SelfLower => supers,
+        _ => segments,
+    };
+    (!supers.is_empty() && supers.iter().all(|segment| segment.ident.name == kw::Super)).then_some(supers.len())
+}
+
 impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
     #[must_use]
     fn overwrite_path_with_def_path(&self, path: &mut ast::Path, def_path: &res::DefPath<'tcx>) -> Option<Ty<'tcx>> {
@@ -1241,10 +1250,10 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                 (parent_mod_id, referenced_mod_child)
             }
 
-            // `super{::super}*::Item` paths.
-            [super_segments @ ..] if !super_segments.is_empty() && super_segments.iter().all(|segment| segment.ident.name == kw::Super) => {
+            // `{self::}?super{::super}*::Item` paths.
+            [super_segments @ ..] if let Some(supers) = super_count(super_segments) => {
                 let mut parent_mod_id = overlay_mod_scope.unwrap_or(mod_scope);
-                for _ in 0..super_segments.len() {
+                for _ in 0..supers {
                     parent_mod_id = self.tcx.parent_module_from_def_id(parent_mod_id.expect_local().to_local_def_id()).to_mod_id();
                 }
                 let Some(referenced_mod_child) = res::lookup_mod_child(self.tcx, parent_mod_id.to_def_id(), item_res.expect_non_local(), item_path_segment.ident.name) else {
@@ -1268,7 +1277,8 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                 (parent_mod_id, referenced_mod_child)
             }
 
-            _ => span_bug!(path.span, "unhandled import path root with missing parent mod resolutions"),
+            prefix => span_bug!(path.span, "unhandled import path root `{}` with missing parent mod resolutions",
+                prefix.iter().map(|segment| segment.ident.to_string()).collect::<Vec<_>>().join("::")),
         };
 
         let mod_child_path_segments_count = match enum_variant {
