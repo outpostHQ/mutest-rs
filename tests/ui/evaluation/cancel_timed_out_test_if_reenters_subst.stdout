@@ -28,8 +28,8 @@ warning: [bool_expr_negate] mutation was not detected
    |
    = note: expression replaced with: `!false`
 
-bool_expr_negate:  50.00%. 1 detected (1 timed out; 0 crashed); 1 undetected
+bool_expr_negate:   0.00%. 0 detected (1 timed out; 0 crashed); 1 undetected
 
-mutations: 50.00%. 1 detected (1 timed out; 0 crashed); 1 undetected; 2 total
-     safe: 50.00%. 1 detected (1 timed out; 0 crashed); 1 undetected; 2 total
+mutations: 0.00%. 0 detected (1 timed out; 0 crashed); 1 undetected; 2 total
+     safe: 0.00%. 0 detected (1 timed out; 0 crashed); 1 undetected; 2 total
    unsafe: none. 0 detected (0 timed out; 0 crashed); 0 undetected; 0 total

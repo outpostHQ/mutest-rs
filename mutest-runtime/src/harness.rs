@@ -497,6 +497,28 @@ pub struct MutationOpStats {
     pub crashed_mutations_count: usize,
 }
 
+impl MutationOpStats {
+    /// Excludes timeouts and crashes, which establish no detection verdict.
+    pub fn detected_mutations_count(&self) -> usize {
+        self.total_mutations_count
+            - self.undetected_mutations_count
+            - self.timed_out_mutations_count
+            - self.crashed_mutations_count
+    }
+
+    /// The detected share of the mutations that reached a verdict, or `None` if none did.
+    pub fn mutation_score(&self) -> Option<f64> {
+        match self.total_mutations_count - self.timed_out_mutations_count - self.crashed_mutations_count {
+            0 => None,
+            resolved => Some(self.detected_mutations_count() as f64 / resolved as f64),
+        }
+    }
+}
+
+fn format_mutation_score(score: Option<f64>) -> String {
+    score.map_or_else(|| "none".to_owned(), |score| format!("{:.2}%", score * 100_f64))
+}
+
 pub struct MutationAnalysisResults {
     pub total_mutations_count: usize,
     pub total_safe_mutations_count: usize,
@@ -512,6 +534,34 @@ pub struct MutationAnalysisResults {
 }
 
 impl MutationAnalysisResults {
+    pub fn all_stats(&self) -> MutationOpStats {
+        MutationOpStats {
+            total_mutations_count: self.total_mutations_count,
+            undetected_mutations_count: self.undetected_mutations_count,
+            timed_out_mutations_count: self.timed_out_mutations_count,
+            crashed_mutations_count: self.crashed_mutations_count,
+        }
+    }
+
+    pub fn safe_stats(&self) -> MutationOpStats {
+        MutationOpStats {
+            total_mutations_count: self.total_safe_mutations_count,
+            undetected_mutations_count: self.undetected_safe_mutations_count,
+            timed_out_mutations_count: self.timed_out_safe_mutations_count,
+            crashed_mutations_count: self.crashed_safe_mutations_count,
+        }
+    }
+
+    pub fn unsafe_stats(&self) -> MutationOpStats {
+        let (all, safe) = (self.all_stats(), self.safe_stats());
+        MutationOpStats {
+            total_mutations_count: all.total_mutations_count - safe.total_mutations_count,
+            undetected_mutations_count: all.undetected_mutations_count - safe.undetected_mutations_count,
+            timed_out_mutations_count: all.timed_out_mutations_count - safe.timed_out_mutations_count,
+            crashed_mutations_count: all.crashed_mutations_count - safe.crashed_mutations_count,
+        }
+    }
+
     fn record_mutation_results(&mut self, mutation: &'static MutationMeta, mutation_result: MutationTestResults) {
         let op_stats = self.mutation_op_stats.entry(mutation.op_name).or_default();
 
@@ -825,7 +875,7 @@ fn print_mutation_analysis_epilogue(results: &MutationAnalysisResults, verbosity
         op_names.sort_unstable();
 
         let op_name_w = op_names.iter().map(|s| s.len()).max().unwrap_or(0);
-        let detected_w = results.mutation_op_stats.values().map(|s| (s.total_mutations_count - s.undetected_mutations_count).checked_ilog10().unwrap_or(0) as usize + 1).max().unwrap_or(0);
+        let detected_w = results.mutation_op_stats.values().map(|s| s.detected_mutations_count().checked_ilog10().unwrap_or(0) as usize + 1).max().unwrap_or(0);
         let timed_out_w = results.mutation_op_stats.values().map(|s| s.timed_out_mutations_count.checked_ilog10().unwrap_or(0) as usize + 1).max().unwrap_or(0);
         let crashed_w = results.mutation_op_stats.values().map(|s| s.crashed_mutations_count.checked_ilog10().unwrap_or(0) as usize + 1).max().unwrap_or(0);
         let undetected_w = results.mutation_op_stats.values().map(|s| s.undetected_mutations_count.checked_ilog10().unwrap_or(0) as usize + 1).max().unwrap_or(0);
@@ -834,8 +884,8 @@ fn print_mutation_analysis_epilogue(results: &MutationAnalysisResults, verbosity
             let op_stats = results.mutation_op_stats.get(op_name).map(|s| *s).unwrap_or_default();
 
             println!("{op_name:>op_name_w$}: {score:>7}. {detected:>detected_w$} detected ({timed_out:>timed_out_w$} timed out; {crashed:>crashed_w$} crashed); {undetected:>undetected_w$} undetected",
-                score = format!("{:.2}%",(op_stats.total_mutations_count - op_stats.undetected_mutations_count) as f64 / op_stats.total_mutations_count as f64 * 100_f64),
-                detected = op_stats.total_mutations_count - op_stats.undetected_mutations_count,
+                score = format_mutation_score(op_stats.mutation_score()),
+                detected = op_stats.detected_mutations_count(),
                 timed_out = op_stats.timed_out_mutations_count,
                 crashed = op_stats.crashed_mutations_count,
                 undetected = op_stats.undetected_mutations_count,
@@ -845,39 +895,16 @@ fn print_mutation_analysis_epilogue(results: &MutationAnalysisResults, verbosity
         println!();
     }
 
-    println!("mutations: {score}. {detected} detected ({timed_out} timed out; {crashed} crashed); {undetected} undetected; {total} total",
-        score = match results.total_mutations_count {
-            0 => "none".to_owned(),
-            _ => format!("{:.2}%", (results.total_mutations_count - results.undetected_mutations_count) as f64 / results.total_mutations_count as f64 * 100_f64),
-        },
-        detected = results.total_mutations_count - results.undetected_mutations_count,
-        timed_out = results.timed_out_mutations_count,
-        crashed = results.crashed_mutations_count,
-        undetected = results.undetected_mutations_count,
-        total = results.total_mutations_count,
-    );
-    println!("     safe: {score}. {detected} detected ({timed_out} timed out; {crashed} crashed); {undetected} undetected; {total} total",
-        score = match results.total_safe_mutations_count {
-            0 => "none".to_owned(),
-            _ => format!("{:.2}%", (results.total_safe_mutations_count - results.undetected_safe_mutations_count) as f64 / results.total_safe_mutations_count as f64 * 100_f64),
-        },
-        detected = results.total_safe_mutations_count - results.undetected_safe_mutations_count,
-        timed_out = results.timed_out_safe_mutations_count,
-        crashed = results.crashed_safe_mutations_count,
-        undetected = results.undetected_safe_mutations_count,
-        total = results.total_safe_mutations_count,
-    );
-    println!("   unsafe: {score}. {detected} detected ({timed_out} timed out; {crashed} crashed); {undetected} undetected; {total} total",
-        score = match results.total_mutations_count - results.total_safe_mutations_count {
-            0 => "none".to_owned(),
-            _ => format!("{:.2}%", ((results.total_mutations_count - results.total_safe_mutations_count) - (results.undetected_mutations_count - results.undetected_safe_mutations_count)) as f64 / (results.total_mutations_count - results.total_safe_mutations_count) as f64 * 100_f64),
-        },
-        detected = (results.total_mutations_count - results.total_safe_mutations_count) - (results.undetected_mutations_count - results.undetected_safe_mutations_count),
-        timed_out = results.timed_out_mutations_count - results.timed_out_safe_mutations_count,
-        crashed = results.crashed_mutations_count - results.crashed_safe_mutations_count,
-        undetected = results.undetected_mutations_count - results.undetected_safe_mutations_count,
-        total = results.total_mutations_count - results.total_safe_mutations_count,
-    );
+    for (label, stats) in [("mutations", results.all_stats()), ("safe", results.safe_stats()), ("unsafe", results.unsafe_stats())] {
+        println!("{label:>9}: {score}. {detected} detected ({timed_out} timed out; {crashed} crashed); {undetected} undetected; {total} total",
+            score = format_mutation_score(stats.mutation_score()),
+            detected = stats.detected_mutations_count(),
+            timed_out = stats.timed_out_mutations_count,
+            crashed = stats.crashed_mutations_count,
+            undetected = stats.undetected_mutations_count,
+            total = stats.total_mutations_count,
+        );
+    }
 }
 
 pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_tests_extra: Option<&'static ExternalTestsExtra>, meta_mutant: &'static MetaMutant<impl SubstMap + Sync>) {

@@ -38,13 +38,11 @@ pub struct RuntimeTest {
 /// Statistics about the detection of mutations.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct MutationDetectionStats {
-    /// Mutation score of constituent mutations, ranging between 0.0 (0%) and 1.0 (100%).
-    /// This is [`None`] if there are no constituent mutations.
+    /// Detected share of mutations that neither timed out nor crashed, or [`None`] if none qualify.
     pub mutation_score: Option<f64>,
     /// Total number of constituent mutations.
     pub total_mutations_count: usize,
-    /// Number of detected constituent mutations.
-    /// This includes detections through timeouts and crashes.
+    /// Detected mutations, excluding timeouts and crashes.
     pub detected_mutations_count: usize,
     /// Number of timed out constituent mutations.
     pub timed_out_mutations_count: usize,
