@@ -629,7 +629,7 @@ fn receive_monitor_message(running_tests: &HashMap<test::TestId, RunningTest>, t
     }
 }
 
-fn run_tests_with_concurrency<E, F>(
+pub(crate) fn run_tests_with_concurrency<E, F>(
     tests: Vec<Test>,
     mut on_test_event: F,
     test_run_strategy: TestRunStrategy,

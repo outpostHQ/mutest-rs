@@ -331,6 +331,7 @@ fn run_tests(
     exhaustive: bool,
     mutation_isolation: config::MutationIsolation,
     thread_pool: Option<ThreadPool>,
+    test_concurrency: Option<usize>,
     eval_stream_writer: Option<EvaluationStreamWriter>,
     verbosity: u8,
 ) -> (HashMap<u32, MutationTestResults>, Vec<(test_runner::RunningTest, &'static MutationMeta)>) {
@@ -450,7 +451,10 @@ fn run_tests(
         })
     };
 
-    let Ok((_, lingering_tests)) = test_runner::run_tests(tests, on_test_event, test_run_strategy, false);
+    let Ok((_, lingering_tests)) = match test_concurrency {
+        Some(concurrency) => test_runner::run_tests_with_concurrency(tests, on_test_event, test_run_strategy, false, concurrency),
+        None => test_runner::run_tests(tests, on_test_event, test_run_strategy, false),
+    };
 
     let lingering_tests = lingering_tests.into_iter()
         .map(|test| {
@@ -677,7 +681,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                 }
 
                 journal_started(journal, &[mutant.mutation]);
-                let (mut run_results, lingering_tests) = run_tests(tests, external_tests_extra, Mutant::Mutation(mutant), opts.exhaustive, opts.mutation_isolation, thread_pool.clone(), eval_stream_writer.clone(), opts.verbosity);
+                let (mut run_results, lingering_tests) = run_tests(tests, external_tests_extra, Mutant::Mutation(mutant), opts.exhaustive, opts.mutation_isolation, thread_pool.clone(), None, eval_stream_writer.clone(), opts.verbosity);
                 lingering_test_monitoring_thread.submit_lingering_tests(lingering_tests);
 
                 let Some(mutation_result) = run_results.remove(&mutant.mutation.id) else { unreachable!() };
@@ -729,7 +733,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                 maximize_mutation_parallelism(&mut tests, external_tests_extra, batched_mutant.mutations);
 
                 journal_started(journal, batched_mutant.mutations);
-                let (mut run_results, lingering_tests) = run_tests(tests, external_tests_extra, Mutant::Batch(batched_mutant), opts.exhaustive, opts.mutation_isolation, thread_pool.clone(), eval_stream_writer.clone(), opts.verbosity);
+                let (mut run_results, lingering_tests) = run_tests(tests, external_tests_extra, Mutant::Batch(batched_mutant), opts.exhaustive, opts.mutation_isolation, thread_pool.clone(), None, eval_stream_writer.clone(), opts.verbosity);
                 lingering_test_monitoring_thread.submit_lingering_tests(lingering_tests);
 
                 for mutation in batched_mutant.mutations {
@@ -760,10 +764,13 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
 
             let mut newly_scheduled_mutants = Vec::<&'static StandaloneMutantMeta>::with_capacity(max_thread_count);
             while !running_mutants.is_empty() || !remaining_mutants.is_empty() {
-                let active_thread_count = thread_pool.active_count();
+                // A running mutant holds a slot even while its tests run in child processes, outside the pool.
+                let active_thread_count = thread_pool.active_count().max(running_mutants.len());
 
                 while active_thread_count + newly_scheduled_mutants.len() < max_thread_count && !remaining_mutants.is_empty() {
                     let Some(mutant) = remaining_mutants.extract_if(.., |mutant| {
+                        // Conflicts matter only within a process; isolated, each test runs with only its own mutation.
+                        if let config::MutationIsolation::All = opts.mutation_isolation { return true; }
                         let mutation_id = mutant.mutation.id;
                         for newly_scheduled_mutant in &newly_scheduled_mutants {
                             if mutation_conflicts.conflicting_mutations(mutation_id, newly_scheduled_mutant.mutation.id) { return false; }
@@ -777,7 +784,8 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                     newly_scheduled_mutants.push(&mutant);
                 }
 
-                if !newly_scheduled_mutants.is_empty() {
+                let scheduled = !newly_scheduled_mutants.is_empty();
+                if scheduled {
                     // Activate substitutions for running mutants, and the mutants we are about to schedule.
                     let mut substitutions = S::empty();
                     let mutant_substitutions = running_mutants.values()
@@ -818,7 +826,8 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                         let job_lingering_test_monitoring_thread = lingering_test_monitoring_thread.clone();
                         let job_verbosity = opts.verbosity;
                         let job = move || {
-                            let (mut run_results, lingering_tests) = run_tests(tests, external_tests_extra, Mutant::Mutation(mutant), job_exhaustive, job_mutation_isolation, job_thread_pool, job_eval_stream_writer, job_verbosity);
+                            // Mutants running side by side share the pool's slots, so each runs one test at a time.
+                            let (mut run_results, lingering_tests) = run_tests(tests, external_tests_extra, Mutant::Mutation(mutant), job_exhaustive, job_mutation_isolation, job_thread_pool, Some(1), job_eval_stream_writer, job_verbosity);
                             job_lingering_test_monitoring_thread.submit_lingering_tests(lingering_tests);
 
                             let Some(result) = run_results.remove(&mutant.mutation.id) else { unreachable!() };
@@ -859,6 +868,9 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                         substitutions.overlay(running_mutant.mutant.substitutions);
                     }
                     unsafe { meta_mutant.active_mutant_handle.replace(Some(substitutions)); }
+                } else if !scheduled {
+                    // Nothing started or finished: wait rather than spin a core the tests could use.
+                    thread::sleep(Duration::from_millis(1));
                 }
             }
         }
