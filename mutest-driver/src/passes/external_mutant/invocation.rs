@@ -5,7 +5,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 
 use rustc_middle::ty::TyCtxt;
 use rustc_span::def_id::CrateNum;
@@ -24,26 +23,10 @@ const CONTEXT: &[&str] = &[
     "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH", "SYSTEMROOT", "LIB", "INCLUDE",
 ];
 
-/// The size and modification time of the driver binary, which tell a record written by another build of it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-struct DriverStamp {
-    len: u64,
-    modified: SystemTime,
-}
-
-impl DriverStamp {
-    fn current() -> Result<Self, String> {
-        let metadata = env::current_exe().and_then(fs::metadata).map_err(|error| format!("cannot inspect the mutest-driver binary: {error}"))?;
-        let modified = metadata.modified().map_err(|error| format!("cannot inspect the mutest-driver binary: {error}"))?;
-        Ok(Self { len: metadata.len(), modified })
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Record {
     version: u32,
     compiler: String,
-    driver: DriverStamp,
     /// The artifact this record sits beside.
     pub artifact: PathBuf,
     /// Every artifact of the same compilation, including `artifact`.
@@ -80,7 +63,6 @@ pub fn capture(tcx: TyCtxt<'_>, args: &[String]) -> Result<Record, String> {
     Ok(Record {
         version: VERSION,
         compiler: compiler().to_owned(),
-        driver: DriverStamp::current()?,
         artifact: PathBuf::new(),
         paired_outputs: vec![],
         invocation: RustcInvocation {
@@ -115,17 +97,18 @@ pub fn publish(mut record: Record, artifacts: &[PathBuf]) -> Result<(), String> 
     Ok(())
 }
 
-/// The record beside `artifact`, provided this driver and compiler wrote it.
+/// The record beside `artifact`, provided it is in this format and from this compiler.
 pub fn load(artifact: &Path) -> Result<Record, String> {
     let artifact = canonical(artifact)?;
     let path = sidecar(&artifact);
-    let bytes = fs::read(&path).map_err(|error| format!("cannot read `{}`: {error}", path.display()))?;
-    let record = serde_json::from_slice::<Record>(&bytes).ok()
-        .filter(|record| record.version == VERSION && record.compiler == compiler() && record.artifact == artifact);
-    match record {
-        Some(record) if record.driver == DriverStamp::current()? => Ok(record),
-        _ => Err(format!("`{}` was written by another build of mutest-driver or rustc; rebuild `{}`", path.display(), artifact.display())),
-    }
+    let unusable = || {
+        let target_dir = env::var_os("MUTEST_TARGET_DIR_ROOT").map_or_else(|| PathBuf::from("target/mutest"), PathBuf::from);
+        format!("`{}` is missing or from another version of mutest-rs or rustc; remove `{}` and run again", path.display(), target_dir.display())
+    };
+    let bytes = fs::read(&path).map_err(|_| unusable())?;
+    serde_json::from_slice::<Record>(&bytes).ok()
+        .filter(|record| record.version == VERSION && record.compiler == compiler() && record.artifact == artifact)
+        .ok_or_else(unusable)
 }
 
 /// The dependencies named in a crate's metadata, by crate hash.
@@ -220,7 +203,6 @@ mod tests {
         Record {
             version: VERSION,
             compiler: compiler().to_owned(),
-            driver: DriverStamp::current().unwrap(),
             artifact: PathBuf::new(),
             paired_outputs: vec![],
             invocation: RustcInvocation { args: vec!["rustc".to_owned(), "lib.rs".to_owned()], env_vars: vec![], working_directory: dir.to_owned() },
@@ -265,7 +247,7 @@ mod tests {
     }
 
     #[test]
-    fn a_record_from_another_compiler_or_driver_or_for_another_artifact_is_refused() {
+    fn a_record_from_another_compiler_or_for_another_artifact_is_refused() {
         let scratch = Scratch::new("refused");
         let artifact = scratch.artifact("libfixture.rmeta");
         assert!(load(&artifact).is_err());
@@ -273,18 +255,13 @@ mod tests {
         let mut stale = record(&scratch.0);
         stale.compiler = "rustc 0.0.0".to_owned();
         publish(stale, std::slice::from_ref(&artifact)).unwrap();
-        assert!(load(&artifact).unwrap_err().contains("rebuild"));
-
-        let mut stale = record(&scratch.0);
-        stale.driver.len += 1;
-        publish(stale, std::slice::from_ref(&artifact)).unwrap();
-        assert!(load(&artifact).unwrap_err().contains("rebuild"));
+        assert!(load(&artifact).unwrap_err().contains("run again"));
 
         let moved = scratch.artifact("libmoved.rmeta");
         publish(record(&scratch.0), std::slice::from_ref(&artifact)).unwrap();
         fs::create_dir_all(sidecar(&moved).parent().unwrap()).unwrap();
         fs::copy(sidecar(&artifact), sidecar(&moved)).unwrap();
-        assert!(load(&moved).unwrap_err().contains("rebuild"));
+        assert!(load(&moved).unwrap_err().contains("run again"));
         assert!(load(&artifact).is_ok());
     }
 
