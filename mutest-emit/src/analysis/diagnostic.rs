@@ -8,26 +8,6 @@ use rustc_errors::emitter::{ColorConfig, Destination, DynEmitter, OutputTheme};
 use rustc_session::Session;
 use rustc_span::source_map::SourceMap;
 
-pub fn escape_literal(s: &str) -> String {
-    let mut escaped = String::with_capacity(s.len());
-    let mut chrs = s.chars().peekable();
-    while let Some(first) = chrs.next() {
-        match (first, chrs.peek()) {
-            ('\\', Some(&delim @ '"') | Some(&delim @ '\'')) => {
-                escaped.push('\\');
-                escaped.push(delim);
-                chrs.next();
-            }
-            ('"' | '\'' | '\\', _) => {
-                escaped.push('\\');
-                escaped.push(first)
-            }
-            (c, _) => escaped.push(c),
-        };
-    }
-    escaped
-}
-
 struct SharedBuffer<T: Write> {
     data: Arc<Mutex<T>>,
 }

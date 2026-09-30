@@ -674,7 +674,9 @@ pub mod mk {
     }
 
     pub fn expr_str(sp: Span, str: &str) -> Box<ast::Expr> {
-        self::expr_lit(sp, ast::token::LitKind::Str, Symbol::intern(str), None)
+        // NOTE: The symbol of a string literal token is its escaped source text.
+        let escaped = str.chars().flat_map(char::escape_default).collect::<String>();
+        self::expr_lit(sp, ast::token::LitKind::Str, Symbol::intern(&escaped), None)
     }
 
     pub fn expr_tuple(sp: Span, exprs: ThinVec<Box<ast::Expr>>) -> Box<ast::Expr> {
@@ -1201,5 +1203,20 @@ pub mod inspect {
         }
 
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn expr_str_round_trips_its_input() {
+        rustc_span::create_default_session_globals_then(|| {
+            for input in ["\\\"", "\\'", "", "plain", "\n\0\t\r", "\\", "\"", "'", "é東京🦀"] {
+                let expr = super::mk::expr_str(rustc_span::DUMMY_SP, input);
+                let super::ExprKind::Lit(literal) = expr.kind else { panic!("expected string literal"); };
+                let super::LitKind::Str(value, _) = super::LitKind::from_token_lit(literal).unwrap() else { panic!("expected string value"); };
+                assert_eq!(value.as_str(), input);
+            }
+        });
     }
 }
