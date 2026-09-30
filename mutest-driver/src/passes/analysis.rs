@@ -25,6 +25,7 @@ use crate::passes::external_mutant::specialized_crate::SpecializedMutantCrateCom
 use crate::print::{print_call_graph, print_mutations, print_mutation_graph, print_targets, print_tests};
 use crate::write::{write_call_graph, write_mutations, write_tests};
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct AnalysisPassResult {
     pub duration: Duration,
     pub test_discovery_duration: Duration,
@@ -35,9 +36,16 @@ pub struct AnalysisPassResult {
     pub mutation_batching_duration: Duration,
     pub codegen_duration: Duration,
     pub write_duration: Duration,
+    #[serde(skip, default = "transport_file_name")]
     pub input_file_name: FileName,
+    #[serde(skip)]
     pub generated_crate_code: String,
+    #[serde(skip)]
     pub specialized_external_mutant_crate: Option<(String, SpecializedMutantCrateCompilationRequest)>,
+}
+
+fn transport_file_name() -> FileName {
+    FileName::Custom("specialized mutation analysis".to_owned())
 }
 
 fn perform_codegen<'tcx, 'ent, 'trg, 'm>(
@@ -438,7 +446,7 @@ pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
             }
 
             if let Some(external_meta_mutant_crate) = external_meta_mutant_crate {
-                let Some(rustc_invocation) = crate_const_storage::extract_rustc_invocation(tcx, external_meta_mutant_crate) else {
+                let Some(replay_record) = crate_const_storage::extract_replay_record(tcx, external_meta_mutant_crate) else {
                     tcx.dcx().fatal("missing rustc invocation metadata in recompilable dependency crate");
                 };
 
@@ -456,8 +464,10 @@ pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
 
                 let crate_name = crate_res.visible_crate_name(external_meta_mutant_crate).as_str().to_owned();
                 pass_result.specialized_external_mutant_crate = Some((crate_name, SpecializedMutantCrateCompilationRequest {
-                    rustc_invocation,
+                    replay_record,
                     specialized_extra_filename: format!("-for-{}{}", tcx.crate_name(hir::LOCAL_CRATE), sess.opts.cg.extra_filename),
+                    dependents: super::external_mutant::invocation::dependents(tcx, external_meta_mutant_crate)
+                        .unwrap_or_else(|error| tcx.dcx().fatal(error)),
                     external_targets: ExternalTargets {
                         stable_targets: targets.iter().map(|target| StableTarget::from_test_session(tcx, target)).collect::<Vec<_>>(),
                         path_strs,

@@ -45,7 +45,7 @@ impl CrateKind {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum CargoTargetKind {
     Lib,
     MainBin,

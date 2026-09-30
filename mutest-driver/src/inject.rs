@@ -67,6 +67,14 @@ fn push_dependency_search_paths(search_paths: &mut Vec<SearchPath>, deps_dir: &P
     search_paths.extend(dependency_dirs(deps_dir).into_iter().map(|dir| SearchPath { kind: PathKind::Dependency, dir: dir.into() }));
 }
 
+/// The specialized mutant crate's rlib, and its `.rmeta` if one was written, as `-Zembed-metadata=no` needs.
+fn specialized_mutant_crate_paths(metadata_file_path: &Path, exists: impl Fn(&Path) -> bool) -> Vec<PathBuf> {
+    let mut file_paths = vec![];
+    if exists(metadata_file_path) { file_paths.push(metadata_file_path.to_owned()); }
+    file_paths.push(metadata_file_path.with_extension("rlib"));
+    file_paths
+}
+
 pub fn inject_runtime_crate_and_deps(config: &Config, compiler_config: &mut CompilerConfig, specialized_external_mutant_crate: Option<&(String, SpecializedMutantCrateCompilationResult)>) {
     // Generated harnesses need the old solver for the runtime's `generic_const_exprs` types.
     compiler_config.opts.unstable_opts.next_solver.globally = false;
@@ -196,18 +204,35 @@ pub fn inject_runtime_crate_and_deps(config: &Config, compiler_config: &mut Comp
     if let Some((visible_crate_name, specialized_external_mutant_crate_compilation)) = specialized_external_mutant_crate
         && let Some(specialized_external_mutant_crate_outputs) = &specialized_external_mutant_crate_compilation.outputs
     {
-        let mut file_path = specialized_external_mutant_crate_outputs.path(OutputType::Metadata).as_path().to_owned();
-        file_path.set_extension("rlib");
+        let metadata_file_path = specialized_external_mutant_crate_outputs.path(OutputType::Metadata).as_path().to_owned();
 
         let Some(extern_entry) = externs.get_mut(visible_crate_name) else {
             early_dcx.early_fatal(format!("cannot find extern `{visible_crate_name}` to replace with specialized external mutant crate"));
         };
 
-        extern_entry.location = ExternLocation::ExactPaths(BTreeSet::from([
-            CanonicalizedPath::new(file_path),
-        ]));
+        extern_entry.location = ExternLocation::ExactPaths(
+            specialized_mutant_crate_paths(&metadata_file_path, |path| path.exists()).into_iter()
+                .map(CanonicalizedPath::new)
+                .collect::<BTreeSet<_>>()
+        );
     }
 
+    if let Some((_, specialized)) = specialized_external_mutant_crate {
+        // NOTE: The specialized crate may link dependencies from outside this crate's search paths, such as the mutest runtime.
+        let dependency_dirs = specialized.dependencies.iter().filter_map(|dependency| dependency.parent()).collect::<BTreeSet<_>>();
+        compiler_config.opts.search_paths.extend(dependency_dirs.into_iter().map(|dir| SearchPath { kind: PathKind::Dependency, dir: dir.to_owned().into() }));
+
+        // Link against the specialized builds of the crates that depend on the mutant crate.
+        for entry in externs.values_mut() {
+            let ExternLocation::ExactPaths(paths) = &mut entry.location else { continue; };
+            *paths = paths.iter()
+                .map(|path| {
+                    let replacement = specialized.dependent_outputs.iter().find(|(original, _)| path.canonicalized() == CanonicalizedPath::new(original.clone()).canonicalized());
+                    replacement.map_or_else(|| path.clone(), |(_, output)| CanonicalizedPath::new(output.clone()))
+                })
+                .collect();
+        }
+    }
     compiler_config.opts.externs = Externs::new(externs);
 }
 
@@ -267,4 +292,53 @@ pub fn inject_test_crate_shim_if_no_target_std(config: &Config, compiler_config:
     });
 
     compiler_config.opts.externs = Externs::new(externs);
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+
+    use super::specialized_mutant_crate_paths;
+
+    #[cfg(feature = "embed-runtime")]
+    #[test]
+    fn an_extracted_file_replaces_a_stale_one_and_leaves_nothing_beside_it() {
+        use std::fs;
+
+        let dir_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../test-scratch").join(format!("extract-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir_path);
+        fs::create_dir_all(&dir_path).unwrap();
+        let file_path = dir_path.join("libmutest_runtime.rlib");
+        fs::write(&file_path, b"stale").unwrap();
+
+        super::extract_file(&file_path, b"current");
+        super::extract_file(&file_path, b"current");
+
+        let files = fs::read_dir(&dir_path).unwrap().map(|entry| entry.unwrap().path()).collect::<Vec<_>>();
+        let content = fs::read(&file_path).unwrap();
+        fs::remove_dir_all(&dir_path).unwrap();
+        assert_eq!(files, [file_path]);
+        assert_eq!(content, b"current");
+    }
+
+    #[test]
+    fn a_crate_linking_the_specialized_mutant_is_offered_its_full_metadata_beside_its_rlib() {
+        let metadata_file_path = Path::new("target/mutest/out/libkrate-1a2b-for-integration-3c4d.rmeta");
+
+        let file_paths = specialized_mutant_crate_paths(metadata_file_path, |_| true);
+
+        assert_eq!(file_paths, vec![
+            PathBuf::from("target/mutest/out/libkrate-1a2b-for-integration-3c4d.rmeta"),
+            PathBuf::from("target/mutest/out/libkrate-1a2b-for-integration-3c4d.rlib"),
+        ]);
+    }
+
+    #[test]
+    fn a_specialized_mutant_that_wrote_no_metadata_file_is_offered_as_its_rlib_alone() {
+        let metadata_file_path = Path::new("target/mutest/out/libkrate-1a2b-for-integration-3c4d.rmeta");
+
+        let file_paths = specialized_mutant_crate_paths(metadata_file_path, |_| false);
+
+        assert_eq!(file_paths, vec![PathBuf::from("target/mutest/out/libkrate-1a2b-for-integration-3c4d.rlib")]);
+    }
 }

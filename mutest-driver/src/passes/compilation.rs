@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -16,6 +17,8 @@ use crate::passes::external_mutant::specialized_crate::SpecializedMutantCrateCom
 pub struct CompilationPassResult {
     pub duration: Duration,
     pub outputs: Arc<OutputFilenames>,
+    /// The artifacts of every crate this one was compiled against.
+    pub dependencies: Vec<PathBuf>,
 }
 
 pub fn run(config: &Config, analysis_pass: &AnalysisPassResult, specialized_external_mutant_crate: Option<&(String, SpecializedMutantCrateCompilationResult)>) -> CompilerResult<CompilationPassResult> {
@@ -48,7 +51,7 @@ pub fn run(config: &Config, analysis_pass: &AnalysisPassResult, specialized_exte
 
         let krate = passes::parse(sess);
 
-        let ((linker, outputs), incr_comp_session) = create_and_enter_global_ctxt(compiler, krate, |tcx| {
+        let ((linker, outputs, dependencies), incr_comp_session) = create_and_enter_global_ctxt(compiler, krate, |tcx| {
             let _ = tcx.resolver_for_lowering();
 
             passes::write_dep_info(tcx);
@@ -58,9 +61,10 @@ pub fn run(config: &Config, analysis_pass: &AnalysisPassResult, specialized_exte
             tcx.ensure_ok().analysis(());
 
             let outputs = tcx.output_filenames(()).clone();
+            let dependencies = tcx.crates(()).iter().flat_map(|&cnum| tcx.used_crate_source(cnum).paths().cloned()).collect();
             let linker = Linker::codegen_and_build_linker(tcx, &*compiler.codegen_backend);
 
-            (linker, outputs)
+            (linker, outputs, dependencies)
         });
 
         linker.link(sess, incr_comp_session, codegen_backend);
@@ -68,6 +72,7 @@ pub fn run(config: &Config, analysis_pass: &AnalysisPassResult, specialized_exte
         Ok(CompilationPassResult {
             duration: t_start.elapsed(),
             outputs,
+            dependencies,
         })
     })?;
 

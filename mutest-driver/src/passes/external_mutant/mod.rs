@@ -5,10 +5,11 @@ use rustc_data_structures::fx::FxHashMap;
 use rustc_middle::ty::TyCtxt;
 use rustc_span::bug;
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RustcInvocation {
     pub args: Vec<String>,
-    pub env_vars: Vec<(String, String)>,
+    pub env_vars: Vec<(String, Option<String>)>,
+    pub working_directory: std::path::PathBuf,
 }
 
 #[derive(Debug)]
@@ -72,5 +73,7 @@ pub struct ExternalTargets {
 }
 
 pub mod crate_const_storage;
+pub mod invocation;
 pub mod recompilable_dep_crate;
+pub mod replay;
 pub mod specialized_crate;

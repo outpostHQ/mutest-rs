@@ -17,7 +17,7 @@ use std::process;
 use mutest_driver::build_status;
 use mutest_driver::cargo_package_config;
 use mutest_driver::config::{self, Config};
-use mutest_driver::passes::external_mutant::RustcInvocation;
+use mutest_driver::passes::external_mutant::replay;
 use mutest_driver_cli::{UnstableFlag, UnstableOption};
 use mutest_emit::analysis::hir::Safety;
 use mutest_emit::codegen::mutation::{OperatorRef, UnsafeTargeting};
@@ -87,7 +87,8 @@ fn fetch_cargo_target_kind(input: &Input) -> Option<config::CargoTargetKind> {
     let input_file_path = input.opt_path().expect("cannot get input file path").to_owned();
     let input_file_path = input_file_path.canonicalize().expect("cannot canonicalize input file path");
 
-    let Some(target) = package.targets.iter().find(|target| target.name.replace("-", "_") == cargo_crate_name && target.src_path == input_file_path) else {
+    // NOTE: Cargo's path is canonicalized too, so that symlinks and Windows path prefixes do not hide the target.
+    let Some(target) = package.targets.iter().find(|target| target.name.replace("-", "_") == cargo_crate_name && Path::new(target.src_path.as_str()).canonicalize().is_ok_and(|src_path| src_path == input_file_path)) else {
         panic!("cannot find target in Cargo package metadata");
     };
 
@@ -162,6 +163,17 @@ fn run_recording_build_failure(label: &str, owned_by_run: bool, f: impl FnOnce()
     }
 }
 
+/// Reports the compilation of a specialized mutant crate back to the driver that requested it.
+fn write_replay_result(result_path: &Path, run: mutest_driver::RunResult, early_dcx: &EarlyDiagCtxt) {
+    let Some(analysis) = run.analysis_pass else { early_dcx.early_fatal("the specialized mutant crate compilation produced no analysis") };
+    let result = replay::ResultRecord {
+        analysis,
+        compilation_duration: run.compilation_pass.as_ref().map(|pass| pass.duration),
+        metadata: run.compilation_pass.as_ref().map(|pass| pass.outputs.path(rustc_session::config::OutputType::Metadata).as_path().to_owned()),
+        dependencies: run.compilation_pass.map(|pass| pass.dependencies).unwrap_or_default(),
+    };
+    replay::write(result_path, &result).unwrap_or_else(|error| early_dcx.early_fatal(error));
+}
 
 pub fn main() -> process::ExitCode {
     let early_dcx = EarlyDiagCtxt::new(ErrorOutputType::default());
@@ -249,7 +261,7 @@ pub fn main() -> process::ExitCode {
         env::var_os("MUTEST_TARGET_DIR_ROOT").map(PathBuf::from).as_deref());
 
     // Fall back to a rustc invocation if mutest is not "enabled" for the given crate based on invocation.
-    if info_query || (cargo_invocation && !primary_package) || proc_macro_target || (bin_target && !test_target) {
+    if info_query || proc_macro_target || (bin_target && !test_target) {
         return run_recording_build_failure(&build_label, owned_by_run, || {
             rustc_driver::run_compiler(&args, &mut RustcCallbacks { mutest_args: mutest_args_str })
         });
@@ -286,20 +298,23 @@ pub fn main() -> process::ExitCode {
             build_status::stop_once_the_build_has_failed(marker_path);
         }
 
-        let cargo_target_kind = fetch_cargo_target_kind(&compiler_config.input);
+        // NOTE: A driver started to compile a specialized mutant crate receives its request through a file.
+        let replay_request = env::var_os("MUTEST_REPLAY_REQUEST").map(|path| {
+            replay::read::<replay::Request>(Path::new(&path)).unwrap_or_else(|error| early_dcx.early_fatal(error))
+        });
+        if let Some(request) = &replay_request {
+            compiler_config.opts.cg.extra_filename.push_str(&request.suffix);
+        }
+        let cargo_target_kind = replay_request.as_ref().map_or_else(|| fetch_cargo_target_kind(&compiler_config.input), |request| request.cargo_target_kind);
 
         let mut package_config = cargo_package_config::fetch_merged_cargo_package_config(&early_dcx);
 
         let crate_kind_arg = mutest_arg_matches.get_one::<String>("crate-kind").map(String::as_str);
-        if !test_target || crate_kind_arg == Some(crate_kind::MUTABLE_DEP_FOR_EXTERNAL_TESTS) {
+        if replay_request.is_none() && (!test_target || crate_kind_arg == Some(crate_kind::MUTABLE_DEP_FOR_EXTERNAL_TESTS)) {
             let report_timings = mutest_arg_matches.get_flag("timings");
 
-            let rustc_invocation = RustcInvocation {
-                args: args.iter().cloned().collect::<Vec<_>>(),
-                env_vars: env::vars().collect::<Vec<_>>(),
-            };
-
-            let compilation_pass = mutest_driver::passes::external_mutant::recompilable_dep_crate::compile_recompilable_dep_crate(&compiler_config, &rustc_invocation).unwrap();
+            // NOTE: The error is already reported; raising it keeps it from being reported as an ICE.
+            let Ok(compilation_pass) = mutest_driver::passes::external_mutant::recompilable_dep_crate::compile_recompilable_dep_crate(&compiler_config, &args, !cargo_invocation || primary_package) else { FatalError.raise() };
 
             if report_timings {
                 println!("compilation took {compilation:.2?}",
@@ -312,7 +327,11 @@ pub fn main() -> process::ExitCode {
         let mutest_target_dir_root = env::var("MUTEST_TARGET_DIR_ROOT").ok().map(PathBuf::from);
         let mutest_search_path = env::var("MUTEST_SEARCH_PATH").ok().map(PathBuf::from);
 
-        let crate_kind = {
+        let replay_result = replay_request.as_ref().map(|request| request.result.clone());
+        let replay_metadata_directory = replay_request.as_ref().map(|request| request.metadata_directory.clone());
+        let crate_kind = if let Some(request) = replay_request {
+            config::CrateKind::MutantForExternalTests(request.targets.decode().unwrap_or_else(|error| early_dcx.early_fatal(error)))
+        } else {
             use crate::crate_kind as opts;
 
             match crate_kind_arg {
@@ -700,7 +719,7 @@ pub fn main() -> process::ExitCode {
                 verbosity,
                 report_timings,
                 print_opts,
-                write_opts,
+                write_opts: replay_metadata_directory.map_or(write_opts, |out_dir| config::WriteOptions { out_dir }),
                 unsafe_targeting,
                 operators: &mutation_operators,
                 call_graph_depth_limit,
@@ -713,6 +732,10 @@ pub fn main() -> process::ExitCode {
             },
         };
 
-        mutest_driver::run(config).unwrap();
+        // NOTE: The error is already reported; raising it keeps it from being reported as an ICE.
+        let run = mutest_driver::run(config).unwrap_or_else(|_| FatalError.raise());
+        if let Some(result_path) = replay_result {
+            write_replay_result(&result_path, run, &early_dcx);
+        }
     })
 }
