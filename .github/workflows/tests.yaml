@@ -13,6 +13,27 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  lints:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      # Install Rust toolchain specified in rust-toolchain.toml.
+      - name: Install Rust toolchain
+        run: rustc --version
+
+      - name: Install clippy
+        run: rustup component add clippy
+
+      # The driver's build script embeds the runtime rlib, which has to exist first.
+      - name: Build mutest-runtime
+        run: cargo build -p mutest-runtime
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets
+
   tests:
     strategy:
       fail-fast: false
@@ -52,12 +73,20 @@ jobs:
       - name: Install mutest-inspector
         run: cargo install --force --path mutest-inspector
 
+      # Bash on every runner: PowerShell would report only the last command's exit code.
       - name: Run unit tests
+        shell: bash
         run: |
-          cargo test -p cargo-mutest --no-fail-fast -- --color=always
-          cargo test -p mutest-runtime --no-fail-fast -- --color=always
-          cargo test -p mutest-inspector --no-fail-fast -- --color=always
-          cargo test -p mutest-tests --no-fail-fast -- --color=always
+          status=0
+          cargo test -p cargo-mutest --no-fail-fast -- --color=always || status=1
+          cargo test --release -p mutest-driver --no-fail-fast -- --color=always || status=1
+          cargo test --release -p mutest-emit --no-fail-fast -- --color=always || status=1
+          cargo test -p mutest-exit-code --no-fail-fast -- --color=always || status=1
+          cargo test -p mutest-runtime --no-fail-fast -- --color=always || status=1
+          cargo test -p mutest-inspector --no-fail-fast -- --color=always || status=1
+          cargo test -p mutest-tests --no-fail-fast -- --color=always || status=1
+          exit $status
 
       - name: Run UI tests
+        if: ${{ !cancelled() }}
         run: cargo ui-test
