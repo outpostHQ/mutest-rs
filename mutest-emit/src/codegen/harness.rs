@@ -1,6 +1,7 @@
 use std::iter;
 
 use rustc_data_structures::thin_vec::{ThinVec, thin_vec};
+use rustc_middle::middle::resolve::{ModChild, Reexport};
 use rustc_middle::ty::TyCtxt;
 use rustc_span::bug;
 
@@ -575,7 +576,12 @@ pub fn generate_harness<'tcx, 'ent, 'trg, 'm>(
     );
     krate.attrs.push(test_runner_mutest_harness_attr);
 
-    if let Some(existing_item) = tcx.module_children_local(hir::CRATE_DEF_ID).iter().find(|mod_child| mod_child.ident.name == sym::mutest_generated && mod_child.res.ns() == Some(hir::Namespace::TypeNS)) {
+    // NOTE: The injected module shadows a glob-imported name, such as another crate's injected module.
+    let conflicts = |mod_child: &&ModChild| {
+        mod_child.ident.name == sym::mutest_generated && mod_child.res.ns() == Some(hir::Namespace::TypeNS)
+            && !matches!(mod_child.reexport_chain.first(), Some(Reexport::Glob(_)))
+    };
+    if let Some(existing_item) = tcx.module_children_local(hir::CRATE_DEF_ID).iter().find(conflicts) {
         let mut diagnostic = tcx.dcx().struct_fatal(format!("mutest-injected module conflicts with existing item `{}`", tcx.def_path_str(existing_item.res.def_id())));
         diagnostic.note(format!("mutest injects a module into the crate root with the reserved name `{}`", sym::mutest_generated));
         diagnostic.emit();
