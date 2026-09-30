@@ -29,7 +29,13 @@ pub struct Span {
 
 #[cfg(feature = "rustc")]
 impl Span {
+    /// Macro-expanded code has no location in a real file, so fall back to the call site that
+    /// expanded it, which does.
     pub fn from_rustc_span(sess: &rustc_session::Session, span: rustc_span::Span) -> Option<Self> {
+        Self::from_real_file(sess, span).or_else(|| Self::from_real_file(sess, span.source_callsite()))
+    }
+
+    fn from_real_file(sess: &rustc_session::Session, span: rustc_span::Span) -> Option<Self> {
         static CURRENT_DIR: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| {
             std::env::current_dir().expect("cannot read current directory")
         });
