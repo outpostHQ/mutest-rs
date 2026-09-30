@@ -327,7 +327,7 @@ pub struct MutationTestResults {
 fn run_tests(
     tests: Vec<test_runner::Test>,
     external_tests_extra: Option<&ExternalTestsExtra>,
-    mutant: Mutant<impl SubstMap>,
+    mutant: Mutant,
     exhaustive: bool,
     mutation_isolation: config::MutationIsolation,
     thread_pool: Option<ThreadPool>,
@@ -652,7 +652,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                 //         Lingering test cases from previous test runs are forcibly terminated
                 //         before they try to read from the handle after the corresponding thread
                 //         has been marked inactive.
-                unsafe { meta_mutant.active_mutant_handle.replace(Some(mutant.substitutions.clone())); }
+                unsafe { meta_mutant.active_mutant_handle.replace(Some(S::with(mutant.substitutions))); }
 
                 println!("applying mutation:");
                 print!("- ");
@@ -695,7 +695,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                 //         Lingering test cases from previous test runs are forcibly terminated
                 //         before they try to read from the handle after the corresponding thread
                 //         has been marked inactive.
-                unsafe { meta_mutant.active_mutant_handle.replace(Some(batched_mutant.substitutions.clone())); }
+                unsafe { meta_mutant.active_mutant_handle.replace(Some(S::with(batched_mutant.substitutions))); }
 
                 if opts.verbosity >= 1 {
                     print!("{}: ", batched_mutant.batch_id);
@@ -751,14 +751,14 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
 
             let mut remaining_mutants = mutants.iter().collect::<Vec<_>>();
 
-            struct RunningMutant<S: SubstMap + 'static> {
-                mutant: &'static StandaloneMutantMeta<S>,
+            struct RunningMutant {
+                mutant: &'static StandaloneMutantMeta,
                 join_handle: thread::JoinHandle<MutationTestResults>,
             }
 
-            let mut running_mutants = HashMap::<u32, RunningMutant<S>>::with_capacity(max_thread_count);
+            let mut running_mutants = HashMap::<u32, RunningMutant>::with_capacity(max_thread_count);
 
-            let mut newly_scheduled_mutants = Vec::<&'static StandaloneMutantMeta<S>>::with_capacity(max_thread_count);
+            let mut newly_scheduled_mutants = Vec::<&'static StandaloneMutantMeta>::with_capacity(max_thread_count);
             while !running_mutants.is_empty() || !remaining_mutants.is_empty() {
                 let active_thread_count = thread_pool.active_count();
 
@@ -781,8 +781,8 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                     // Activate substitutions for running mutants, and the mutants we are about to schedule.
                     let mut substitutions = S::empty();
                     let mutant_substitutions = running_mutants.values()
-                        .map(|running_mutation| &running_mutation.mutant.substitutions)
-                        .chain(newly_scheduled_mutants.iter().map(|mutant| &mutant.substitutions));
+                        .map(|running_mutation| running_mutation.mutant.substitutions)
+                        .chain(newly_scheduled_mutants.iter().map(|mutant| mutant.substitutions));
                     for s in mutant_substitutions {
                         substitutions.overlay(s);
                     }
@@ -856,7 +856,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                     // activating substitutions only for the remaining running mutations.
                     let mut substitutions = S::empty();
                     for running_mutant in running_mutants.values() {
-                        substitutions.overlay(&running_mutant.mutant.substitutions);
+                        substitutions.overlay(running_mutant.mutant.substitutions);
                     }
                     unsafe { meta_mutant.active_mutant_handle.replace(Some(substitutions)); }
                 }
@@ -1194,12 +1194,12 @@ fn mutest_isolated_worker(test: test::TestDescAndFn, meta_mutant: &'static MetaM
     };
 
     // SAFETY: No other thread is running yet, no one else is reading from the handle yet.
-    unsafe { meta_mutant.active_mutant_handle.replace(Some(mutant.substitutions().clone())); }
+    unsafe { meta_mutant.active_mutant_handle.replace(Some(SubstMap::with(mutant.substitutions()))); }
 
     test_runner::run_test_in_spawned_subprocess(test);
 }
 
-fn mutest_simulate_main<S: SubstMap>(args: &[&str], tests: Vec<test::TestDescAndFn>, mutant: &'static StandaloneMutantMeta<S>, active_mutant_handle: &'static ActiveMutantHandle<S>) {
+fn mutest_simulate_main<S: SubstMap>(args: &[&str], tests: Vec<test::TestDescAndFn>, mutant: &'static StandaloneMutantMeta, active_mutant_handle: &'static ActiveMutantHandle<S>) {
     let _verbosity = args.iter().filter(|&arg| *arg == "-v").count() as u8;
     let report_timings = args.contains(&"--timings");
     let use_thread_pool = args.contains(&"--use-thread-pool");
@@ -1223,7 +1223,7 @@ fn mutest_simulate_main<S: SubstMap>(args: &[&str], tests: Vec<test::TestDescAnd
     let mut crashed_tests_count = 0;
 
     // SAFETY: No other thread is running yet, no one else is reading from the handle yet.
-    unsafe { active_mutant_handle.replace(Some(mutant.substitutions.clone())); }
+    unsafe { active_mutant_handle.replace(Some(S::with(mutant.substitutions))); }
 
     let tests_to_run = tests.iter()
         .map(|test| {

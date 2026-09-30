@@ -59,6 +59,9 @@ pub fn test_reachability(mutation: &MutationMeta, test_path: &str, external_test
 
 pub type SubstLocIdx = usize;
 
+/// The substitutions one mutant makes, by location; every other location keeps its original code.
+pub type Substs = &'static [(SubstLocIdx, SubstMeta)];
+
 pub trait SubstMap: Sized + Clone {
     fn subst_at(&self, subst_loc_idx: SubstLocIdx) -> Option<SubstMeta>;
 
@@ -80,24 +83,6 @@ impl<const N: usize> SubstMap for [Option<SubstMeta>; N] {
         //         valid for the active substitution map.
         unsafe { *self.get_unchecked(subst_loc_idx) }
     }
-}
-
-// NOTE: This function must be a standalone function not on the SubstMap trait (and corresponding impl)
-//       until const associated functions are implemented.
-pub const fn subst_map_array<const N: usize>(substs: &[(SubstLocIdx, SubstMeta)]) -> [Option<SubstMeta>; N] {
-    let mut subst_map = [None; N];
-
-    // NOTE: We must use a manual index-based loop, because
-    //       for-loops and iterators are not yet supported in const contexts.
-    let mut i = 0;
-    while i < substs.len() {
-        let (subst_loc_idx, subst) = substs[i];
-        subst_map[subst_loc_idx] = Some(subst);
-
-        i += 1;
-    }
-
-    subst_map
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -136,26 +121,26 @@ impl MutationMeta {
 }
 
 #[derive(Debug)]
-pub struct StandaloneMutantMeta<S: SubstMap + 'static> {
+pub struct StandaloneMutantMeta {
     pub mutation: &'static MutationMeta,
-    pub substitutions: &'static S,
+    pub substitutions: Substs,
 }
 
 #[derive(Debug)]
-pub struct BatchedMutantMeta<S: SubstMap + 'static> {
+pub struct BatchedMutantMeta {
     pub batch_id: u32,
     pub mutations: &'static [&'static MutationMeta],
-    pub substitutions: &'static S,
+    pub substitutions: Substs,
 }
 
 #[derive(Copy, Clone)]
-pub enum Mutant<S: SubstMap + 'static> {
-    Mutation(&'static StandaloneMutantMeta<S>),
-    Batch(&'static BatchedMutantMeta<S>),
+pub enum Mutant {
+    Mutation(&'static StandaloneMutantMeta),
+    Batch(&'static BatchedMutantMeta),
 }
 
-impl<S: SubstMap + 'static> Mutant<S> {
-    pub fn substitutions(&self) -> &'static S {
+impl Mutant {
+    pub fn substitutions(&self) -> Substs {
         match self {
             Self::Mutation(mutant) => mutant.substitutions,
             Self::Batch(mutant) => mutant.substitutions,
@@ -164,9 +149,9 @@ impl<S: SubstMap + 'static> Mutant<S> {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub enum MutationParallelism<S: SubstMap + 'static> {
-    None(&'static [StandaloneMutantMeta<S>]),
-    Batched(&'static [BatchedMutantMeta<S>]),
+pub enum MutationParallelism {
+    None(&'static [StandaloneMutantMeta]),
+    Batched(&'static [BatchedMutantMeta]),
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
@@ -186,18 +171,18 @@ pub struct MetaMutant<S: SubstMap + 'static> {
 
     pub active_mutant_handle: &'static ActiveMutantHandle<S>,
     pub mutations: &'static [&'static MutationMeta],
-    pub mutation_parallelism: MutationParallelism<S>,
+    pub mutation_parallelism: MutationParallelism,
 }
 
 impl<S: SubstMap + 'static> MetaMutant<S> {
-    pub fn mutants(&self) -> impl Iterator<Item = Mutant<S>> {
+    pub fn mutants(&self) -> impl Iterator<Item = Mutant> {
         match self.mutation_parallelism {
             MutationParallelism::None(mutants) => mutants.iter().map(|mutant| Mutant::Mutation(mutant)),
             MutationParallelism::Batched(_mutants) => panic!("embedded targets do not support mutation batching"),
         }
     }
 
-    pub fn find_mutant_with_mutation(&self, mutation_id: u32) -> Option<Mutant<S>> {
+    pub fn find_mutant_with_mutation(&self, mutation_id: u32) -> Option<Mutant> {
         self.mutants().find(|mutant| {
             match mutant {
                 Mutant::Mutation(mutant) => mutant.mutation.id == mutation_id,

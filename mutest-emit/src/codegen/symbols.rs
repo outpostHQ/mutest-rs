@@ -167,7 +167,6 @@ pub mod path {
         static_map (::mutest_runtime::static_map),
         SubstMap (crate::mutest_generated::SubstMap),
         SubstMapTrait (::mutest_runtime::SubstMap),
-        subst_map_array (::mutest_runtime::subst_map_array),
         SubstMeta (::mutest_runtime::SubstMeta),
         TestSuiteTests (::mutest_runtime::TestSuite::Tests),
 

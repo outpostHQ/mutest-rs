@@ -16,8 +16,8 @@ static COLLATERAL: MutationMeta = MutationMeta {
     display_location: "fixture:2", undetected_diagnostic: "collateral survived",
     reachable_from: EntryPoints::InternalTests(phf::phf_map! { "collateral" => 0usize }),
 };
-static SOLO: StandaloneMutantMeta<Map> = StandaloneMutantMeta {
-    mutation: &ABORT, substitutions: &[Some(SubstMeta { mutation: &ABORT }), None],
+static SOLO: StandaloneMutantMeta = StandaloneMutantMeta {
+    mutation: &ABORT, substitutions: &[(0, SubstMeta { mutation: &ABORT })],
 };
 static EMPTY: MetaMutant<Map> = MetaMutant {
     cargo_package_name: None, cargo_target_kind: None, crate_name: "runtime_fixture",
@@ -28,14 +28,14 @@ static BATCH: MetaMutant<Map> = MetaMutant {
     active_mutant_handle: &ACTIVE, mutations: &[&ABORT, &COLLATERAL],
     mutation_parallelism: MutationParallelism::Batched(&[BatchedMutantMeta {
         batch_id: 1, mutations: &[&ABORT, &COLLATERAL],
-        substitutions: &[Some(SubstMeta { mutation: &ABORT }), Some(SubstMeta { mutation: &COLLATERAL })],
+        substitutions: &[(0, SubstMeta { mutation: &ABORT }), (1, SubstMeta { mutation: &COLLATERAL })],
     }]),
 };
 static SINGLE: MetaMutant<Map> = MetaMutant {
     cargo_package_name: None, cargo_target_kind: None, crate_name: "runtime_fixture",
     active_mutant_handle: &ACTIVE, mutations: &[&ABORT],
     mutation_parallelism: MutationParallelism::None(&[StandaloneMutantMeta {
-        mutation: &ABORT, substitutions: &[Some(SubstMeta { mutation: &ABORT }), None],
+        mutation: &ABORT, substitutions: &[(0, SubstMeta { mutation: &ABORT })],
     }]),
 };
 static UNSAFE: MutationMeta = MutationMeta {
@@ -43,14 +43,14 @@ static UNSAFE: MutationMeta = MutationMeta {
     display_location: "fixture:1", undetected_diagnostic: "abort survived",
     reachable_from: EntryPoints::InternalTests(phf::phf_map! { "isolated" => 0usize }),
 };
-static UNSAFE_SOLO: StandaloneMutantMeta<Map> = StandaloneMutantMeta {
-    mutation: &UNSAFE, substitutions: &[Some(SubstMeta { mutation: &UNSAFE }), None],
+static UNSAFE_SOLO: StandaloneMutantMeta = StandaloneMutantMeta {
+    mutation: &UNSAFE, substitutions: &[(0, SubstMeta { mutation: &UNSAFE })],
 };
 static UNSAFE_META: MetaMutant<Map> = MetaMutant {
     cargo_package_name: None, cargo_target_kind: None, crate_name: "runtime_fixture",
     active_mutant_handle: &ACTIVE, mutations: &[&UNSAFE],
     mutation_parallelism: MutationParallelism::None(&[StandaloneMutantMeta {
-        mutation: &UNSAFE, substitutions: &[Some(SubstMeta { mutation: &UNSAFE }), None],
+        mutation: &UNSAFE, substitutions: &[(0, SubstMeta { mutation: &UNSAFE })],
     }]),
 };
 static RENDEZVOUS: OnceLock<Barrier> = OnceLock::new();

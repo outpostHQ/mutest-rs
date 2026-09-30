@@ -174,9 +174,8 @@ pub fn bake_mutant<'trg, 'm>(sp: Span, mutant: Mutant<'trg, 'm>, subst_locs: &[S
             })
             .collect::<ThinVec<_>>();
 
-        ast::mk::expr_ref(sp, ast::mk::expr_call_path(sp, ast::mk::path_local(path::subst_map_array(sp)), thin_vec![
-            ast::mk::expr_slice(sp, subst_map_entries),
-        ]))
+        // &[($subst_loc_idx, SubstMeta { .. }), ..]
+        ast::mk::expr_slice(sp, subst_map_entries)
     };
 
     match mutant {
@@ -219,12 +218,8 @@ pub fn bake_mutant<'trg, 'm>(sp: Span, mutant: Mutant<'trg, 'm>, subst_locs: &[S
 fn mk_mutants_slice_const<'trg, 'm>(sp: Span, mutations: &'m [Mut<'trg, 'm>], mutation_parallelism: Option<MutationParallelism<'trg, 'm>>, subst_locs: &[SubstLoc]) -> Box<ast::Item> {
     let (mutant_meta_ty, mutants) = match mutation_parallelism {
         None | Some(MutationParallelism::DynamicallyScheduled(_)) => {
-            // mutest_runtime::StandaloneMutantMeta<SubstMap>
-            let mutant_meta_ty = ast::mk::ty_path(None, ast::mk::pathx_args(sp,
-                ast::mk::path_local(path::StandaloneMutantMeta(sp)),
-                vec![],
-                vec![ast::GenericArg::Type(ast::mk::ty_path(None, path::SubstMap(sp)))],
-            ));
+            // mutest_runtime::StandaloneMutantMeta
+            let mutant_meta_ty = ast::mk::ty_path(None, ast::mk::path_local(path::StandaloneMutantMeta(sp)));
 
             let mutants = mutations.iter()
                 .map(|mutation| bake_mutant(sp, Mutant::Mutation(mutation), subst_locs))
@@ -234,12 +229,8 @@ fn mk_mutants_slice_const<'trg, 'm>(sp: Span, mutations: &'m [Mut<'trg, 'm>], mu
         }
 
         Some(MutationParallelism::Batched(mutation_batches)) => {
-            // mutest_runtime::BatchedMutantMeta<SubstMap>
-            let mutant_meta_ty = ast::mk::ty_path(None, ast::mk::pathx_args(sp,
-                ast::mk::path_local(path::BatchedMutantMeta(sp)),
-                vec![],
-                vec![ast::GenericArg::Type(ast::mk::ty_path(None, path::SubstMap(sp)))],
-            ));
+            // mutest_runtime::BatchedMutantMeta
+            let mutant_meta_ty = ast::mk::ty_path(None, ast::mk::path_local(path::BatchedMutantMeta(sp)));
 
             let mutants = mutation_batches.iter()
                 .map(|mutation_batch| bake_mutant(sp, Mutant::Batch(mutation_batch), subst_locs))
