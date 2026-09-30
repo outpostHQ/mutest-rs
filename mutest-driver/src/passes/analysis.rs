@@ -9,10 +9,10 @@ use mutest_emit::codegen::symbols::{Symbol, span_diagnostic_ord};
 use rustc_data_structures::fx::{FxHashSet, FxHashMap};
 use rustc_interface::{create_and_enter_global_ctxt, passes, run_compiler};
 use rustc_interface::interface::Result as CompilerResult;
-use rustc_middle::bug;
 use rustc_middle::ty::TyCtxt;
 use rustc_session::config::OptLevel;
 use rustc_span::{ErrorGuaranteed, FileName};
+use rustc_span::bug;
 use rustc_span::edition::Edition;
 use rustc_span::fatal_error::FatalError;
 
@@ -245,7 +245,7 @@ pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
                         for &cnum in cnums {
                             diagnostic.note(format!("crate candidate: `{}`", tcx.crate_name(cnum)));
                         }
-                        diagnostic.emit();
+                        diagnostic.emit_fatal();
                     }
                 }
             });
@@ -669,6 +669,8 @@ pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
             Flow::Continue(pass_result)
         });
 
+        // Analysis never links, so it does not need the incremental session.
+        let (result, _incr_comp_session) = result;
         result.into()
     })?;
 

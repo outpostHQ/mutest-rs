@@ -122,7 +122,7 @@ impl<'tcx, 'op> ast::mut_visit::MutVisitor for SubstWriter<'tcx, 'op> {
         let allow_unused_parens_attr = ast::mk::attr_inner(g, self.def_site,
             Ident::new(sym::allow, self.def_site),
             ast::mk::attr_args_delimited(self.def_site, ast::token::Delimiter::Parenthesis, ast::mk::token_stream(vec![
-                ast::mk::tt_token_joint(self.def_site, ast::TokenKind::Ident(sym::unused_parens, ast::token::IdentIsRaw::No)),
+                ast::mk::tt_token_joint(self.def_site, ast::TokenKind::Ident(sym::unused_parens, ast::token::IdentKind::Normal)),
             ])),
         );
 
@@ -278,6 +278,6 @@ pub fn resolve_syntax_ambiguities<'tcx>(tcx: TyCtxt<'tcx>, krate: &mut ast::Crat
     );
     let def_site = DUMMY_SP.with_def_site_ctxt(expn_id.to_expn_id());
 
-    let mut syntax_amiguity_resolver = SyntaxAmbiguityResolver { _sess: tcx.sess, _def_site: def_site };
-    syntax_amiguity_resolver.visit_crate(krate);
+    let mut syntax_ambiguity_resolver = SyntaxAmbiguityResolver { _sess: tcx.sess, _def_site: def_site };
+    syntax_ambiguity_resolver.visit_crate(krate);
 }

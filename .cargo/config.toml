@@ -1,2 +1,6 @@
 [alias]
 ui-test = "run -p mutest-tests --"
+
+[build]
+# The driver's build script reads the runtime's metadata, which it needs embedded in the rlib.
+rustflags = ["-Zembed-metadata=yes"]

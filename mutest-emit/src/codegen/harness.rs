@@ -1,8 +1,8 @@
 use std::iter;
 
 use rustc_data_structures::thin_vec::{ThinVec, thin_vec};
-use rustc_middle::bug;
 use rustc_middle::ty::TyCtxt;
+use rustc_span::bug;
 
 use crate::analysis::call_graph::{EntryPoints, TargetReachability, Unsafety};
 use crate::analysis::diagnostic;
@@ -126,7 +126,7 @@ fn mk_mutations_mod<'tcx, 'ent, 'trg, 'm>(sp: Span, tcx: TyCtxt<'tcx>, entry_poi
         ast::Safety::Default,
         Ident::new(sym::allow, sp),
         ast::mk::attr_args_delimited(sp, ast::token::Delimiter::Parenthesis, ast::mk::token_stream(vec![
-            ast::mk::tt_token_joint(sp, ast::TokenKind::Ident(sym::non_upper_case_globals, ast::token::IdentIsRaw::No)),
+            ast::mk::tt_token_joint(sp, ast::TokenKind::Ident(sym::non_upper_case_globals, ast::token::IdentKind::Normal)),
         ])),
     );
 
@@ -488,20 +488,22 @@ fn mk_harness_fn(sp: Span, embedded: bool, external_meta_mutant: Option<Symbol>)
 
     let body = ast::mk::block(sp, thin_vec![call_test_main]);
 
-    // pub(crate) fn harness(tests: &'static [&'static test::TestDescAndFn]) { ... }
+    // pub(crate) fn harness(tests: &[&'static test::TestDescAndFn]) { ... }
     let vis = ast::mk::vis_pub_crate(sp);
     let ident = Ident::new(sym::harness, sp);
     let inputs = thin_vec![ast::mk::param_ident(sp, Ident::new(sym::tests, sp), {
         let static_lifetime = ast::mk::lifetime(sp, Ident::new(kw::StaticLifetime, sp));
 
-        // &'static [...]
+        // &[...]
         let element_ty = match embedded {
             // &'static test::TestDescAndFn
             false => ast::mk::ty_ref(sp, ast::mk::ty_path(None, ast::mk::path_local(path::TestDescAndFn(sp))), Some(static_lifetime)),
             // &'static mutest_runtime::EmbeddedTestDescAndFn
             true => ast::mk::ty_ref(sp, ast::mk::ty_path(None, ast::mk::path_local(path::EmbeddedTestDescAndFn(sp))), Some(static_lifetime)),
         };
-        ast::mk::ty_ref(sp, ast::mk::ty_slice(sp, element_ty), Some(static_lifetime))
+        // NOTE: rustc's test harness emits the test cases as statics, so the slice it builds to
+        //       hand to the test runner is a temporary which cannot be promoted.
+        ast::mk::ty_ref(sp, ast::mk::ty_slice(sp, element_ty), None)
     })];
     ast::mk::item_fn(sp, vis, ident, None, None, inputs, None, Some(body))
 }
@@ -541,7 +543,7 @@ pub fn generate_harness<'tcx, 'ent, 'trg, 'm>(
         let feature_test_attr = ast::mk::attr_inner(g, def_site,
             Ident::new(sym::feature, def_site),
             ast::mk::attr_args_delimited(def_site, ast::token::Delimiter::Parenthesis, ast::mk::token_stream(vec![
-                ast::mk::tt_token_joint(def_site, ast::TokenKind::Ident(sym::test, ast::token::IdentIsRaw::No)),
+                ast::mk::tt_token_joint(def_site, ast::TokenKind::Ident(sym::test, ast::token::IdentKind::Normal)),
             ])),
         );
         krate.attrs.push(feature_test_attr);
@@ -551,7 +553,7 @@ pub fn generate_harness<'tcx, 'ent, 'trg, 'm>(
         let feature_custom_test_frameworks_attr = ast::mk::attr_inner(g, def_site,
             Ident::new(sym::feature, def_site),
             ast::mk::attr_args_delimited(def_site, ast::token::Delimiter::Parenthesis, ast::mk::token_stream(vec![
-                ast::mk::tt_token_joint(def_site, ast::TokenKind::Ident(sym::custom_test_frameworks, ast::token::IdentIsRaw::No)),
+                ast::mk::tt_token_joint(def_site, ast::TokenKind::Ident(sym::custom_test_frameworks, ast::token::IdentKind::Normal)),
             ])),
         );
         krate.attrs.push(feature_custom_test_frameworks_attr);

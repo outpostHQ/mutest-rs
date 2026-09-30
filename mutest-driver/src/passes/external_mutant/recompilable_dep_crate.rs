@@ -48,7 +48,7 @@ pub fn compile_recompilable_dep_crate(compiler_config: &CompilerConfig, rustc_in
 
         crate_const_storage::embed_rustc_invocation(&mut krate, rustc_invocation);
 
-        let (linker, outputs) = create_and_enter_global_ctxt(compiler, krate, |tcx| {
+        let ((linker, outputs), incr_comp_session) = create_and_enter_global_ctxt(compiler, krate, |tcx| {
             let _ = tcx.resolver_for_lowering();
 
             passes::write_dep_info(tcx);
@@ -63,7 +63,7 @@ pub fn compile_recompilable_dep_crate(compiler_config: &CompilerConfig, rustc_in
             (linker, outputs)
         });
 
-        linker.link(sess, codegen_backend);
+        linker.link(sess, incr_comp_session, codegen_backend);
 
         Ok(RecompilableDepCrateCompilationResult {
             duration: t_start.elapsed(),

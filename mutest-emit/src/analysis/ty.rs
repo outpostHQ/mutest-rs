@@ -49,7 +49,8 @@ pub mod print {
     use rustc_infer::infer::TyCtxtInferExt;
     use rustc_middle::mir;
     use rustc_middle::ty::{self, Ty, TyCtxt};
-    use rustc_session::cstore::{ExternCrate, ExternCrateSource};
+    use rustc_middle::ty::consts::ConstExt as _;
+    use rustc_crate_store::{ExternCrate, ExternCrateSource};
 
     use crate::analysis::ast_lowering;
     use crate::analysis::hir::{self, LOCAL_CRATE};
@@ -607,9 +608,12 @@ pub mod print {
 
                             Ok(ast::mk::const_path(Some(qself), def_path))
                         }
-                        ty::AliasConstKind::Inherent { def_id } | ty::AliasConstKind::Free { def_id } => {
+                        ty::AliasConstKind::InherentImpl { def_id } | ty::AliasConstKind::Free { def_id } => {
                             let def_path = self.print_def_path(def_id, alias_const.args)?;
                             Ok(ast::mk::const_path(None, def_path))
+                        }
+                        ty::AliasConstKind::InherentSelf { def_id: _ } => {
+                            Err("encountered inherent associated const in Self form".to_owned())
                         }
                         ty::AliasConstKind::Anon { def_id: _ } => {
                             eval_const(self.tcx, ct, self.sp)

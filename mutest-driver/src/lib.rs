@@ -1,5 +1,4 @@
 #![feature(decl_macro)]
-#![feature(iter_collect_into)]
 #![feature(iter_intersperse)]
 #![feature(try_trait_v2)]
 #![feature(try_trait_v2_residual)]
@@ -8,6 +7,7 @@
 extern crate rustc_ast;
 extern crate rustc_ast_pretty;
 extern crate rustc_data_structures;
+extern crate rustc_codegen_ssa;
 extern crate rustc_driver;
 extern crate rustc_errors;
 extern crate rustc_feature;
@@ -15,8 +15,10 @@ extern crate rustc_graphviz;
 extern crate rustc_interface;
 extern crate rustc_lint_defs;
 extern crate rustc_middle;
+extern crate rustc_metadata;
 extern crate rustc_session;
 extern crate rustc_span;
+extern crate rustc_structures;
 extern crate rustc_target;
 
 extern crate itertools;

@@ -4,7 +4,8 @@ use std::ops::{ControlFlow, FromResidual, Residual, Try};
 
 use rustc_interface::Config as CompilerConfig;
 use rustc_session::Session;
-use rustc_session::config::{CrateType, ExternEntry, ExternLocation, Externs, Input};
+use rustc_session::config::{ExternEntry, ExternLocation, Externs, Input};
+use rustc_structures::CrateType;
 use rustc_span::Symbol;
 use rustc_span::source_map::RealFileLoader;
 

@@ -5,6 +5,7 @@ extern crate rustc_data_structures;
 extern crate rustc_driver;
 extern crate rustc_interface;
 extern crate rustc_session;
+extern crate rustc_structures;
 extern crate rustc_span;
 
 use std::collections::BTreeSet;
@@ -22,7 +23,9 @@ use mutest_emit::codegen::mutation::{OperatorRef, UnsafeTargeting};
 use rustc_data_structures::fx::FxHashSet;
 use rustc_interface::Config as CompilerConfig;
 use rustc_session::EarlyDiagCtxt;
-use rustc_session::config::{CrateType, ErrorOutputType, Input};
+use rustc_structures::CrateType;
+use rustc_session::config::{ErrorOutputType, Input};
+use rustc_span::fatal_error::FatalError;
 
 struct DefaultCallbacks;
 impl rustc_driver::Callbacks for DefaultCallbacks {}

@@ -77,7 +77,7 @@ pub fn extract_rustc_invocation<'tcx>(tcx: TyCtxt<'tcx>, cnum: hir::CrateNum) ->
     }) else {
         let mut diagnostic = tcx.dcx().struct_fatal("missing `mutest_generated::RUSTC_ARGS` in recompilable dependency crate");
         diagnostic.note("target mutant crate must be compiled with mutest-driver with --crate-kind=mutable-dep-for-external-tests to ensure the necessary embeddings are in place");
-        diagnostic.emit();
+        diagnostic.emit_fatal();
     };
     let Ok(rustc_args_val) = tcx.const_eval_poly(rustc_args_const) else { unreachable!() };
     let Some(rustc_args_bytes) = rustc_args_val.try_get_slice_bytes_for_diagnostics(tcx) else { unreachable!() };
@@ -92,7 +92,7 @@ pub fn extract_rustc_invocation<'tcx>(tcx: TyCtxt<'tcx>, cnum: hir::CrateNum) ->
     }) else {
         let mut diagnostic = tcx.dcx().struct_fatal("missing `mutest_generated::RUSTC_ENV_VARS` in recompilable dependency crate");
         diagnostic.note("target mutant crate must be compiled with mutest-driver with --crate-kind=mutable-dep-for-external-tests to ensure the necessary embeddings are in place");
-        diagnostic.emit();
+        diagnostic.emit_fatal();
     };
     let Ok(rustc_env_vars_val) = tcx.const_eval_poly(rustc_env_vars_const) else { unreachable!() };
     let Some(rustc_env_vars_bytes) = rustc_env_vars_val.try_get_slice_bytes_for_diagnostics(tcx) else { unreachable!() };

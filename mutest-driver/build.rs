@@ -3,6 +3,7 @@
 extern crate rustc_driver;
 extern crate rustc_errors;
 extern crate rustc_interface;
+extern crate rustc_crate_store;
 extern crate rustc_session;
 extern crate rustc_span;
 
@@ -11,13 +12,18 @@ use std::fmt::Write;
 use std::fs;
 use std::path::{self, Path, PathBuf};
 
-fn fetch_rlib_deps(crate_name: &str, rlib_path: &Path, deps_dir_path: &Path) -> Vec<(String, PathBuf)> {
+#[path = "../build_support/dependency_dirs.rs"]
+mod dependency_dirs;
+
+use dependency_dirs::dependency_dirs;
+
+fn fetch_rlib_deps(crate_name: &str, rlib_path: &Path, dep_dirs: &[PathBuf]) -> Vec<(String, PathBuf)> {
     use std::collections::{BTreeMap, BTreeSet};
     use std::sync::atomic::AtomicBool;
 
     use rustc_interface::{Config as CompilerConfig, create_and_enter_global_ctxt, passes, run_compiler};
     use rustc_session::config::{ExternEntry, ExternLocation, Externs, Input, Options};
-    use rustc_session::cstore::CrateSource;
+    use rustc_crate_store::CrateSource;
     use rustc_session::search_paths::{PathKind, SearchPath};
     use rustc_session::utils::CanonicalizedPath;
     use rustc_span::{FileName, Symbol};
@@ -36,9 +42,9 @@ fn fetch_rlib_deps(crate_name: &str, rlib_path: &Path, deps_dir_path: &Path) -> 
 
     let compiler_config = CompilerConfig {
         opts: Options {
-            search_paths: vec![
-                SearchPath::new(PathKind::Dependency, deps_dir_path.to_owned()),
-            ],
+            search_paths: dep_dirs.iter()
+                .map(|dir| SearchPath { kind: PathKind::Dependency, dir: dir.clone().into() })
+                .collect(),
             externs,
             ..Default::default()
         },
@@ -85,13 +91,14 @@ fn fetch_rlib_deps(crate_name: &str, rlib_path: &Path, deps_dir_path: &Path) -> 
                 let crate_name = tcx.crate_name(cnum);
 
                 let crate_source = tcx.used_crate_source(cnum);
+                // Cargo may store the rlib separately from its rmeta.
                 let dep_path = match &**crate_source {
-                    CrateSource { rmeta: Some(rmeta_path), .. } => rmeta_path.with_extension("rlib"),
                     CrateSource { rlib: Some(rlib_path), .. } => rlib_path.clone(),
+                    CrateSource { rmeta: Some(rmeta_path), .. } => rmeta_path.with_extension("rlib"),
                     CrateSource { dylib: Some(dylib_path), .. } => dylib_path.clone(),
                     _ => { continue; }
                 };
-                if !dep_path.starts_with(deps_dir_path) { continue; }
+                if !dep_dirs.iter().any(|dir| dep_path.starts_with(dir)) { continue; }
 
                 dep_paths.push((crate_name.as_str().to_owned(), dep_path));
             }
@@ -105,12 +112,18 @@ fn main() {
     let profile = env::var("PROFILE").unwrap();
 
     let build_script_out_dir_path = PathBuf::from(env::var("OUT_DIR").unwrap());
-    // Expected path format: `target/release/build/mutest-driver-HASH/out`.
+    // Cargo's build-directory depth varies with its artifact layout.
     let mut build_script_out_dir_path_ancestors_iter = build_script_out_dir_path.ancestors();
     assert_eq!(Some("out"), build_script_out_dir_path_ancestors_iter.next().and_then(|p| p.file_name()).and_then(|s| s.to_str()), "unexpected `OUT_DIR` format: {}", build_script_out_dir_path.display());
-    let Some(_) = build_script_out_dir_path_ancestors_iter.next() else { panic!("unexpected `OUT_DIR` format: {}", build_script_out_dir_path.display()); };
-    assert_eq!(Some("build"), build_script_out_dir_path_ancestors_iter.next().and_then(|p| p.file_name()).and_then(|s| s.to_str()), "unexpected `OUT_DIR` format: {}", build_script_out_dir_path.display());
-    let Some(workspace_out_dir_path) = build_script_out_dir_path_ancestors_iter.next() else { panic!("unexpected `OUT_DIR` format: {}", build_script_out_dir_path.display()) };
+    let workspace_out_dir_path = loop {
+        let Some(ancestor) = build_script_out_dir_path_ancestors_iter.next() else {
+            panic!("unexpected `OUT_DIR` format: {}", build_script_out_dir_path.display());
+        };
+        if ancestor.file_name().and_then(|s| s.to_str()) == Some("build") {
+            break build_script_out_dir_path_ancestors_iter.next()
+                .unwrap_or_else(|| panic!("unexpected `OUT_DIR` format: {}", build_script_out_dir_path.display()));
+        }
+    };
 
     // Fetch Cargo workspace metadata for visible crate names of public dependencies.
     let metadata_cmd = cargo_metadata::MetadataCommand::new();
@@ -122,6 +135,7 @@ fn main() {
 
     let mutest_runtime_rlib_path = workspace_out_dir_path.join("libmutest_runtime.rlib");
     let deps_dir_path = workspace_out_dir_path.join("deps");
+    let dep_dirs = dependency_dirs(&deps_dir_path);
 
     println!("cargo:rerun-if-changed={}", mutest_runtime_rlib_path.display());
     if !fs::exists(&mutest_runtime_rlib_path).unwrap() {
@@ -138,7 +152,7 @@ fn main() {
     println!("cargo:rustc-env=COMPILETIME_DEPS_DIR={}", deps_dir_absolute_path.display());
 
     // Fetch compiled dependencies of the crate.
-    let mutest_runtime_rlib_crate_deps = fetch_rlib_deps("mutest_runtime", &mutest_runtime_rlib_path, &deps_dir_path);
+    let mutest_runtime_rlib_crate_deps = fetch_rlib_deps("mutest_runtime", &mutest_runtime_rlib_path, &dep_dirs);
     println!("mutest_runtime_rlib_crate_deps = {mutest_runtime_rlib_crate_deps:#?}");
 
     // Generate an rlib catalog to embed into the final binary.

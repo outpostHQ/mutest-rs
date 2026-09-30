@@ -95,7 +95,7 @@ pub fn generate_embedded_test_entry_point<'tcx>(tcx: TyCtxt<'tcx>, krate: &mut a
         ast::Safety::Default,
         Ident::new(sym::inline, def_site),
         ast::mk::attr_args_delimited(def_site, ast::token::Delimiter::Parenthesis, ast::mk::token_stream(vec![
-            ast::mk::tt_token_alone(def_site, ast::token::TokenKind::Ident(Symbol::intern("never"), ast::token::IdentIsRaw::No))
+            ast::mk::tt_token_alone(def_site, ast::token::TokenKind::Ident(Symbol::intern("never"), ast::token::IdentKind::Normal))
         ])),
     );
     generated_embedded_test_setup.attrs.push(inline_never_attr);

@@ -9,8 +9,8 @@ use mutest_emit::analysis::hir;
 use mutest_emit::analysis::tests::Test;
 use mutest_emit::codegen::mutation::{Mut, MutationConflictGraph, MutationParallelism, Subst, SubstLoc, UnsafeTargeting};
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
-use rustc_middle::bug;
 use rustc_middle::ty::TyCtxt;
+use rustc_span::bug;
 use rustc_span::def_id::{DefPathHash, LocalDefId};
 
 use crate::config::WriteOptions;

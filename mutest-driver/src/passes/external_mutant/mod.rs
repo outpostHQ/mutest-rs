@@ -2,8 +2,8 @@ use mutest_emit::analysis::call_graph::{EntryPointAssoc, EntryPointAssocs, Exter
 use mutest_emit::analysis::hir;
 use mutest_emit::codegen::symbols::Symbol;
 use rustc_data_structures::fx::FxHashMap;
-use rustc_middle::bug;
 use rustc_middle::ty::TyCtxt;
+use rustc_span::bug;
 
 #[derive(Debug)]
 pub struct RustcInvocation {

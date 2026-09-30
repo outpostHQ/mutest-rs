@@ -10,8 +10,8 @@ use rustc_data_structures::thin_vec::{ThinVec, thin_vec};
 use rustc_expand::base::{SyntaxExtension, SyntaxExtensionKind};
 use rustc_infer::infer::TyCtxtInferExt;
 use rustc_metadata::creader::{CStore, LoadedMacro};
-use rustc_middle::span_bug;
 use rustc_middle::ty::{TyCtxt, TypingMode};
+use rustc_span::span_bug;
 use rustc_span::edition::Edition;
 use rustc_trait_selection::traits::{ImplSource, Obligation, ObligationCause, SelectionContext};
 
@@ -443,7 +443,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
             },
         ));
         diagnostic.note(format!("expected at {}", std::panic::Location::caller()));
-        diagnostic.emit();
+        diagnostic.emit_bug();
     }
 
     #[must_use]
@@ -511,6 +511,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                     | hir::DefKind::Use
                     | hir::DefKind::AnonConst
                     | hir::DefKind::OpaqueTy
+                    | hir::DefKind::TestBinderConstraints
                     | hir::DefKind::GlobalAsm
                     | hir::DefKind::Impl { .. }
                     | hir::DefKind::Closure
@@ -763,7 +764,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                             Some(scope) if scope.is_top_level_module() => "in the crate root".to_owned(),
                             Some(scope) => format!("in the scope `{}`", self.tcx.def_path_str(scope)),
                         });
-                        diagnostic.emit();
+                        diagnostic.emit_fatal();
                     }
                 }
             })
@@ -791,24 +792,24 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                 //       that appears in the trait def.
                 let dummy_self_param_ty = ty::ParamTy::new(0, kw::SelfUpper).to_ty(self.tcx);
                 let args = self.tcx.mk_args_trait(dummy_self_param_ty, trait_ref.skip_binder().args.iter().skip(1));
-                let generic_predicates = self.tcx.predicates_of(trait_ref.skip_binder().def_id).instantiate(self.tcx, args).predicates;
+                let generic_predicates = self.tcx.clauses_of(trait_ref.skip_binder().def_id).instantiate(self.tcx, args).clauses;
 
                 (impl_def_id, generic_predicates, 0)
             }
             // `Self::$assoc` in `impl T`
             hir::Res::SelfTyAlias { alias_to: impl_def_id, is_trait_impl: false, .. } => {
-                let generic_predicates = self.tcx.predicates_of(trait_def_id).instantiate_identity(self.tcx).predicates;
+                let generic_predicates = self.tcx.clauses_of(trait_def_id).instantiate_identity(self.tcx).clauses;
                 (impl_def_id, generic_predicates, 0)
             }
             // `Self::$assoc` in `trait T<'a, 'b>: Base<'a, 'b>`
             hir::Res::SelfTyParam { trait_: trait_def_id } => {
-                let mut generic_predicates = self.tcx.predicates_of(trait_def_id).instantiate_identity(self.tcx).predicates;
+                let mut generic_predicates = self.tcx.clauses_of(trait_def_id).instantiate_identity(self.tcx).clauses;
 
                 // NOTE: Because `predicates_of` does not reveal implicit supertrait predicates, we have to append those ourselves.
                 let supertrait_clauses = ty::elaborate::supertraits(self.tcx, ty::Binder::dummy(ty::TraitRef::identity(self.tcx, trait_def_id)));
                 generic_predicates.extend(supertrait_clauses.map(|trait_ref| {
                     ty::Unnormalized::new(self.tcx.mk_predicate(trait_ref.map_bound(|trait_ref| {
-                        ty::PredicateKind::Clause(ty::ClauseKind::Trait(ty::TraitPredicate { trait_ref, polarity: ty::PredicatePolarity::Positive }))
+                        ty::PredicateKind::Clause(ty::ClauseKind::Trait(ty::TraitClause { trait_ref, polarity: ty::ClausePolarity::Positive }))
                     })).expect_clause())
                 }));
 
@@ -818,7 +819,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
             hir::Res::Def(hir::DefKind::TyParam, param_def_id) => {
                 let generics = self.tcx.generics_of(self.tcx.parent(param_def_id));
                 let Some(&param_index) = generics.param_def_id_to_index.get(&param_def_id) else { unreachable!() };
-                let generic_predicates = self.tcx.predicates_of(self.tcx.parent(param_def_id)).instantiate_identity(self.tcx).predicates;
+                let generic_predicates = self.tcx.clauses_of(self.tcx.parent(param_def_id)).instantiate_identity(self.tcx).clauses;
                 (self.tcx.parent(param_def_id), generic_predicates, param_index)
             }
             _ => { return None; }
@@ -1001,7 +1002,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                                             let assoc_item_trait_def_id = self.tcx.parent(trait_item_def_id);
 
                                             let assoc_item_trait_ref = ty::TraitRef::new(self.tcx, assoc_item_trait_def_id, alias_ty.args);
-                                            let assoc_item_trait_predicate = ty::TraitPredicate { trait_ref: assoc_item_trait_ref, polarity: ty::PredicatePolarity::Positive };
+                                            let assoc_item_trait_predicate = ty::TraitClause { trait_ref: assoc_item_trait_ref, polarity: ty::ClausePolarity::Positive };
 
                                             let param_env = self.tcx.param_env(node_hir_id.owner.to_def_id());
                                             let infcx = self.tcx.infer_ctxt().build(TypingMode::PostAnalysis);
@@ -1036,10 +1037,10 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                                             let assoc_item_trait_def_id = self.tcx.parent(trait_item_def_id);
 
                                             let trait_ref = self.tcx.impl_trait_ref(impl_def_id);
-                                            let generic_predicates = self.tcx.predicates_of(trait_ref.skip_binder().def_id).instantiate(self.tcx, trait_ref.skip_binder().args);
+                                            let generic_predicates = self.tcx.clauses_of(trait_ref.skip_binder().def_id).instantiate(self.tcx, trait_ref.skip_binder().args);
 
                                             // Extract impl predicate related to the trait of the assoc item.
-                                            let Some(assoc_item_trait_predicate) = generic_predicates.predicates.iter()
+                                            let Some(assoc_item_trait_predicate) = generic_predicates.clauses.iter()
                                                 .filter_map(|&clause| clause.as_trait_clause().map(|p| p.skip_binder()))
                                                 .find(|trait_predicate| {
                                                     trait_predicate.trait_ref.def_id == assoc_item_trait_def_id
@@ -1341,7 +1342,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                 }
 
                 ast::UseTreeKind::Nested { items, span: _ } => {
-                    for (nested_use_tree, inner_node_id) in items {
+                    for ast::UseTreeAndId { inner: nested_use_tree, id: inner_node_id } in items {
                         extract_imports_from_use_tree(tcx, def_res, imports, path_segments.clone(), nested_use_tree, *inner_node_id);
                     }
                 }
@@ -1413,7 +1414,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                     },
                 };
 
-                (nested_use_tree, ast::DUMMY_NODE_ID)
+                ast::UseTreeAndId { inner: nested_use_tree, id: ast::DUMMY_NODE_ID }
             })
             .collect::<ThinVec<_>>();
         use_tree.kind = ast::UseTreeKind::Nested { items: use_tree_items, span };
@@ -1979,7 +1980,7 @@ pub fn sanitize_macro_expansions<'tcx>(tcx: TyCtxt<'tcx>, crate_res: &res::Crate
 
     // Find the prelude module of this crate, whose contents are available in every module.
     let prelude_mod = tcx.hir_root_module().item_ids.iter().find_map(|&item_id| {
-        let hir::ItemKind::Use(use_path, hir::UseKind::Glob) = tcx.hir_item(item_id).kind else { return None; };
+        let hir::ItemKind::Use(hir::UseTree { prefix: use_path, kind: hir::UseKind::Glob }) = tcx.hir_item(item_id).kind else { return None; };
         if !hir::find_attr!(tcx.hir_attrs(item_id.hir_id()), PreludeImport) { return None; };
 
         // HACK: The resolutions on the prelude import use path are all `Err`, so we resolve the def manually,
@@ -2025,7 +2026,7 @@ pub fn sanitize_macro_expansions<'tcx>(tcx: TyCtxt<'tcx>, crate_res: &res::Crate
             let feature_allow_internal_unstable_attr = ast::mk::attr_inner(g, DUMMY_SP,
                 Ident::new(sym::feature, DUMMY_SP),
                 ast::mk::attr_args_delimited(DUMMY_SP, ast::token::Delimiter::Parenthesis, ast::mk::token_stream(vec![
-                    ast::mk::tt_token_joint(DUMMY_SP, ast::TokenKind::Ident(allow_internal_unstable, ast::token::IdentIsRaw::No)),
+                    ast::mk::tt_token_joint(DUMMY_SP, ast::TokenKind::Ident(allow_internal_unstable, ast::token::IdentKind::Normal)),
                 ])),
             );
             krate.attrs.push(feature_allow_internal_unstable_attr);
@@ -2042,7 +2043,7 @@ pub fn sanitize_macro_expansions<'tcx>(tcx: TyCtxt<'tcx>, crate_res: &res::Crate
                 let attr = ast::mk::attr_inner(g, DUMMY_SP,
                     Ident::new(sym::$meta, DUMMY_SP),
                     ast::mk::attr_args_delimited(DUMMY_SP, ast::token::Delimiter::Parenthesis, ast::mk::token_stream(vec![
-                        ast::mk::tt_token_joint(DUMMY_SP, ast::TokenKind::Ident(kind, ast::token::IdentIsRaw::No)),
+                        ast::mk::tt_token_joint(DUMMY_SP, ast::TokenKind::Ident(kind, ast::token::IdentKind::Normal)),
                     ])),
                 );
                 krate.attrs.push(attr);

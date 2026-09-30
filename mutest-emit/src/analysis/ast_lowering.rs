@@ -7,8 +7,9 @@ use rustc_data_structures::fx::FxHashMap;
 use rustc_data_structures::sync::HashMapExt;
 use rustc_data_structures::thin_vec::ThinVec;
 use rustc_data_structures::unord::UnordItems;
-use rustc_middle::span_bug;
-use rustc_middle::ty::{TyCtxt, ResolverAstLowering};
+use rustc_middle::middle::resolve::{PartialRes, ResolverAstLowering};
+use rustc_middle::ty::TyCtxt;
+use rustc_span::span_bug;
 
 use crate::analysis::hir;
 use crate::analysis::res;
@@ -17,7 +18,7 @@ use crate::codegen::symbols::{DUMMY_SP, Span};
 
 pub struct DefResolutions {
     pub node_id_to_def_id: ast::node_id::NodeMap<hir::LocalDefId>,
-    pub partial_res_map: ast::node_id::NodeMap<hir::PartialRes>,
+    pub partial_res_map: ast::node_id::NodeMap<PartialRes>,
     pub import_res_map: ast::node_id::NodeMap<hir::PerNS<Option<hir::Res<ast::NodeId>>>>,
 }
 
@@ -38,8 +39,11 @@ impl DefResolutions {
             })
             .collect();
 
+        // NOTE: A use item's owner holds the import resolutions of every tree nested in it.
         let import_res_map = resolver.owners.items()
-            .map(|(_, owner_resolver_data)| (owner_resolver_data.id, owner_resolver_data.import_res))
+            .flat_map(|(_, owner_resolver_data)| {
+                owner_resolver_data.import_res.items().map(|(&node_id, &import_res)| (node_id, import_res))
+            })
             .collect();
 
         Self {
@@ -63,7 +67,7 @@ pub mod visit {
     use std::iter;
 
     use rustc_abi::ExternAbi;
-    use rustc_hir::intravisit::nested_filter::{self, NestedFilter};
+    use rustc_hir::intravisit::{IgnoreNested, NestedFilter};
     use rustc_middle::ty::TyCtxt;
     use rustc_span::Span;
     use rustc_span::symbol::kw;
@@ -73,7 +77,7 @@ pub mod visit {
     use crate::codegen::ast;
 
     pub trait AstHirVisitor<'ast, 'hir>: Sized {
-        type NestedFilter: NestedFilter<'hir> = nested_filter::None;
+        type NestedFilter: NestedFilter<'hir> = IgnoreNested;
 
         fn tcx(&mut self) -> TyCtxt<'hir>;
 
@@ -101,7 +105,7 @@ pub mod visit {
 
         fn visit_fn_item(&mut self, fn_ast: &ast::FnItem<'ast>, fn_hir: &hir::FnItem<'hir>) {
             let kind_ast = ast::visit::FnKind::Fn(fn_ast.ctx, &fn_ast.vis, fn_ast.fn_data);
-            let coroutine_kind_ast = &fn_ast.fn_data.sig.header.coroutine_kind;
+            let coroutine_marker_ast = &fn_ast.fn_data.sig.header.coroutine_marker;
             let span_ast = fn_ast.span;
             let id_ast = fn_ast.id;
             let kind_hir = fn_hir.kind;
@@ -110,11 +114,11 @@ pub mod visit {
             let body_hir = fn_hir.body.map(|body| body.id());
             let span_hir = fn_hir.span;
             let id_hir = self.tcx().local_def_id_to_hir_id(fn_hir.owner_id.def_id);
-            self.visit_fn(kind_ast, coroutine_kind_ast, span_ast, id_ast, kind_hir, generics_hir, sig_hir, body_hir, span_hir, id_hir);
+            self.visit_fn(kind_ast, coroutine_marker_ast, span_ast, id_ast, kind_hir, generics_hir, sig_hir, body_hir, span_hir, id_hir);
         }
 
-        fn visit_fn(&mut self, kind_ast: ast::visit::FnKind<'ast>, coroutine_kind_ast: &'ast Option<ast::CoroutineKind>, span_ast: Span, id_ast: ast::NodeId, kind_hir: hir::intravisit::FnKind<'hir>, generics_hir: Option<&'hir hir::Generics<'hir>>, sig_hir: hir::FnSig<'hir>, body_hir: Option<hir::BodyId>, span_hir: Span, id_hir: hir::HirId) {
-            walk_fn(self, kind_ast, coroutine_kind_ast, span_ast, id_ast, kind_hir, generics_hir, sig_hir, body_hir, span_hir, id_hir);
+        fn visit_fn(&mut self, kind_ast: ast::visit::FnKind<'ast>, coroutine_marker_ast: &'ast Option<ast::CoroutineMarker>, span_ast: Span, id_ast: ast::NodeId, kind_hir: hir::intravisit::FnKind<'hir>, generics_hir: Option<&'hir hir::Generics<'hir>>, sig_hir: hir::FnSig<'hir>, body_hir: Option<hir::BodyId>, span_hir: Span, id_hir: hir::HirId) {
+            walk_fn(self, kind_ast, coroutine_marker_ast, span_ast, id_ast, kind_hir, generics_hir, sig_hir, body_hir, span_hir, id_hir);
         }
 
         fn visit_param(&mut self, param_ast: &'ast ast::Param, param_hir: &'hir hir::Param<'hir>, param_ty_hir: &'hir hir::Ty<'hir>) {
@@ -125,8 +129,8 @@ pub mod visit {
             walk_coroutine_param(self, param_ast, param_hir, param_pat_hir, param_ty_hir);
         }
 
-        fn visit_coroutine_return_impl_trait(&mut self, coroutine_kind_ast: &'ast ast::CoroutineKind, ret_ty_ast: &'ast ast::FnRetTy, ret_ty_hir: &'hir hir::Ty<'hir>) {
-            walk_coroutine_return_impl_trait(self, coroutine_kind_ast, ret_ty_ast, ret_ty_hir);
+        fn visit_coroutine_return_impl_trait(&mut self, coroutine_marker_ast: &'ast ast::CoroutineMarker, ret_ty_ast: &'ast ast::FnRetTy, ret_ty_hir: &'hir hir::Ty<'hir>) {
+            walk_coroutine_return_impl_trait(self, coroutine_marker_ast, ret_ty_ast, ret_ty_hir);
         }
 
         fn visit_const(&mut self, const_ast: &'ast ast::ConstItem, const_hir: &hir::ConstItem<'hir>) {
@@ -313,7 +317,7 @@ pub mod visit {
         })
     }
 
-    pub fn walk_fn<'ast, 'hir, T: AstHirVisitor<'ast, 'hir>>(visitor: &mut T, kind_ast: ast::visit::FnKind<'ast>, coroutine_kind_ast: &'ast Option<ast::CoroutineKind>, _span_ast: Span, _id_ast: ast::NodeId, kind_hir: hir::intravisit::FnKind<'hir>, generics_hir: Option<&'hir hir::Generics<'hir>>, sig_hir: hir::FnSig<'hir>, body_hir: Option<hir::BodyId>, _span_hir: Span, _id_hir: hir::HirId) {
+    pub fn walk_fn<'ast, 'hir, T: AstHirVisitor<'ast, 'hir>>(visitor: &mut T, kind_ast: ast::visit::FnKind<'ast>, coroutine_marker_ast: &'ast Option<ast::CoroutineMarker>, _span_ast: Span, _id_ast: ast::NodeId, kind_hir: hir::intravisit::FnKind<'hir>, generics_hir: Option<&'hir hir::Generics<'hir>>, sig_hir: hir::FnSig<'hir>, body_hir: Option<hir::BodyId>, _span_hir: Span, _id_hir: hir::HirId) {
         match (kind_ast, kind_hir) {
             | (ast::visit::FnKind::Fn(_, _, fn_data_ast), hir::intravisit::FnKind::ItemFn(_, _, _))
             | (ast::visit::FnKind::Fn(_, _, fn_data_ast), hir::intravisit::FnKind::Method(_, _)) => {
@@ -323,7 +327,7 @@ pub mod visit {
 
                 let body_hir = body_hir.and_then(|body_hir| visitor.nested_body(body_hir));
 
-                match (&fn_data_ast.sig.header.coroutine_kind, sig_hir.header.asyncness) {
+                match (&fn_data_ast.sig.header.coroutine_marker, sig_hir.header.asyncness) {
                     (None, hir::IsAsync::NotAsync) => {
                         if let Some(body_hir) = body_hir {
                             for (param_ast, (param_hir, param_hir_ty)) in iter::zip(&fn_data_ast.sig.decl.inputs, iter::zip(body_hir.params, sig_hir.decl.inputs)) {
@@ -348,7 +352,7 @@ pub mod visit {
                         }
                     }
 
-                    (Some(coroutine_kind_ast @ ast::CoroutineKind::Async { span: _, closure_id: _, return_impl_trait_id: _ }), hir::IsAsync::Async(_)) => {
+                    (Some(coroutine_marker_ast @ ast::CoroutineMarker { kind: ast::CoroutineKind::Async, .. }), hir::IsAsync::Async(_)) => {
                         let coroutine_body_hir = body_hir.map(|body_hir| {
                             let Some(coroutine_body_hir) = coroutine_hir_body(visitor, body_hir) else { unreachable!() };
                             coroutine_body_hir
@@ -363,7 +367,7 @@ pub mod visit {
                         }
 
                         if let hir::FnRetTy::Return(ret_ty_hir) = sig_hir.decl.output {
-                            visitor.visit_coroutine_return_impl_trait(coroutine_kind_ast, &fn_data_ast.sig.decl.output, ret_ty_hir);
+                            visitor.visit_coroutine_return_impl_trait(coroutine_marker_ast, &fn_data_ast.sig.decl.output, ret_ty_hir);
                         } else { unreachable!() }
 
                         if let Some(body_ast) = &fn_data_ast.body && let Some(coroutine_body_hir) = &coroutine_body_hir {
@@ -371,8 +375,8 @@ pub mod visit {
                         }
                     }
 
-                    (Some(ast::CoroutineKind::Gen { span: _, closure_id: _, return_impl_trait_id: _ }), hir::IsAsync::NotAsync) => {}
-                    (Some(ast::CoroutineKind::AsyncGen { span: _, closure_id: _, return_impl_trait_id: _ }), hir::IsAsync::NotAsync) => {}
+                    (Some(ast::CoroutineMarker { kind: ast::CoroutineKind::Gen, .. }), hir::IsAsync::NotAsync) => {}
+                    (Some(ast::CoroutineMarker { kind: ast::CoroutineKind::AsyncGen, .. }), hir::IsAsync::NotAsync) => {}
 
                     _ => unreachable!(),
                 }
@@ -381,7 +385,7 @@ pub mod visit {
                 let body_hir = body_hir.and_then(|body_hir| visitor.nested_body(body_hir));
 
                 if let Some(body_hir) = body_hir {
-                    match (coroutine_kind_ast, sig_hir.header.asyncness) {
+                    match (coroutine_marker_ast, sig_hir.header.asyncness) {
                         (None, hir::IsAsync::NotAsync) => {
                             for (param_ast, (param_hir, param_hir_ty)) in iter::zip(&decl_ast.inputs, iter::zip(body_hir.params, sig_hir.decl.inputs)) {
                                 visitor.visit_param(param_ast, param_hir, param_hir_ty);
@@ -398,7 +402,7 @@ pub mod visit {
                             visit_matching_expr(visitor, expr_ast, &body_hir.value);
                         }
 
-                        (Some(ast::CoroutineKind::Async { span: _, closure_id: _, return_impl_trait_id: _ }), hir::IsAsync::Async(_)) => {
+                        (Some(ast::CoroutineMarker { kind: ast::CoroutineKind::Async, .. }), hir::IsAsync::Async(_)) => {
                             let Some(coroutine_body_hir) = coroutine_hir_body(visitor, body_hir) else { unreachable!() };
 
                             walk_coroutine_params(visitor, &decl_ast.inputs, body_hir.params, sig_hir.decl.inputs, &coroutine_body_hir);
@@ -411,8 +415,8 @@ pub mod visit {
                             visit_matching_expr(visitor, expr_ast, coroutine_body_hir.body_expr);
                         }
 
-                        (Some(ast::CoroutineKind::Gen { span: _, closure_id: _, return_impl_trait_id: _ }), hir::IsAsync::NotAsync) => {}
-                        (Some(ast::CoroutineKind::AsyncGen { span: _, closure_id: _, return_impl_trait_id: _ }), hir::IsAsync::NotAsync) => {}
+                        (Some(ast::CoroutineMarker { kind: ast::CoroutineKind::Gen, .. }), hir::IsAsync::NotAsync) => {}
+                        (Some(ast::CoroutineMarker { kind: ast::CoroutineKind::AsyncGen, .. }), hir::IsAsync::NotAsync) => {}
 
                         _ => unreachable!(),
                     }
@@ -459,7 +463,7 @@ pub mod visit {
         visit_matching_ty(visitor, &param_ast.ty, param_ty_hir);
     }
 
-    pub fn walk_coroutine_return_impl_trait<'ast, 'hir, T: AstHirVisitor<'ast, 'hir>>(visitor: &mut T, _coroutine_kind_ast: &'ast ast::CoroutineKind, ret_ty_ast: &'ast ast::FnRetTy, ret_ty_hir: &'hir hir::Ty<'hir>) {
+    pub fn walk_coroutine_return_impl_trait<'ast, 'hir, T: AstHirVisitor<'ast, 'hir>>(visitor: &mut T, _coroutine_marker_ast: &'ast ast::CoroutineMarker, ret_ty_ast: &'ast ast::FnRetTy, ret_ty_hir: &'hir hir::Ty<'hir>) {
         if let hir::TyKind::OpaqueDef(opaque_ty) = ret_ty_hir.kind
             && let opaque_ty_hir = visitor.tcx().hir_node(opaque_ty.hir_id).expect_opaque_ty()
             && let hir::OpaqueTyOrigin::AsyncFn { .. } = opaque_ty_hir.origin
@@ -484,21 +488,17 @@ pub mod visit {
             visitor.visit_generics(&const_ast.generics, None, generics_hir);
         }
         if let Some(const_item_rhs_hir) = const_hir.rhs {
-            match (&const_ast.rhs_kind, const_item_rhs_hir) {
-                (ast::ConstItemRhsKind::TypeConst { rhs }, hir::ConstItemRhs::TypeConst(const_arg_hir)) => {
-                    if let Some(anon_const_ast) = rhs {
-                        visitor.visit_const_arg(anon_const_ast, const_arg_hir);
-                    }
-                }
-                (ast::ConstItemRhsKind::Body { rhs }, &hir::ConstItemRhs::Body(body_id)) => {
-                    if let Some(expr_ast) = rhs {
+            match const_item_rhs_hir {
+                // NOTE: A body lowered to a const argument has no HIR body expression to match against.
+                hir::ConstItemRhs::Direct(_const_arg_hir) => {}
+                &hir::ConstItemRhs::Body(body_id) => {
+                    if let Some(expr_ast) = &const_ast.body {
                         let body_hir = visitor.nested_body(body_id);
                         if let Some(body_hir) = body_hir {
                             visit_matching_expr(visitor, expr_ast, &body_hir.value)
                         }
                     }
                 }
-                _ => unreachable!(),
             }
         }
     }
@@ -935,11 +935,11 @@ pub mod visit {
             }
             // TODO: Add support for closures with `move()` expressions. See https://github.com/rust-lang/rust/pull/155023.
             (ast::ExprKind::Closure(closure_ast), hir::ExprKind::Closure(closure_hir)) => {
-                let ast::Closure { binder: binder_ast, capture_clause: _, constness: _, coroutine_kind: coroutine_kind_ast, movability: _, fn_decl: decl_ast, body: expr_ast, fn_decl_span: _, fn_arg_span: _ } = &**closure_ast;
+                let ast::Closure { binder: binder_ast, capture_clause: _, constness: _, coroutine_marker: coroutine_marker_ast, movability: _, fn_decl: decl_ast, body: expr_ast, fn_decl_span: _, fn_arg_span: _ } = &**closure_ast;
                 let hir::Closure { def_id: _, binder: _, constness: constness_hir, capture_clause: _, bound_generic_params: _, fn_decl: decl_hir, body: body_hir, fn_decl_span: decl_span_hir, fn_arg_span: _, kind: closure_kind_hir, explicit_captures: _ } = closure_hir;
 
                 // TODO: Create separate `visit_closure` function that is more suited for closures.
-                let kind_ast = ast::visit::FnKind::Closure(binder_ast, coroutine_kind_ast, decl_ast, expr_ast);
+                let kind_ast = ast::visit::FnKind::Closure(binder_ast, coroutine_marker_ast, decl_ast, expr_ast);
                 let kind_hir = hir::intravisit::FnKind::Closure;
                 let generics_hir = None;
                 let sig_hir = hir::FnSig {
@@ -963,24 +963,24 @@ pub mod visit {
                     decl: decl_hir,
                     span: *decl_span_hir,
                 };
-                visitor.visit_fn(kind_ast, coroutine_kind_ast, expr_ast.span, expr_ast.id, kind_hir, generics_hir, sig_hir, Some(*body_hir), expr_hir.span, expr_hir.hir_id);
+                visitor.visit_fn(kind_ast, coroutine_marker_ast, expr_ast.span, expr_ast.id, kind_hir, generics_hir, sig_hir, Some(*body_hir), expr_hir.span, expr_hir.hir_id);
             }
             (ast::ExprKind::Block(block_ast, _), hir::ExprKind::Block(block_hir, _)) => {
                 visitor.visit_block(block_ast, block_hir);
             }
-            (ast::ExprKind::Gen(_, block_ast, ast::GenBlockKind::Async, _), hir::ExprKind::Closure(closure_hir)) => {
+            (ast::ExprKind::Gen(_, block_ast, ast::CoroutineKind::Async, _), hir::ExprKind::Closure(closure_hir)) => {
                 let body_hir = visitor.nested_body(closure_hir.body);
                 if let Some(body_hir) = body_hir {
                     visit_block_expr(visitor, block_ast, &body_hir.value);
                 }
             }
-            (ast::ExprKind::Gen(_, block_ast, ast::GenBlockKind::Gen, _), hir::ExprKind::Closure(closure_hir)) => {
+            (ast::ExprKind::Gen(_, block_ast, ast::CoroutineKind::Gen, _), hir::ExprKind::Closure(closure_hir)) => {
                 let body_hir = visitor.nested_body(closure_hir.body);
                 if let Some(body_hir) = body_hir {
                     visit_block_expr(visitor, block_ast, &body_hir.value);
                 }
             }
-            (ast::ExprKind::Gen(_, block_ast, ast::GenBlockKind::AsyncGen, _), hir::ExprKind::Closure(closure_hir)) => {
+            (ast::ExprKind::Gen(_, block_ast, ast::CoroutineKind::AsyncGen, _), hir::ExprKind::Closure(closure_hir)) => {
                 let body_hir = visitor.nested_body(closure_hir.body);
                 if let Some(body_hir) = body_hir {
                     visit_block_expr(visitor, block_ast, &body_hir.value);
@@ -1221,9 +1221,6 @@ pub mod visit {
                 for (pat_ast, pat_hir) in iter::zip(pats_ast, *pats_hir) {
                     visit_matching_pat(visitor, pat_ast, pat_hir);
                 }
-            }
-            (ast::PatKind::Box(pat_ast), hir::PatKind::Box(pat_hir)) => {
-                visit_matching_pat(visitor, pat_ast, pat_hir);
             }
             (ast::PatKind::Ref(pat_ast, _, _), hir::PatKind::Ref(pat_hir, _, _)) => {
                 visit_matching_pat(visitor, pat_ast, pat_hir);
@@ -1525,8 +1522,8 @@ pub mod visit {
                 let Some(input_generic_arg_hir) = generic_args_hir.args.first() else { unreachable!() };
                 let hir::GenericArg::Type(input_tup_ty_hir) = input_generic_arg_hir else { unreachable!() };
                 let hir::TyKind::Tup(input_tys_hir) = input_tup_ty_hir.kind else { unreachable!() };
-                for (input_ty_ast, input_ty_hir) in iter::zip(&generic_args_ast.inputs, input_tys_hir) {
-                    visit_matching_ty(visitor, input_ty_ast, input_ty_hir);
+                for (input_param_ast, input_ty_hir) in iter::zip(&generic_args_ast.inputs, input_tys_hir) {
+                    visit_matching_ty(visitor, &input_param_ast.ty, input_ty_hir);
                 }
 
                 let Some(output_ty_constraint_hir) = generic_args_hir.constraints.first() else { unreachable!() };
@@ -1828,8 +1825,8 @@ impl<'ast, 'hir, 'op> visit::AstHirVisitor<'ast, 'hir> for BodyResolutionsCollec
         self.def_res
     }
 
-    fn visit_fn(&mut self, kind_ast: ast::visit::FnKind<'ast>, coroutine_kind_ast: &'ast Option<ast::CoroutineKind>, span_ast: Span, id_ast: ast::NodeId, kind_hir: hir::intravisit::FnKind<'hir>, generics_hir: Option<&'hir hir::Generics<'hir>>, sig_hir: hir::FnSig<'hir>, body_hir: Option<hir::BodyId>, span_hir: Span, id_hir: hir::HirId) {
-        visit::walk_fn(self, kind_ast, coroutine_kind_ast, span_ast, id_ast, kind_hir, generics_hir, sig_hir, body_hir, span_hir, id_hir);
+    fn visit_fn(&mut self, kind_ast: ast::visit::FnKind<'ast>, coroutine_marker_ast: &'ast Option<ast::CoroutineMarker>, span_ast: Span, id_ast: ast::NodeId, kind_hir: hir::intravisit::FnKind<'hir>, generics_hir: Option<&'hir hir::Generics<'hir>>, sig_hir: hir::FnSig<'hir>, body_hir: Option<hir::BodyId>, span_hir: Span, id_hir: hir::HirId) {
+        visit::walk_fn(self, kind_ast, coroutine_marker_ast, span_ast, id_ast, kind_hir, generics_hir, sig_hir, body_hir, span_hir, id_hir);
     }
 
     fn visit_param(&mut self, param_ast: &'ast ast::Param, param_hir: &'hir hir::Param<'hir>, param_ty_hir: &'hir hir::Ty<'hir>) {
@@ -1842,10 +1839,10 @@ impl<'ast, 'hir, 'op> visit::AstHirVisitor<'ast, 'hir> for BodyResolutionsCollec
         visit::walk_coroutine_param(self, param_ast, param_hir, param_pat_hir, param_ty_hir);
     }
 
-    fn visit_coroutine_return_impl_trait(&mut self, coroutine_kind_ast: &'ast ast::CoroutineKind, ret_ty_ast: &'ast ast::FnRetTy, ret_ty_hir: &'hir hir::Ty<'hir>) {
-        let (node_id, _) = coroutine_kind_ast.return_id();
+    fn visit_coroutine_return_impl_trait(&mut self, coroutine_marker_ast: &'ast ast::CoroutineMarker, ret_ty_ast: &'ast ast::FnRetTy, ret_ty_hir: &'hir hir::Ty<'hir>) {
+        let node_id = coroutine_marker_ast.return_impl_trait_id;
         self.insert_ids(node_id, ret_ty_hir.hir_id);
-        visit::walk_coroutine_return_impl_trait(self, coroutine_kind_ast, ret_ty_ast, ret_ty_hir);
+        visit::walk_coroutine_return_impl_trait(self, coroutine_marker_ast, ret_ty_ast, ret_ty_hir);
     }
 
     fn visit_const(&mut self, const_ast: &'ast ast::ConstItem, const_hir: &hir::ConstItem<'hir>) {
@@ -2155,6 +2152,21 @@ impl<'ast, 'tcx, 'op> ast::visit::Visitor<'ast> for BodyResValidator<'tcx, 'op> 
         ast::visit::walk_param(self, param)
     }
 
+    fn visit_generic_args(&mut self, generic_args: &'ast ast::GenericArgs) {
+        // NOTE: `Fn(T) -> U` sugar lowers to a tuple type, so its params' patterns have no HIR counterpart.
+        if let ast::GenericArgs::Parenthesized(args) = generic_args {
+            for input in &args.inputs {
+                self.visit_ty(&input.ty);
+            }
+            if let ast::FnRetTy::Ty(output) = &args.output {
+                self.visit_ty(output);
+            }
+            return;
+        }
+
+        ast::visit::walk_generic_args(self, generic_args)
+    }
+
     fn visit_trait_ref(&mut self, trait_ref: &'ast ast::TraitRef) {
         self.check_node_id("trait reference", trait_ref.ref_id, trait_ref.path.span);
         ast::visit::walk_trait_ref(self, trait_ref)
@@ -2434,7 +2446,7 @@ fn disambiguate_hir_def_item_node_path_components<'tcx>(tcx: TyCtxt<'tcx>, path:
         match def_item {
             hir::DefItem::Item(item) => match item.kind {
                 hir::ItemKind::ExternCrate(_, ident) => Some(hir::DefPathData::TypeNs(ident.name)),
-                hir::ItemKind::Use(_, _) => None,
+                hir::ItemKind::Use(_) => None,
                 hir::ItemKind::Static(_, ident, _, _) => Some(hir::DefPathData::ValueNs(ident.name)),
                 hir::ItemKind::Const(ident, _, _, _) => Some(hir::DefPathData::ValueNs(ident.name)),
                 hir::ItemKind::Fn { ident, .. } => Some(hir::DefPathData::ValueNs(ident.name)),
@@ -2442,6 +2454,7 @@ fn disambiguate_hir_def_item_node_path_components<'tcx>(tcx: TyCtxt<'tcx>, path:
                 hir::ItemKind::Mod(ident, _) => Some(hir::DefPathData::TypeNs(ident.name)),
                 hir::ItemKind::ForeignMod { .. } => Some(hir::DefPathData::ForeignMod),
                 hir::ItemKind::GlobalAsm { .. } => Some(hir::DefPathData::GlobalAsm),
+                hir::ItemKind::TestBinderConstraints { .. } => Some(hir::DefPathData::TestBinderConstraints),
                 hir::ItemKind::TyAlias(ident, _, _) => Some(hir::DefPathData::TypeNs(ident.name)),
                 hir::ItemKind::Enum(ident, _, _) => Some(hir::DefPathData::TypeNs(ident.name)),
                 hir::ItemKind::Struct(ident, _, _) => Some(hir::DefPathData::TypeNs(ident.name)),
@@ -2561,7 +2574,7 @@ where
             hir::ItemKind::ExternCrate(symbol_hir, _) => {
                 matching_item!(ast::DefItemKind::ExternCrate(symbol_ast, _) if symbol_ast == symbol_hir)
             }
-            hir::ItemKind::Use(_, _) => None,
+            hir::ItemKind::Use(_) => None,
             hir::ItemKind::Static(_, _, _, _) => {
                 matching_item!(ast::DefItemKind::Static(_) => |item_ast| Some(item_ast.ident()) == item_hir.kind.ident())
             }
@@ -2592,6 +2605,14 @@ where
                 let index = disambiguator.disambiguator;
 
                 items_ast.into_iter().filter(|&item_ast| matches!(&item_ast.kind(), ast::DefItemKind::GlobalAsm(_))).nth(index)
+            }
+            hir::ItemKind::TestBinderConstraints { .. } => {
+                let disambiguator = disambiguator?;
+
+                let hir::DefPathData::TestBinderConstraints = disambiguator.kind else { return None; };
+                let index = disambiguator.disambiguator;
+
+                items_ast.into_iter().filter(|&item_ast| matches!(&item_ast.kind(), ast::DefItemKind::TestBinderConstraints(_))).nth(index)
             }
             hir::ItemKind::TyAlias(_, _, _) => {
                 matching_item!(ast::DefItemKind::TyAlias(_) => |item_ast| Some(item_ast.ident()) == item_hir.kind.ident())

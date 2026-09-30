@@ -9,6 +9,12 @@ error[E0121]: the placeholder `_` is not allowed within types on item signatures
    |
 18 | fn ret_ty() -> <u8 as Trait<_>>::Assoc { 0 }
    |                             ^ not allowed in type signatures
+   |
+help: replace with the correct return type
+   |
+18 - fn ret_ty() -> <u8 as Trait<_>>::Assoc { 0 }
+18 + fn ret_ty() -> i32 { 0 }
+   |
 
 error[E0121]: the placeholder `_` is not allowed within types on item signatures for functions
   --> tests/ui/hygiene/generic_args/rustc_res/infer_args_not_allowed_outside_bodies.rs:21:29
@@ -33,6 +39,12 @@ error[E0121]: the placeholder `_` is not allowed within types on item signatures
    |
 32 | const CONST: <u8 as Trait<_>>::Assoc = 0;
    |                           ^ not allowed in type signatures
+   |
+help: replace this with a fully-specified type
+   |
+32 - const CONST: <u8 as Trait<_>>::Assoc = 0;
+32 + const CONST: i32 = 0;
+   |
 
 error[E0121]: the placeholder `_` is not allowed within types on item signatures for associated types
   --> tests/ui/hygiene/generic_args/rustc_res/infer_args_not_allowed_outside_bodies.rs:41:31

@@ -48,7 +48,7 @@ pub fn run(config: &Config, analysis_pass: &AnalysisPassResult, specialized_exte
 
         let krate = passes::parse(sess);
 
-        let (linker, outputs) = create_and_enter_global_ctxt(compiler, krate, |tcx| {
+        let ((linker, outputs), incr_comp_session) = create_and_enter_global_ctxt(compiler, krate, |tcx| {
             let _ = tcx.resolver_for_lowering();
 
             passes::write_dep_info(tcx);
@@ -63,7 +63,7 @@ pub fn run(config: &Config, analysis_pass: &AnalysisPassResult, specialized_exte
             (linker, outputs)
         });
 
-        linker.link(sess, codegen_backend);
+        linker.link(sess, incr_comp_session, codegen_backend);
 
         Ok(CompilationPassResult {
             duration: t_start.elapsed(),

@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rustc_interface::Config as CompilerConfig;
 use rustc_session::EarlyDiagCtxt;
@@ -12,6 +12,10 @@ use crate::config::Config;
 use crate::passes::external_mutant::specialized_crate::SpecializedMutantCrateCompilationResult;
 
 mod rlib_catalog { include!(env!("RLIB_CATALOG")); }
+
+#[path = "../../build_support/dependency_dirs.rs"]
+mod dependency_dirs;
+use dependency_dirs::dependency_dirs;
 
 #[cfg(feature = "embed-runtime")]
 fn extract_file(path: &Path, content: &[u8]) {
@@ -41,7 +45,22 @@ pub fn extract_runtime_crate_and_deps(target_dir_root_path: &Path) {
 const COMPILETIME_ARTIFACTS_DIR: &str = env!("COMPILETIME_ARTIFACTS_DIR");
 const COMPILETIME_DEPS_DIR: &str = env!("COMPILETIME_DEPS_DIR");
 
+/// The path of a runtime dependency, which is reported as missing from `deps_dir` if no directory holds it.
+fn locate_dependency(deps_dir: &Path, file_name: &str) -> PathBuf {
+    dependency_dirs(deps_dir).into_iter()
+        .map(|dir| dir.join(file_name))
+        .find(|path| path.exists())
+        .unwrap_or_else(|| deps_dir.join(file_name))
+}
+
+fn push_dependency_search_paths(search_paths: &mut Vec<SearchPath>, deps_dir: &Path) {
+    search_paths.extend(dependency_dirs(deps_dir).into_iter().map(|dir| SearchPath { kind: PathKind::Dependency, dir: dir.into() }));
+}
+
 pub fn inject_runtime_crate_and_deps(config: &Config, compiler_config: &mut CompilerConfig, specialized_external_mutant_crate: Option<&(String, SpecializedMutantCrateCompilationResult)>) {
+    // Generated harnesses need the old solver for the runtime's `generic_const_exprs` types.
+    compiler_config.opts.unstable_opts.next_solver.globally = false;
+
     let early_dcx = EarlyDiagCtxt::new(compiler_config.opts.error_format);
 
     let host_triple = host_tuple();
@@ -84,10 +103,10 @@ pub fn inject_runtime_crate_and_deps(config: &Config, compiler_config: &mut Comp
     };
 
     if target_triple != host_triple {
-        compiler_config.opts.search_paths.push(SearchPath::new(PathKind::Dependency, mutest_target_deps_dir_path.to_owned()));
+        push_dependency_search_paths(&mut compiler_config.opts.search_paths, mutest_target_deps_dir_path);
     }
     // NOTE: We need the host dependencies for procedural macro crate dependencies, as these run on the host, during compilation.
-    compiler_config.opts.search_paths.push(SearchPath::new(PathKind::Dependency, mutest_host_deps_dir_path.to_owned()));
+    push_dependency_search_paths(&mut compiler_config.opts.search_paths, mutest_host_deps_dir_path);
 
     // The externs (paths to dependencies) of the `mutest_runtime` crate are baked into it at compile time.
     // These must be propagated to any crate which depends on it.
@@ -144,51 +163,24 @@ pub fn inject_runtime_crate_and_deps(config: &Config, compiler_config: &mut Comp
         });
     }
 
-    for &(visible_crate_name, dep_file_name) in rlib_catalog::MUTEST_RUNTIME_PUBLIC_DEPS {
-        let mut dep_file_paths = BTreeSet::new();
-        // FIXME: Use the actual public dependency list of the injected embedded runtime crate,
-        //        rather than piggy-backing off the main mutest-runtime crate.
-        if !config.opts.unstable_flags.embedded {
-            dep_file_paths.insert(CanonicalizedPath::new(mutest_target_deps_dir_path.join(dep_file_name)));
-        } else {
-            let dep_file_name_root = match dep_file_name.split_once("-") {
-                // lib<NAME>-<HASH>.<EXTENSION>
-                Some((dep_file_name_root, _)) => dep_file_name_root,
-                None => match dep_file_name.split_once(".") {
-                    // lib<NAME>.<EXTENSION>
-                    Some((dep_file_name_root, _)) => dep_file_name_root,
-                    None => dep_file_name,
-                },
-            };
-            fs::read_dir(mutest_target_deps_dir_path).expect(&format!("cannot read directory: `{}`", mutest_target_deps_dir_path.display()))
-                .filter_map(|dir_entry| {
-                    let dir_entry = dir_entry.ok()?;
-                    let file_name = dir_entry.file_name().into_string().ok()?;
-                    let file_name_root = match file_name.split_once("-") {
-                        // lib<NAME>-<HASH>.<EXTENSION>
-                        Some((file_name_root, _)) => file_name_root,
-                        None => match dep_file_name.split_once(".") {
-                            // lib<NAME>.<EXTENSION>
-                            Some((file_name_root, _)) => file_name_root,
-                            None => &file_name,
-                        },
-                    };
-                    if file_name_root != dep_file_name_root { return None; }
-                    Some(CanonicalizedPath::new(dir_entry.path()))
-                })
-                .collect_into(&mut dep_file_paths);
-        }
-        let existing_extern = externs.insert(visible_crate_name.to_owned(), ExternEntry {
-            location: ExternLocation::ExactPaths(dep_file_paths),
-            is_private_dep: false,
-            add_prelude: false,
-            nounused_dep: false,
-            force: false,
-        });
-        if let Some(_existing_extern) = existing_extern {
-            let mut diag = early_dcx.early_struct_fatal(format!("mutest-injected crate conflicts with existing extern `{visible_crate_name}`"));
-            diag.note("mutest-injected crates use the reserved `__mutest_runtime_public_dep_` prefix: if you see this error for any other crate, please file a bug report");
-            diag.emit();
+    // The embedded stub re-exports its dependencies, preserving their identities in its metadata.
+    if !config.opts.unstable_flags.embedded {
+        for &(visible_crate_name, dep_file_name) in rlib_catalog::MUTEST_RUNTIME_PUBLIC_DEPS {
+            let dep_file_paths = BTreeSet::from([
+                CanonicalizedPath::new(locate_dependency(mutest_target_deps_dir_path, dep_file_name)),
+            ]);
+            let existing_extern = externs.insert(visible_crate_name.to_owned(), ExternEntry {
+                location: ExternLocation::ExactPaths(dep_file_paths),
+                is_private_dep: false,
+                add_prelude: false,
+                nounused_dep: false,
+                force: false,
+            });
+            if let Some(_existing_extern) = existing_extern {
+                let mut diag = early_dcx.early_struct_fatal(format!("mutest-injected crate conflicts with existing extern `{visible_crate_name}`"));
+                diag.note("mutest-injected crates use the reserved `__mutest_runtime_public_dep_` prefix: if you see this error for any other crate, please file a bug report");
+                diag.emit();
+            }
         }
     }
 

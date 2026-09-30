@@ -4,7 +4,6 @@
 // TODO: //@ run (without mutest test harness)
 
 #![feature(decl_macro)]
-#![feature(never_type)]
 
 use std::fmt::{self, Debug};
 use std::marker::PhantomData;

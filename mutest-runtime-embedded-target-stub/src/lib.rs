@@ -1,5 +1,3 @@
-#![feature(decl_macro)]
-
 #![no_std]
 
 // Injected dependencies:

@@ -1,24 +1,24 @@
 warning: replacing unrepresentable generic argument `traits::Trait::T = traits::private::A` with `_`
   --> tests/ui/hygiene/generic_args/known_issues/private_non_default_generic_arg_with_competing_impls_cannot_be_inferred.rs:36:14
    |
+33 |     pub macro m() {
+...
 36 |             <u8 as Trait<private::A>>::foo();
    |              ^^
 ...
 43 |     crate::traits::m!();
    |     ------------------- in this macro invocation
-   |
-   = note: this warning originates in the macro `crate::traits::m` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 warning: replacing unrepresentable generic argument `traits::Trait::T = traits::private::A` with `_`
   --> tests/ui/hygiene/generic_args/known_issues/private_non_default_generic_arg_with_competing_impls_cannot_be_inferred.rs:37:25
    |
+33 |     pub macro m() {
+...
 37 |             match () { <u8 as Trait<private::A>>::FOO => {} }
    |                         ^^
 ...
 43 |     crate::traits::m!();
    |     ------------------- in this macro invocation
-   |
-   = note: this warning originates in the macro `crate::traits::m` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 warning: 2 warnings emitted
 

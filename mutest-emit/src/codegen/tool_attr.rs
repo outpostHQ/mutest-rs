@@ -11,14 +11,14 @@ pub fn register(sess: &Session, krate: &mut ast::Crate) {
     let feature_register_tool_attr = ast::mk::attr_inner(g, DUMMY_SP,
         Ident::new(sym::feature, DUMMY_SP),
         ast::mk::attr_args_delimited(DUMMY_SP, ast::token::Delimiter::Parenthesis, ast::mk::token_stream(vec![
-            ast::mk::tt_token_joint(DUMMY_SP, ast::TokenKind::Ident(sym::register_tool, ast::token::IdentIsRaw::No)),
+            ast::mk::tt_token_joint(DUMMY_SP, ast::TokenKind::Ident(sym::register_tool, ast::token::IdentKind::Normal)),
         ])),
     );
     // #![register_tool(mutest)]
     let register_tool_mutest_attr = ast::mk::attr_inner(g, DUMMY_SP,
         Ident::new(sym::register_tool, DUMMY_SP),
         ast::mk::attr_args_delimited(DUMMY_SP, ast::token::Delimiter::Parenthesis, ast::mk::token_stream(vec![
-            ast::mk::tt_token_joint(DUMMY_SP, ast::TokenKind::Ident(sym::mutest, ast::token::IdentIsRaw::No)),
+            ast::mk::tt_token_joint(DUMMY_SP, ast::TokenKind::Ident(sym::mutest, ast::token::IdentKind::Normal)),
         ])),
     );
 
