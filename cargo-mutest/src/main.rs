@@ -321,6 +321,25 @@ struct CargoInvocation<'a> {
     non_cargo_args: Vec<String>,
     target_dir: PathBuf,
     explicit_targetings_count: usize,
+    selects_library: bool,
+}
+
+fn has_library(package: &cargo_metadata::Package) -> bool {
+    package.targets.iter().any(|target| target.is_lib() || target.is_rlib() || target.is_dylib() || target.is_cdylib() || target.is_staticlib() || target.is_proc_macro())
+}
+
+/// Whether any package the invocation selects has a library, which Cargo requires of `--lib`.
+/// A package given as a pattern or a version spec is taken to have one.
+fn selects_library(metadata: &cargo_metadata::Metadata, packages: Option<&[&str]>, workspace: bool, excluded: &[&str]) -> bool {
+    if let Some(names) = packages {
+        return names.iter().any(|name| metadata.packages.iter().find(|package| package.name == *name).is_none_or(has_library));
+    }
+    let selected = match (workspace, metadata.root_package()) {
+        (false, Some(root)) => vec![root],
+        (true, _) => metadata.workspace_packages(),
+        (false, None) => metadata.workspace_default_packages(),
+    };
+    selected.into_iter().filter(|package| !excluded.iter().any(|name| package.name == *name)).any(has_library)
 }
 
 fn process_cargo_args<'a>(args: &'a [String], matches: &'a clap::ArgMatches) -> CargoInvocation<'a> {
@@ -455,7 +474,11 @@ fn process_cargo_args<'a>(args: &'a [String], matches: &'a clap::ArgMatches) -> 
         strip_arg(&mut non_cargo_args, false, None, Some("frozen"));
     }
 
-    CargoInvocation { cargo_args, non_cargo_args, target_dir, explicit_targetings_count }
+    let packages = matches.get_many::<String>("package").map(|packages| packages.map(String::as_str).collect::<Vec<_>>());
+    let excluded = matches.get_many::<String>("exclude").map(|packages| packages.map(String::as_str).collect::<Vec<_>>()).unwrap_or_default();
+    let selects_library = selects_library(&cargo_metadata, packages.as_deref(), matches.get_flag("workspace"), &excluded);
+
+    CargoInvocation { cargo_args, non_cargo_args, target_dir, explicit_targetings_count, selects_library }
 }
 
 fn target_directory(selected: Option<&Path>, fallback: &Path) -> std::io::Result<PathBuf> {
@@ -700,7 +723,8 @@ fn run_cargo_with_mutest_driver(cargo_invocation: &CargoInvocation, matches: &cl
         //         are not fully clear.
         //       * `--doc`: Documentation tests, as they require a completely different
         //         compilation and evaluation strategy that we do not currently support.
-        cmd.args(["--lib", "--bins", "--examples", "--tests"]);
+        cmd.args(cargo_invocation.selects_library.then_some("--lib"));
+        cmd.args(["--bins", "--examples", "--tests"]);
     }
 
     let mut path = env::current_exe().expect("current executable path invalid");
