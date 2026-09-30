@@ -14,3 +14,11 @@ members = [
     "test-metadata-shim",
     "tests",
 ]
+
+[workspace.lints.clippy]
+allow_attributes_without_reason = "warn"
+dbg_macro = "warn"
+debug_assert_with_mut_call = "warn"
+inefficient_to_string = "warn"
+mem_forget = "warn"
+rc_buffer = "warn"

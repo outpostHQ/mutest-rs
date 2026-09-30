@@ -38,3 +38,6 @@ memory-serve = "2"
 [features]
 standalone = ["embed-static-files"]
 embed-static-files = []
+
+[lints]
+workspace = true

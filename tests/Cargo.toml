@@ -10,3 +10,6 @@ cargo_metadata = "0.23"
 path-slash = "0.2"
 clap = { version = "4", features = ["cargo"] }
 similar = { version = "3", features = ["inline"] }
+
+[lints]
+workspace = true

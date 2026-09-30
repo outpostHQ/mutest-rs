@@ -40,7 +40,7 @@ macro_rules! symbols {
     };
 }
 
-#[allow(non_upper_case_globals)]
+#[allow(non_upper_case_globals, reason = "the generated constants keep the spelling of the symbols they intern")]
 pub mod sym {
     pub use rustc_span::sym::*;
 
@@ -116,7 +116,7 @@ macro paths {
     },
 }
 
-#[allow(non_snake_case)]
+#[allow(non_snake_case, reason = "the generated functions keep the spelling of the items whose paths they build")]
 pub mod path {
     super::paths! {
         Default (::core::default::Default),

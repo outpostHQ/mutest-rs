@@ -157,7 +157,7 @@ impl MutationConflictsMeta {
     // HACK: Clone bound added because of an issue with `feature(generic_const_exprs)`
     //       when the suggested empty bounds are evaluated across crate-boundaries,
     //       see https://github.com/rust-lang/rust/issues/145069#issuecomment-3754163634.
-    #[expect(private_bounds)]
+    #[expect(private_bounds, reason = "the bound is sized by `words_count`, which stays crate-private")]
     pub const fn from_static<const N: u32>(data: &'static StaticBitMatrix<N>) -> Self
     where
         [(); static_bit_matrix::words_count(N)]: Clone,

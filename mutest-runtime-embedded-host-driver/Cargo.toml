@@ -16,3 +16,6 @@ edition = "2024"
 mutest-driver-cli = { path = "../mutest-driver-cli" }
 
 clap = { version = "4", features = ["cargo"] }
+
+[lints]
+workspace = true

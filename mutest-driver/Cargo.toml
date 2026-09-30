@@ -40,3 +40,6 @@ cargo_metadata = "0.23"
 [features]
 default = []
 embed-runtime = []
+
+[lints]
+workspace = true

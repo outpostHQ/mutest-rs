@@ -1,4 +1,4 @@
-#![expect(private_bounds)]
+#![expect(private_bounds, reason = "the public bounds are sized by `words_count`, which stays crate-private")]
 
 type Word = u64;
 const WORD_BYTES: usize = size_of::<Word>();
