@@ -44,6 +44,7 @@ fn may_borrow_argument_temporary<'tcx>(typeck: &ty::TypeckResults<'tcx>, expr: &
 
 /// Whether `Default::default()` would still compile in place of the call.
 fn default_fits_in_place<'tcx>(tcx: TyCtxt<'tcx>, f: hir::LocalDefId, typeck: &ty::TypeckResults<'tcx>, expr: &'tcx hir::Expr<'tcx>, expr_ty: Ty<'tcx>) -> bool {
+    if !ty::impls_trait(tcx, f, expr_ty, res::traits::Default(tcx), vec![]) { return false; }
     // NOTE: Argument temporaries are dropped at the end of the substitution's match arm.
     if may_contain_borrow(expr_ty) && may_borrow_argument_temporary(typeck, expr) { return false; }
     // NOTE: The replacement is checked at the coerced type too, e.g. `Arc<dyn Trait>` for `Arc::new(x)`.
@@ -66,8 +67,6 @@ fn non_default_call<'tcx>(tcx: TyCtxt<'tcx>, f: hir::LocalDefId, body: hir::Body
 
     let expr_ty = typeck.expr_ty(expr);
     if expr_ty == tcx.types.unit || expr_ty == tcx.types.never { return None; }
-    if !ty::impls_trait(tcx, f, expr_ty, res::traits::Default(tcx), vec![]) { return None; }
-
     if !default_fits_in_place(tcx, f, typeck, expr, expr_ty) { return None; }
 
     let Some((callee, _)) = res::callee(typeck, expr) else { return None; };

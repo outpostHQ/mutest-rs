@@ -742,9 +742,7 @@ pub mod print {
                     let ast::TyKind::TraitObject(bounds, _syntax) = &mut dyn_existential.kind else { unreachable!() };
                     // NOTE: `'_` is not valid in every type position (e.g. a `fn()` return type),
                     //       so erased lifetimes are left to the object lifetime defaults.
-                    if !matches!(region.kind(), ty::RegionKind::ReErased)
-                        && let Some(lifetime) = self.print_region(region)?
-                    {
+                    if let Some(lifetime) = self.print_region(region)?.filter(|_| !matches!(region.kind(), ty::RegionKind::ReErased)) {
                         bounds.push(ast::mk::lifetime_bound(lifetime));
                     }
                     // NOTE: `dyn` trait objects of multiple bounds are syntactically ambiguous in some positions

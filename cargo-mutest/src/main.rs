@@ -547,6 +547,13 @@ fn is_harness_internal_var(var: &OsStr) -> bool {
     var.as_encoded_bytes().starts_with(b"__MUTEST_")
 }
 
+/// A test that runs `cargo mutest` must not pass its own harness's variables on to this run.
+fn remove_harness_internal_vars(cmd: &mut Command) {
+    for (var, _) in env::vars_os().filter(|(var, _)| is_harness_internal_var(var)) {
+        cmd.env_remove(var);
+    }
+}
+
 #[test]
 fn a_harness_s_own_variables_are_kept_from_cargo() {
     let vars = ["__MUTEST_RUN_AS_LIBTEST", "MUTEST_EXIT_CODE_LOG", "PATH", "__MUTEST_JOURNAL"];
@@ -604,11 +611,7 @@ fn run_cargo_with_mutest_driver(cargo_invocation: &CargoInvocation, matches: &cl
     if !no_build { mutest_driver_outputs.push("test-bin") }
 
     let mut cmd = cargo_command_base();
-
-    // A test that runs `cargo mutest` must not pass its own harness's variables on to this run.
-    for (var, _) in env::vars_os().filter(|(var, _)| is_harness_internal_var(var)) {
-        cmd.env_remove(var);
-    }
+    remove_harness_internal_vars(&mut cmd);
 
     let embedded = unstable_flags.contains(&"embedded");
     if embedded {
@@ -736,7 +739,7 @@ fn run_cargo_with_mutest_driver(cargo_invocation: &CargoInvocation, matches: &cl
         if let Some(iterations_count) = matches.get_one::<usize>("flakes") { cmd.arg(format!("--flakes={iterations_count}")); }
 
         if matches.get_flag("exhaustive") { cmd.arg("--exhaustive"); }
-        if matches.get_flag("require-progress") { cmd.arg("--require-progress"); }
+        cmd.args(matches.get_flag("require-progress").then_some("--require-progress"));
 
         if !embedded {
             if let Some(isolation_mode) = matches.get_one::<String>("isolate") { cmd.arg(format!("--isolate={isolation_mode}")); }
