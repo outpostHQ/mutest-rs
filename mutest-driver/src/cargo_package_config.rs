@@ -59,30 +59,22 @@ struct MutationOperators {
 
 impl MutationOperators {
     fn into_operators<'op, 'm>(&self) -> Vec<OperatorRef<'op, 'm>> {
+        fn enabled<'op, 'm>(switch: Option<bool>, operator: OperatorRef<'op, 'm>) -> Option<OperatorRef<'op, 'm>> {
+            switch.unwrap_or(false).then_some(operator)
+        }
+
         // NOTE: Mutation operators must be sorted into a deterministic order,
         //       because that determines application order, and thus mutation order.
         //       We use an alphabetical order for this based on operator names,
         //       so pushes must be sorted accordingly.
         let mut ops = Vec::<OperatorRef<'op, 'm>>::new();
 
-        if let Some(true) = &self.arg_default_shadow {
-            ops.push(Box::leak(Box::new(mutest_operators::ArgDefaultShadow)));
-        }
-        if let Some(true) = &self.bit_op_or_and_swap {
-            ops.push(Box::leak(Box::new(mutest_operators::BitOpOrAndSwap)))
-        }
-        if let Some(true) = &self.bit_op_or_xor_swap {
-            ops.push(Box::leak(Box::new(mutest_operators::BitOpOrXorSwap)))
-        }
-        if let Some(true) = &self.bit_op_shift_dir_swap {
-            ops.push(Box::leak(Box::new(mutest_operators::BitOpShiftDirSwap)))
-        }
-        if let Some(true) = &self.bit_op_xor_and_swap {
-            ops.push(Box::leak(Box::new(mutest_operators::BitOpXorAndSwap)))
-        }
-        if let Some(true) = &self.bool_expr_negate {
-            ops.push(Box::leak(Box::new(mutest_operators::BoolExprNegate)))
-        }
+        ops.extend(enabled(self.arg_default_shadow, &mutest_operators::ArgDefaultShadow));
+        ops.extend(enabled(self.bit_op_or_and_swap, &mutest_operators::BitOpOrAndSwap));
+        ops.extend(enabled(self.bit_op_or_xor_swap, &mutest_operators::BitOpOrXorSwap));
+        ops.extend(enabled(self.bit_op_shift_dir_swap, &mutest_operators::BitOpShiftDirSwap));
+        ops.extend(enabled(self.bit_op_xor_and_swap, &mutest_operators::BitOpXorAndSwap));
+        ops.extend(enabled(self.bool_expr_negate, &mutest_operators::BoolExprNegate));
         if let Some(call_ignore_opts) = &self.call_delete {
             'v: {
                 let call_ignore_opts = match call_ignore_opts {
@@ -109,51 +101,21 @@ impl MutationOperators {
                 })));
             }
         }
-        if let Some(true) = &self.continue_break_swap {
-            ops.push(Box::leak(Box::new(mutest_operators::ContinueBreakSwap)))
-        }
-        if let Some(true) = &self.eq_op_invert {
-            ops.push(Box::leak(Box::new(mutest_operators::EqOpInvert)))
-        }
-        if let Some(true) = &self.fn_return_default {
-            ops.push(Box::leak(Box::new(mutest_operators::FnReturnDefault)))
-        }
-        if let Some(true) = &self.logical_op_and_or_swap {
-            ops.push(Box::leak(Box::new(mutest_operators::LogicalOpAndOrSwap)))
-        }
-        if let Some(true) = &self.match_arm_delete {
-            ops.push(Box::leak(Box::new(mutest_operators::MatchArmDelete)))
-        }
-        if let Some(true) = &self.match_guard_value {
-            ops.push(Box::leak(Box::new(mutest_operators::MatchGuardValue)))
-        }
-        if let Some(true) = &self.math_op_add_mul_swap {
-            ops.push(Box::leak(Box::new(mutest_operators::OpAddMulSwap)))
-        }
-        if let Some(true) = &self.math_op_add_sub_swap {
-            ops.push(Box::leak(Box::new(mutest_operators::OpAddSubSwap)))
-        }
-        if let Some(true) = &self.math_op_div_rem_swap {
-            ops.push(Box::leak(Box::new(mutest_operators::OpDivRemSwap)))
-        }
-        if let Some(true) = &self.math_op_mul_div_swap {
-            ops.push(Box::leak(Box::new(mutest_operators::OpMulDivSwap)))
-        }
-        if let Some(true) = &self.range_limit_swap {
-            ops.push(Box::leak(Box::new(mutest_operators::RangeLimitSwap)))
-        }
-        if let Some(true) = &self.relational_op_eq_swap {
-            ops.push(Box::leak(Box::new(mutest_operators::RelationalOpEqSwap)))
-        }
-        if let Some(true) = &self.relational_op_invert {
-            ops.push(Box::leak(Box::new(mutest_operators::RelationalOpInvert)))
-        }
-        if let Some(true) = &self.struct_field_delete {
-            ops.push(Box::leak(Box::new(mutest_operators::StructFieldDelete)))
-        }
-        if let Some(true) = &self.unary_op_delete {
-            ops.push(Box::leak(Box::new(mutest_operators::UnaryOpDelete)))
-        }
+        ops.extend(enabled(self.continue_break_swap, &mutest_operators::ContinueBreakSwap));
+        ops.extend(enabled(self.eq_op_invert, &mutest_operators::EqOpInvert));
+        ops.extend(enabled(self.fn_return_default, &mutest_operators::FnReturnDefault));
+        ops.extend(enabled(self.logical_op_and_or_swap, &mutest_operators::LogicalOpAndOrSwap));
+        ops.extend(enabled(self.match_arm_delete, &mutest_operators::MatchArmDelete));
+        ops.extend(enabled(self.match_guard_value, &mutest_operators::MatchGuardValue));
+        ops.extend(enabled(self.math_op_add_mul_swap, &mutest_operators::OpAddMulSwap));
+        ops.extend(enabled(self.math_op_add_sub_swap, &mutest_operators::OpAddSubSwap));
+        ops.extend(enabled(self.math_op_div_rem_swap, &mutest_operators::OpDivRemSwap));
+        ops.extend(enabled(self.math_op_mul_div_swap, &mutest_operators::OpMulDivSwap));
+        ops.extend(enabled(self.range_limit_swap, &mutest_operators::RangeLimitSwap));
+        ops.extend(enabled(self.relational_op_eq_swap, &mutest_operators::RelationalOpEqSwap));
+        ops.extend(enabled(self.relational_op_invert, &mutest_operators::RelationalOpInvert));
+        ops.extend(enabled(self.struct_field_delete, &mutest_operators::StructFieldDelete));
+        ops.extend(enabled(self.unary_op_delete, &mutest_operators::UnaryOpDelete));
 
         ops
     }
