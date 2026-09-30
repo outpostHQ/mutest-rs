@@ -17,6 +17,8 @@ use crate::thread_pool::{self, ThreadPool};
 
 #[path = "subprocess.rs"]
 mod subprocess;
+#[path = "progress.rs"]
+pub(crate) mod progress;
 pub(crate) use subprocess::dispatch as dispatch_subprocess_owner;
 
 enum MonitorMessage {
@@ -366,6 +368,7 @@ fn run_test(
     active_signal: Option<Arc<AtomicBool>>,
     no_capture: bool,
 ) -> Option<ThreadHandle> {
+    progress::start(id, &test, matches!(&test_run_strategy, TestRunStrategy::InIsolatedChildProcess(_)));
     let Test { desc, test_fn, timeout } = test;
 
     let ignore_because_no_process_support = match desc.should_panic {
@@ -509,7 +512,18 @@ where
     run_tests_with_concurrency(tests, on_test_event, test_run_strategy, no_capture, concurrency)
 }
 
+/// `concurrency` caps the tests run at once, for a caller whose other runs share the same slots.
+pub(crate) fn run_tests_with_progress<E, F>(tests: Vec<Test>, on_test_event: F, strategy: TestRunStrategy, no_capture: bool, context: progress::Context<'_>, concurrency: Option<usize>) -> Result<(Vec<Test>, Vec<RunningTest>), E>
+where F: FnMut(TestEvent, &mut Vec<(test::TestId, Test)>) -> Result<Flow, E> {
+    let _scope = progress::enter(context, &tests);
+    match concurrency {
+        Some(concurrency) => run_tests_with_concurrency(tests, on_test_event, strategy, no_capture, concurrency),
+        None => run_tests(tests, on_test_event, strategy, no_capture),
+    }
+}
+
 fn incomplete_isolation(message: &str) -> ! {
+    let _ = progress::terminal(false, mutest_exit_code::PANIC);
     eprintln!("mutation analysis incomplete: {message}");
     process::exit(mutest_exit_code::PANIC)
 }
@@ -571,6 +585,7 @@ fn cleanup_isolated_tests(running: &mut HashMap<test::TestId, RunningTest>, rece
         if let Some(test) = running.remove(&id) {
             let joined = test.join_handle.map(join_isolated).transpose();
             if let Err(message) = joined { failed.get_or_insert(message); }
+            else if let Some(completed) = completed { progress::end(&completed, true); }
         }
     }
     failed.map_or(Ok(()), Err)
@@ -629,7 +644,7 @@ fn receive_monitor_message(running_tests: &HashMap<test::TestId, RunningTest>, t
     }
 }
 
-pub(crate) fn run_tests_with_concurrency<E, F>(
+fn run_tests_with_concurrency<E, F>(
     tests: Vec<Test>,
     mut on_test_event: F,
     test_run_strategy: TestRunStrategy,
@@ -682,6 +697,7 @@ where
                 join_in_process(join_handle, &mut completed_test);
             }
 
+            progress::end(&completed_test, true);
             event!(TestEvent::Result(completed_test));
         }
 
@@ -735,6 +751,7 @@ where
 
                     let completed_test = abandon_timed_out_test(test_id, &running_test);
                     lingering_tests.insert(test_id, running_test);
+                    progress::end(&completed_test, false);
                     event!(TestEvent::Result(completed_test));
                 }
             }
@@ -762,6 +779,7 @@ where
             }
 
             event!(TestEvent::Queue(running_tests.len(), remaining_tests.len()));
+            progress::end(&completed_test, true);
             event!(TestEvent::Result(completed_test));
         }
 

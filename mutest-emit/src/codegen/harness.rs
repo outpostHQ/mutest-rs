@@ -476,7 +476,24 @@ fn mk_harness_fn(sp: Span, embedded: bool, external_meta_mutant: Option<Symbol>)
         ast::mk::expr_ref(sp, meta_mutant_path_expr),
     ]));
 
-    let body = ast::mk::block(sp, thin_vec![call_test_main]);
+    let mut stmts = thin_vec![];
+    if !embedded {
+        // const _: [(); 1] = [(); (mutest_runtime::PROGRESS_PROTOCOL_VERSION == 1) as usize];
+        // NOTE: This fails to compile against a runtime with a different progress protocol.
+        let version = ast::mk::expr_path(ast::mk::path(sp, false, vec![
+            Ident::new(sym::mutest_runtime, sp),
+            Ident::new(Symbol::intern("PROGRESS_PROTOCOL_VERSION"), sp),
+        ]));
+        let supported = ast::mk::expr_binary(sp, ast::BinOpKind::Eq, version, ast::mk::expr_u32(sp, 1));
+        let length = ast::mk::expr_cast(sp, supported, ast::mk::ty_ident(sp, None, Ident::new(sym::usize, sp)));
+        let value = ast::mk::expr(sp, ast::ExprKind::Repeat(
+            ast::mk::expr_tuple(sp, thin_vec![]), ast::mk::anon_const(sp, length.kind),
+        ));
+        let ty = ast::mk::ty_array(sp, ast::mk::ty_tuple(sp, thin_vec![]), ast::mk::anon_const(sp, ast::mk::expr_usize(sp, 1).kind));
+        stmts.push(ast::mk::stmt_item(sp, ast::mk::item_const(sp, ast::mk::vis_default(sp), Ident::new(kw::Underscore, sp), ty, value)));
+    }
+    stmts.push(call_test_main);
+    let body = ast::mk::block(sp, stmts);
 
     // pub(crate) fn harness(tests: &[&'static test::TestDescAndFn]) { ... }
     let vis = ast::mk::vis_pub_crate(sp);
@@ -627,4 +644,20 @@ pub fn find_harness_in_extern_crate<'tcx>(tcx: TyCtxt<'tcx>, cnum: hir::CrateNum
         if !mod_child.vis.is_public() { return None; }
         mod_child.res.mod_def_id()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_desktop_harness_checks_the_progress_protocol() {
+        rustc_span::create_session_globals_then(rustc_span::edition::DEFAULT_EDITION, sym::EXTRA_SYMBOLS, None, || {
+            let desktop = ast::print::item_to_string(&mk_harness_fn(DUMMY_SP, false, None));
+            assert!(desktop.contains("mutest_runtime::PROGRESS_PROTOCOL_VERSION == 1u32"), "{desktop}");
+
+            let embedded = ast::print::item_to_string(&mk_harness_fn(DUMMY_SP, true, None));
+            assert!(!embedded.contains("PROGRESS_PROTOCOL_VERSION"), "{embedded}");
+        });
+    }
 }

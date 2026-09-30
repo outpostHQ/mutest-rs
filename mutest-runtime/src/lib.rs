@@ -47,3 +47,6 @@ mod supervisor;
 pub use supervisor::{adopt_orphans, children};
 
 pub use test_runner::is_test_thread_active;
+
+#[doc(hidden)]
+pub const PROGRESS_PROTOCOL_VERSION: u32 = 1;

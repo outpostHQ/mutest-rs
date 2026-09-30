@@ -187,6 +187,7 @@ fn main() {
             .arg(clap::arg!(--exhaustive "Evaluate remaining tests, even if the mutation has already been detected by another test.").conflicts_with_all(["no-run", "no-build"]))
             .arg(clap::arg!(--isolate [ISOLATION_MODE] "Isolate tests of mutations into separate processes.").value_parser(run_isolate::possible_values()).default_value(run_isolate::UNSAFE).conflicts_with_all(["no-run", "no-build"]))
             .arg(clap::arg!(--"use-thread-pool" "Evaluate tests in a fixed-size thread pool.").conflicts_with_all(["no-run", "no-build"]))
+            .arg(clap::arg!(--"require-progress" "Require protocol-v1 progress before executing tests.").conflicts_with_all(["no-run", "no-build"]))
             // Printing-related Arguments
             .arg(clap::arg!(--"eval-print" [PRINT] "Print additional information during mutation evaluation. Multiple may be specified, separated by commas.").value_delimiter(',').value_parser(run_print::possible_values()).conflicts_with_all(["no-run", "no-build"]))
             // Passed arguments
@@ -533,7 +534,38 @@ fn a_harness_s_own_variables_are_kept_from_cargo() {
     assert_eq!(vars.map(|var| is_harness_internal_var(var.as_ref())), [true, false, false, true]);
 }
 
+/// The directory and nonce that `--require-progress` has the harness write its progress under.
+fn progress_environment(directory: Option<&OsStr>, nonce: Option<&OsStr>) -> Result<(), &'static str> {
+    let absolute_directory = directory.is_some_and(|directory| Path::new(directory).is_absolute());
+    let lowercase_hex_nonce = nonce.and_then(OsStr::to_str)
+        .is_some_and(|nonce| nonce.len() == 32 && nonce.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')));
+    match absolute_directory && lowercase_hex_nonce {
+        true => Ok(()),
+        false => Err("--require-progress needs an absolute MUTEST_PROGRESS_DIR and a MUTEST_PROGRESS_NONCE of 32 lowercase hex digits"),
+    }
+}
+
+#[test]
+fn required_progress_needs_an_absolute_directory_and_a_lowercase_hex_nonce() {
+    let nonce = OsStr::new("0123456789abcdef0123456789abcdef");
+    let absolute = env::temp_dir();
+    let absolute = Some(absolute.as_os_str());
+
+    assert!(progress_environment(absolute, Some(nonce)).is_ok());
+    for (directory, nonce) in [(None, None), (absolute, None),
+        (Some(OsStr::new("relative")), Some(nonce)),
+        (absolute, Some(OsStr::new("0123456789ABCDEF0123456789ABCDEF")))] {
+        assert!(progress_environment(directory, nonce).is_err());
+    }
+}
+
 fn run_cargo_with_mutest_driver(cargo_invocation: &CargoInvocation, matches: &clap::ArgMatches, unstable_flags: &[&str]) -> i32 {
+    if matches.get_flag("require-progress")
+        && let Err(error) = progress_environment(env::var_os("MUTEST_PROGRESS_DIR").as_deref(), env::var_os("MUTEST_PROGRESS_NONCE").as_deref())
+    {
+        color_print::ceprintln!("<red,bold>error</>: {}", error);
+        return exit_code::USAGE;
+    }
     let mut mutest_args = cargo_invocation.non_cargo_args.clone();
 
     let no_run = matches.get_flag("no-run");
@@ -667,6 +699,7 @@ fn run_cargo_with_mutest_driver(cargo_invocation: &CargoInvocation, matches: &cl
     strip_arg(&mut mutest_args, false, None, Some("exhaustive"));
     strip_arg(&mut mutest_args, true, None, Some("isolate"));
     strip_arg(&mut mutest_args, false, None, Some("use-thread-pool"));
+    strip_arg(&mut mutest_args, false, None, Some("require-progress"));
     strip_arg(&mut mutest_args, true, None, Some("eval-print"));
     strip_arg_value_occurrences(&mut mutest_args, Some("Z"), None, "write-json-eval-stream");
 
@@ -681,6 +714,7 @@ fn run_cargo_with_mutest_driver(cargo_invocation: &CargoInvocation, matches: &cl
         if let Some(iterations_count) = matches.get_one::<usize>("flakes") { cmd.arg(format!("--flakes={iterations_count}")); }
 
         if matches.get_flag("exhaustive") { cmd.arg("--exhaustive"); }
+        if matches.get_flag("require-progress") { cmd.arg("--require-progress"); }
 
         if !embedded {
             if let Some(isolation_mode) = matches.get_one::<String>("isolate") { cmd.arg(format!("--isolate={isolation_mode}")); }

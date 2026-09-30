@@ -173,7 +173,8 @@ fn profile_tests(tests: Vec<test::TestDescAndFn>) -> Result<Vec<ProfiledTest>, I
         Ok(test_runner::Flow::Continue)
     };
 
-    test_runner::run_tests(tests_to_run, on_test_event, test_runner::TestRunStrategy::InProcess(None), false)?;
+    test_runner::run_tests_with_progress(tests_to_run, on_test_event, test_runner::TestRunStrategy::InProcess(None), false,
+        test_runner::progress::Context { phase: "reference", mutation_ids: &|_| Vec::new() }, None)?;
 
     Ok(profiled_tests)
 }
@@ -451,10 +452,10 @@ fn run_tests(
         })
     };
 
-    let Ok((_, lingering_tests)) = match test_concurrency {
-        Some(concurrency) => test_runner::run_tests_with_concurrency(tests, on_test_event, test_run_strategy, false, concurrency),
-        None => test_runner::run_tests(tests, on_test_event, test_run_strategy, false),
-    };
+    let Ok((_, lingering_tests)) = test_runner::run_tests_with_progress(tests, on_test_event, test_run_strategy, false,
+        test_runner::progress::Context { phase: "evaluation", mutation_ids: &|desc| mutations.iter()
+            .filter(|mutation| is_reachable_test(mutation, desc, external_tests_extra)).map(|mutation| mutation.id).collect() },
+        test_concurrency);
 
     let lingering_tests = lingering_tests.into_iter()
         .map(|test| {
@@ -1293,7 +1294,8 @@ fn mutest_simulate_main<S: SubstMap>(args: &[&str], tests: Vec<test::TestDescAnd
         }),
     };
 
-    let Ok(_) = test_runner::run_tests(tests_to_run, on_test_event, test_run_strategy, false);
+    let Ok(_) = test_runner::run_tests_with_progress(tests_to_run, on_test_event, test_run_strategy, false,
+        test_runner::progress::Context { phase: "simulation", mutation_ids: &|_| vec![mutant.mutation.id] }, None);
     if crashed_tests_count > 0 {
         eprintln!("simulation incomplete: {crashed_tests_count} isolated tests crashed");
         process::exit(exit_code::PANIC);
@@ -1363,6 +1365,8 @@ pub fn mutest_main_static(test_suite: TestSuite<'_>, meta_mutant: &'static MetaM
         // SAFETY: No other thread is running yet.
         unsafe { env::set_var(RUN_AS_LIBTEST_VAR, exe) };
     }
+    test_runner::progress::initialize();
+    test_runner::progress::require(args.contains(&"--require-progress"));
     journal::open_for_worker();
 
     let owned_tests = tests.iter().map(|test| make_owned_test_def(test)).collect::<Vec<_>>();

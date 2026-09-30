@@ -96,9 +96,17 @@ fn write(path: &Path, record: &str) -> io::Result<()> {
 }
 
 pub(crate) fn finish(code: i32) {
+    if crate::journal::worker().is_some_and(|journal| !journal.healthy()) {
+        crate::test_runner::progress::fail("journal write failed");
+    }
+    if let Err(error) = crate::test_runner::progress::ready() {
+        crate::test_runner::progress::fail(error);
+    }
     if let Err(error) = record(code) {
-        eprintln!("mutation analysis incomplete: cannot record completion: {error}");
-        process::exit(exit_code::PANIC);
+        crate::test_runner::progress::fail(error);
+    }
+    if let Err(error) = crate::test_runner::progress::terminal(true, code) {
+        crate::test_runner::progress::fail(error);
     }
     if code != 0 {
         process::exit(code);
