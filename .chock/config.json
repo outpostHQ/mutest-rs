@@ -33,7 +33,8 @@
   "left_off": {
     "coverage": "off until mutest-rs has a coverage harness: the driver embeds mutest-runtime, which must be built first, and an instrumented runtime would be linked into the uninstrumented crates the UI tests compile",
     "crap": "off until mutest-rs has a coverage harness: the driver embeds mutest-runtime, which must be built first, and an instrumented runtime would be linked into the uninstrumented crates the UI tests compile",
-    "lint": "off by the owner's choice: upstream mutest-rs is not rustfmt-formatted or clippy-clean, and reformatting it would conflict every upstream merge"
+    "lint": "off by the owner's choice: upstream mutest-rs is not rustfmt-formatted or clippy-clean, and reformatting it would conflict every upstream merge",
+    "msrv": "off: mutest-rs builds only on the nightly rust-toolchain.toml pins, so it promises no minimum Rust version"
   },
   "runner": [
     "bin/test"
