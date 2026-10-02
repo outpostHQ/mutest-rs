@@ -1,8 +1,9 @@
 //! Runs an isolated test under an owner process that reaps the test and everything it leaves running.
 
-use std::io;
+use std::io::{self, Read};
 use std::process::Command;
-use std::sync::mpsc;
+use std::sync::{Arc, Mutex, PoisonError, mpsc};
+use std::thread;
 use std::time::Duration;
 
 use super::{ControlMsg, TestResult};
@@ -24,23 +25,79 @@ pub(super) fn run(
     return portable::run(command, control, timeout);
 }
 
+/// What has been read from a pipe: at most `OUTPUT_LIMIT` bytes, and how many more there were.
+#[derive(Default)]
+struct Captured {
+    bytes: Vec<u8>,
+    discarded: usize,
+    error: Option<io::Error>,
+}
+
+/// A pipe read to its end on a thread of its own, so that a descendant holding it open cannot block the test's monitor.
+struct Capture {
+    output: Arc<Mutex<Captured>>,
+    reader: Option<thread::JoinHandle<()>>,
+}
+
+impl Capture {
+    fn new(pipe: Option<impl Read + Send + 'static>) -> Self {
+        let output = Arc::new(Mutex::new(Captured::default()));
+        let reader = pipe.map(|mut pipe| {
+            let output = Arc::clone(&output);
+            thread::spawn(move || {
+                let mut buffer = [0; 16384];
+                loop {
+                    let read = pipe.read(&mut buffer);
+                    let mut output = output.lock().unwrap_or_else(PoisonError::into_inner);
+                    match read {
+                        Ok(0) => return,
+                        Ok(n) => {
+                            let keep = n.min(OUTPUT_LIMIT - output.bytes.len());
+                            output.bytes.extend_from_slice(&buffer[..keep]);
+                            output.discarded = output.discarded.saturating_add(n - keep);
+                        }
+                        Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                        Err(error) => {
+                            output.error = Some(error);
+                            return;
+                        }
+                    }
+                }
+            })
+        });
+        Self { output, reader }
+    }
+
+    /// Whether the pipe has been read to its end.
+    fn closed(&self) -> bool {
+        self.reader.as_ref().is_none_or(|reader| reader.is_finished())
+    }
+
+    fn finish(self) -> io::Result<Vec<u8>> {
+        let mut output = std::mem::take(&mut *self.output.lock().unwrap_or_else(PoisonError::into_inner));
+        if let Some(error) = output.error { return Err(error); }
+        if output.discarded > 0 {
+            output.bytes.extend_from_slice(format!("\n[mutest truncated {} output bytes]\n", output.discarded).as_bytes());
+        }
+        Ok(output.bytes)
+    }
+}
+
 /// Runs the test directly, without an owner, so processes it leaves running are not reaped.
-#[cfg(not(target_os = "linux"))]
+#[cfg(any(not(target_os = "linux"), test))]
 mod portable {
-    use std::io::Read;
-    use std::process::Child;
-    use std::thread;
     use std::time::Instant;
 
     use super::*;
 
+    #[cfg(not(target_os = "linux"))]
     pub(super) fn run(
         mut command: Command,
         control: Option<mpsc::Receiver<ControlMsg>>,
         timeout: Option<Duration>,
     ) -> io::Result<(TestResult, Duration, Vec<u8>)> {
         let mut child = command.spawn()?;
-        let readers = [child.stdout.take().map(|pipe| thread::spawn(|| read_capped(pipe))), child.stderr.take().map(|pipe| thread::spawn(|| read_capped(pipe)))];
+        let (stdout, stderr) = (Capture::new(child.stdout.take()), Capture::new(child.stderr.take()));
         let start = Instant::now();
         let result = loop {
             if let Some(status) = child.try_wait()? {
@@ -55,28 +112,62 @@ mod portable {
             thread::sleep(POLL_INTERVAL);
         };
         let elapsed = start.elapsed();
-        let mut output = Vec::new();
-        for reader in readers.into_iter().flatten() {
-            output.extend(reader.join().map_err(|_| io::Error::other("test output reader panicked"))?);
-        }
-        Ok((result, elapsed, output))
+        Ok((result, elapsed, drained(stdout, stderr)?))
     }
 
-    fn kill(child: &mut Child, result: TestResult) -> io::Result<TestResult> {
+    #[cfg(not(target_os = "linux"))]
+    fn kill(child: &mut std::process::Child, result: TestResult) -> io::Result<TestResult> {
         child.kill()?;
         child.wait()?;
         Ok(result)
     }
 
-    /// Reads the pipe to its end, keeping at most `OUTPUT_LIMIT` bytes.
-    fn read_capped(mut pipe: impl Read) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        let _ = (&mut pipe).take(OUTPUT_LIMIT as u64).read_to_end(&mut bytes);
-        let discarded = io::copy(&mut pipe, &mut io::sink()).unwrap_or(0);
-        if discarded > 0 {
-            bytes.extend_from_slice(format!("\n[mutest truncated {discarded} output bytes]\n").as_bytes());
+    /// The output once both pipes close, or what arrived within `REPORT_TIMEOUT` of the test ending:
+    /// with no owner to reap it, a process the test left running holds a pipe for as long as it lives.
+    fn drained(stdout: Capture, stderr: Capture) -> io::Result<Vec<u8>> {
+        let deadline = Instant::now() + REPORT_TIMEOUT;
+        while !(stdout.closed() && stderr.closed()) && Instant::now() < deadline {
+            thread::sleep(POLL_INTERVAL);
         }
-        bytes
+        let held = !(stdout.closed() && stderr.closed());
+        let mut output = stdout.finish()?;
+        output.extend(stderr.finish()?);
+        if held {
+            output.extend_from_slice(b"\n[mutest stopped reading: a process the test started still holds its output]\n");
+        }
+        Ok(output)
+    }
+
+    /// Runs `script` under `sh` until the shell exits, with its stdout and stderr captured as `run` captures them.
+    #[cfg(all(test, unix))]
+    fn finished(script: &str) -> (Capture, Capture) {
+        let piped = std::process::Stdio::piped;
+        let mut child = Command::new("sh").args(["-c", script]).stdout(piped()).stderr(piped()).spawn().unwrap();
+        let captured = (Capture::new(child.stdout.take()), Capture::new(child.stderr.take()));
+        child.wait().unwrap();
+        captured
+    }
+
+    #[cfg(all(test, unix))]
+    #[test]
+    fn output_is_read_to_its_end_when_the_test_leaves_nothing_running() {
+        let (stdout, stderr) = finished("echo out; echo err >&2");
+        assert_eq!(String::from_utf8(drained(stdout, stderr).unwrap()).unwrap(), "out\nerr\n");
+    }
+
+    /// The shell exits at once, and the sleep it left running still holds stdout.
+    #[cfg(all(test, unix))]
+    #[test]
+    fn output_a_process_left_running_still_holds_is_given_up_on() {
+        let (stdout, stderr) = finished("sleep 600 & echo $!");
+        let started = Instant::now();
+        let output = String::from_utf8(drained(stdout, stderr).unwrap()).unwrap();
+        let waited = started.elapsed();
+        let left = output.lines().next().unwrap().parse().unwrap();
+        // SAFETY: kill only sends a signal, here to the sleep the test left running.
+        unsafe { libc::kill(left, libc::SIGKILL) };
+        assert!(waited < STARTUP_TIMEOUT, "waited {waited:?}");
+        assert!(output.ends_with("\n[mutest stopped reading: a process the test started still holds its output]\n"), "{output}");
     }
 }
 
@@ -93,7 +184,7 @@ mod linux {
     use std::os::unix::net::UnixStream;
     use std::os::unix::process::ExitStatusExt;
     use std::process::{self, Child, ExitStatus, Stdio};
-    use std::sync::{Arc, Mutex, PoisonError};
+    use std::sync::PoisonError;
     use std::thread;
     use std::time::Instant;
 
@@ -112,67 +203,11 @@ mod linux {
         env::var("MUTEST_LIFECYCLE_SCENARIO").is_ok_and(|scenario| scenario == name)
     }
 
-    /// What has been read from a pipe: at most `OUTPUT_LIMIT` bytes, and how many more there were.
-    #[derive(Default)]
-    struct Captured {
-        bytes: Vec<u8>,
-        discarded: usize,
-        error: Option<io::Error>,
-    }
-
-    /// A pipe read to its end on a thread of its own, so that a descendant holding it open cannot block the owner.
-    struct Capture {
-        output: Arc<Mutex<Captured>>,
-        reader: Option<thread::JoinHandle<()>>,
-    }
-
     impl Capture {
-        fn new(pipe: Option<impl Read + Send + 'static>) -> Self {
-            let output = Arc::new(Mutex::new(Captured::default()));
-            let reader = pipe.map(|mut pipe| {
-                let output = Arc::clone(&output);
-                thread::spawn(move || {
-                    let mut buffer = [0; 16384];
-                    loop {
-                        let read = pipe.read(&mut buffer);
-                        let mut output = output.lock().unwrap_or_else(PoisonError::into_inner);
-                        match read {
-                            Ok(0) => return,
-                            Ok(n) => {
-                                let keep = n.min(OUTPUT_LIMIT - output.bytes.len());
-                                output.bytes.extend_from_slice(&buffer[..keep]);
-                                output.discarded = output.discarded.saturating_add(n - keep);
-                            }
-                            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-                            Err(error) => {
-                                output.error = Some(error);
-                                return;
-                            }
-                        }
-                    }
-                })
-            });
-            Self { output, reader }
-        }
-
-        /// Whether the pipe has been read to its end.
-        fn closed(&self) -> bool {
-            self.reader.as_ref().is_none_or(|reader| reader.is_finished())
-        }
-
         /// The last `len` bytes read so far.
         fn tail(&self, len: usize) -> String {
             let output = self.output.lock().unwrap_or_else(PoisonError::into_inner);
             String::from_utf8_lossy(&output.bytes[output.bytes.len().saturating_sub(len)..]).into_owned()
-        }
-
-        fn finish(self) -> io::Result<Vec<u8>> {
-            let mut output = std::mem::take(&mut *self.output.lock().unwrap_or_else(PoisonError::into_inner));
-            if let Some(error) = output.error { return Err(error); }
-            if output.discarded > 0 {
-                output.bytes.extend_from_slice(format!("\n[mutest truncated {} output bytes]\n", output.discarded).as_bytes());
-            }
-            Ok(output.bytes)
         }
     }
 
