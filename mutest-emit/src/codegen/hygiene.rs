@@ -1702,7 +1702,7 @@ impl<'tcx, 'op> ast::mut_visit::MutVisitor for MacroExpansionSanitizer<'tcx, 'op
                 let _res = self.sanitize_qualified_path(qself, path, ty_id);
                 return;
             }
-            ast::TyKind::Ref(lifetime, inner_ty) => {
+            ast::TyKind::Ref(lifetime, inner_ty, _) => {
                 // HACK: The borrow checker does not allow for immutably referencing the expression for the `hir_ty` call
                 //       because of the `&mut ty.kind` partial borrow above.
                 let Some(ty_hir) = self.body_res.hir_node(ty_id).map(|hir_node| hir_node.expect_ty()) else {
@@ -1710,13 +1710,13 @@ impl<'tcx, 'op> ast::mut_visit::MutVisitor for MacroExpansionSanitizer<'tcx, 'op
                 };
 
                 let lifetime_hir = match ty_hir.kind {
-                    hir::TyKind::Ref(lifetime_hir, _) => lifetime_hir,
+                    hir::TyKind::Ref(lifetime_hir, _, _) => lifetime_hir,
                     _ => unreachable!(),
                 };
 
                 self.sanitize_optional_lifetime(lifetime, lifetime_hir);
 
-                return self.visit_ty(&mut inner_ty.ty);
+                return self.visit_ty(inner_ty);
             }
             _ => {}
         }

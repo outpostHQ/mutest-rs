@@ -2,7 +2,8 @@ pub use rustc_hir::*;
 pub use rustc_hir::def::*;
 pub use rustc_hir::def_id::*;
 pub use rustc_hir::definitions::*;
-pub use rustc_hir::attrs::lang_items::LangItem;
+pub use rustc_attr_ir::{self as attrs, Attribute, find_attr};
+pub use rustc_attr_ir::lang_items::LangItem;
 
 use rustc_ast as ast;
 use rustc_hir as hir;
@@ -350,8 +351,9 @@ pub mod attr {
     use std::iter;
 
     use rustc_ast as ast;
-    use rustc_hir as hir;
     use rustc_span::symbol::Symbol;
+
+    use crate::analysis::hir;
 
     pub fn match_attr_name(attr: &hir::Attribute, tool: Option<Symbol>, name: Symbol) -> bool {
         let hir::Attribute::Unparsed(attr_item) = attr else { return false; };

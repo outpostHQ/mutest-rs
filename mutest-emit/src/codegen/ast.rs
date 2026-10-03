@@ -277,10 +277,6 @@ pub mod mk {
         Box::new(ast::Ty { id: ast::DUMMY_NODE_ID, span: sp, kind })
     }
 
-    pub fn ty_mut(ty: Box<ast::Ty>, mutbl: ast::Mutability) -> ast::MutTy {
-        ast::MutTy { ty, mutbl }
-    }
-
     pub fn ty_path(q_self: Option<Box<ast::QSelf>>, path: ast::Path) -> Box<ast::Ty> {
         self::ty(path.span, ast::TyKind::Path(q_self, path))
     }
@@ -290,7 +286,7 @@ pub mod mk {
     }
 
     pub fn ty_rptr(sp: Span, ty: Box<ast::Ty>, lifetime: Option<ast::Lifetime>, mutbl: ast::Mutability) -> Box<ast::Ty> {
-        self::ty(sp, ast::TyKind::Ref(lifetime, self::ty_mut(ty, mutbl)))
+        self::ty(sp, ast::TyKind::Ref(lifetime, ty, mutbl))
     }
 
     pub fn ty_ref(sp: Span, ty: Box<ast::Ty>, lifetime: Option<ast::Lifetime>) -> Box<ast::Ty> {
@@ -302,7 +298,7 @@ pub mod mk {
     }
 
     pub fn ty_ptr(sp: Span, ty: Box<ast::Ty>, mutbl: ast::Mutability) -> Box<ast::Ty> {
-        self::ty(sp, ast::TyKind::Ptr(self::ty_mut(ty, mutbl)))
+        self::ty(sp, ast::TyKind::Ptr(ty, mutbl))
     }
 
     pub fn ty_array(sp: Span, ty: Box<ast::Ty>, length: ast::AnonConst) -> Box<ast::Ty> {

@@ -118,7 +118,7 @@ impl rustc_driver::Callbacks for RustcConfigCallbacks {
 
 pub fn parse_compiler_args(args: &[String]) -> (Option<CompilerConfig>, Vec<CrateType>) {
     let mut callbacks = RustcConfigCallbacks { config: None, crate_types: vec![] };
-    rustc_driver::run_compiler(args, &mut callbacks);
+    rustc_driver::compiler_entrypoint(args, &mut callbacks);
     (callbacks.config, callbacks.crate_types)
 }
 

@@ -207,7 +207,7 @@ pub fn main() -> process::ExitCode {
         args[0] = "rustc".to_owned();
 
         return rustc_driver::catch_with_exit_code(|| {
-            rustc_driver::run_compiler(&args, &mut DefaultCallbacks)
+            rustc_driver::compiler_entrypoint(&args, &mut DefaultCallbacks)
         });
     }
 
@@ -269,7 +269,7 @@ pub fn main() -> process::ExitCode {
     // Fall back to a rustc invocation if mutest is not "enabled" for the given crate based on invocation.
     if info_query || proc_macro_target || (bin_target && !test_target) {
         return run_recording_build_failure(&build_label, owned_by_run, || {
-            rustc_driver::run_compiler(&args, &mut RustcCallbacks { mutest_args: mutest_args_str })
+            rustc_driver::compiler_entrypoint(&args, &mut RustcCallbacks { mutest_args: mutest_args_str })
         });
     }
 
@@ -295,7 +295,7 @@ pub fn main() -> process::ExitCode {
         // Fall back to a rustc invocation if mutest is not "enabled" for the given crate based on its parsed crate type.
         // NOTE: This includes `#![crate_type = "..."] crate root attributes.
         if proc_macro_target || (bin_target && !test_target) {
-            return rustc_driver::run_compiler(&args, &mut RustcCallbacks { mutest_args: mutest_args_str });
+            return rustc_driver::compiler_entrypoint(&args, &mut RustcCallbacks { mutest_args: mutest_args_str });
         }
 
         let early_dcx = EarlyDiagCtxt::new(compiler_config.opts.error_format);

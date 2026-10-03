@@ -1306,14 +1306,14 @@ pub mod visit {
             (ast::TyKind::Path(qself_ast, path_ast), hir::TyKind::Path(qpath_hir)) => {
                 visitor.visit_qpath(qself_ast.as_deref(), path_ast, qpath_hir);
             }
-            (ast::TyKind::Ptr(mut_ty_ast), hir::TyKind::Ptr(mut_ty_hir)) => {
-                visit_matching_ty(visitor, &mut_ty_ast.ty, mut_ty_hir.ty);
+            (ast::TyKind::Ptr(ty_ast, _), hir::TyKind::Ptr(ty_hir, _)) => {
+                visit_matching_ty(visitor, ty_ast, ty_hir);
             }
-            (ast::TyKind::Ref(lifetime_ast, mut_ty_ast), hir::TyKind::Ref(lifetime_hir, mut_ty_hir)) => {
+            (ast::TyKind::Ref(lifetime_ast, ty_ast, _), hir::TyKind::Ref(lifetime_hir, ty_hir, _)) => {
                 if let Some(lifetime_ast) = lifetime_ast {
                     visitor.visit_lifetime(lifetime_ast, lifetime_hir);
                 }
-                visit_matching_ty(visitor, &mut_ty_ast.ty, mut_ty_hir.ty);
+                visit_matching_ty(visitor, ty_ast, ty_hir);
             }
             (ast::TyKind::Slice(ty_ast), hir::TyKind::Slice(ty_hir)) => {
                 visit_matching_ty(visitor, ty_ast, ty_hir);
