@@ -83,7 +83,8 @@ impl Capture {
     }
 }
 
-/// Runs the test directly, without an owner, so processes it leaves running are not reaped.
+/// Runs the test directly, without an owner. On Windows a job ends what the test leaves running;
+/// elsewhere nothing reaps those processes.
 #[cfg(any(not(target_os = "linux"), test))]
 mod portable {
     use std::time::Instant;
@@ -97,6 +98,9 @@ mod portable {
         timeout: Option<Duration>,
     ) -> io::Result<(TestResult, Duration, Vec<u8>)> {
         let mut child = command.spawn()?;
+        // Best effort: without a job, `drained` still stops reading what a leftover process holds.
+        #[cfg(windows)]
+        let job = job::Job::holding(&child).ok();
         let (stdout, stderr) = (Capture::new(child.stdout.take()), Capture::new(child.stderr.take()));
         let start = Instant::now();
         let result = loop {
@@ -112,6 +116,9 @@ mod portable {
             thread::sleep(POLL_INTERVAL);
         };
         let elapsed = start.elapsed();
+        // The test has ended, so closing its job ends only what it left running, and frees the pipes.
+        #[cfg(windows)]
+        drop(job);
         Ok((result, elapsed, drained(stdout, stderr)?))
     }
 
@@ -168,6 +175,109 @@ mod portable {
         unsafe { libc::kill(left, libc::SIGKILL) };
         assert!(waited < STARTUP_TIMEOUT, "waited {waited:?}");
         assert!(output.ends_with("\n[mutest stopped reading: a process the test started still holds its output]\n"), "{output}");
+    }
+
+    /// The shell joins the job, then starts a ping that outlives it; closing the job ends that ping.
+    #[cfg(all(test, windows))]
+    #[test]
+    fn output_is_read_to_its_end_once_the_job_ends_what_the_test_left_running() {
+        use std::os::windows::process::CommandExt;
+
+        let piped = std::process::Stdio::piped;
+        let mut command = Command::new("cmd");
+        command.raw_arg("/c ping -n 2 127.0.0.1 >nul & start /b ping -n 600 127.0.0.1");
+        let mut child = command.stdout(piped()).stderr(piped()).spawn().unwrap();
+        let job = job::Job::holding(&child).unwrap();
+        let (stdout, stderr) = (Capture::new(child.stdout.take()), Capture::new(child.stderr.take()));
+        child.wait().unwrap();
+        drop(job);
+        let output = String::from_utf8_lossy(&drained(stdout, stderr).unwrap()).into_owned();
+        assert!(!output.contains("[mutest stopped reading"), "{output}");
+    }
+}
+
+/// A Windows job object: closing it ends every process still in it, as the Linux owner reaps them.
+#[cfg(windows)]
+mod job {
+    use std::ffi::c_void;
+    use std::io;
+    use std::os::windows::io::AsRawHandle;
+    use std::process::Child;
+    use std::ptr;
+
+    type Handle = *mut c_void;
+
+    const KILL_ON_JOB_CLOSE: u32 = 0x2000;
+    const EXTENDED_LIMIT_INFORMATION: i32 = 9;
+
+    /// `JOBOBJECT_BASIC_LIMIT_INFORMATION`.
+    #[repr(C)]
+    #[derive(Default)]
+    struct BasicLimits {
+        per_process_user_time_limit: i64,
+        per_job_user_time_limit: i64,
+        limit_flags: u32,
+        minimum_working_set_size: usize,
+        maximum_working_set_size: usize,
+        active_process_limit: u32,
+        affinity: usize,
+        priority_class: u32,
+        scheduling_class: u32,
+    }
+
+    /// `JOBOBJECT_EXTENDED_LIMIT_INFORMATION`, the structure `EXTENDED_LIMIT_INFORMATION` names.
+    #[repr(C)]
+    #[derive(Default)]
+    struct ExtendedLimits {
+        basic: BasicLimits,
+        io_counters: [u64; 6],
+        process_memory_limit: usize,
+        job_memory_limit: usize,
+        peak_process_memory_used: usize,
+        peak_job_memory_used: usize,
+    }
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn CreateJobObjectW(attributes: *const c_void, name: *const u16) -> Handle;
+        fn SetInformationJobObject(job: Handle, class: i32, information: *const c_void, length: u32) -> i32;
+        fn AssignProcessToJobObject(job: Handle, process: Handle) -> i32;
+        fn CloseHandle(handle: Handle) -> i32;
+    }
+
+    /// Ends every process still in the job when dropped.
+    pub(super) struct Job(Handle);
+
+    impl Job {
+        /// A new job that holds `child` and every process `child` starts from now on.
+        pub(super) fn holding(child: &Child) -> io::Result<Self> {
+            // SAFETY: both arguments may be null: no security attributes, and no name.
+            let handle = unsafe { CreateJobObjectW(ptr::null(), ptr::null()) };
+            if handle.is_null() {
+                return Err(io::Error::last_os_error());
+            }
+            let job = Job(handle);
+            let basic = BasicLimits { limit_flags: KILL_ON_JOB_CLOSE, ..BasicLimits::default() };
+            let limits = ExtendedLimits { basic, ..ExtendedLimits::default() };
+            let length = u32::try_from(size_of::<ExtendedLimits>()).map_err(io::Error::other)?;
+            let information = ptr::from_ref(&limits).cast();
+            // SAFETY: `information` points to the structure the class names, which outlives the call.
+            if unsafe { SetInformationJobObject(job.0, EXTENDED_LIMIT_INFORMATION, information, length) } == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            // SAFETY: the job is open, and `child` keeps its process handle open while it is borrowed.
+            if unsafe { AssignProcessToJobObject(job.0, child.as_raw_handle()) } == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(job)
+        }
+    }
+
+    impl Drop for Job {
+        fn drop(&mut self) {
+            // SAFETY: the handle is open, and only this drop closes it.
+            unsafe { CloseHandle(self.0) };
+        }
     }
 }
 

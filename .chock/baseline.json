@@ -354,6 +354,7 @@
       "mutest-runtime/src/harness/regression_fixture.rs#block": 3,
       "mutest-runtime/src/metadata.rs#block": 1,
       "mutest-runtime/src/metadata.rs#fn": 2,
+      "mutest-runtime/src/subprocess.rs#block": 4,
       "mutest-runtime/src/supervisor.rs#block": 7,
       "mutest-runtime/src/test_runner.rs#block": 1,
       "mutest-runtime/src/thread_pool.rs#block": 3,
