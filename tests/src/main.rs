@@ -334,6 +334,31 @@ fn test_parse_args() {
     assert_eq!(["foo", "bar baz"], parse_args("foo \"bar baz")[..]);
 }
 
+struct AuxDirectives<'d> {
+    pub edition: Option<&'d str>,
+}
+
+struct MutestTargetDirectives<'d> {
+    pub no_harness: bool,
+    pub mutest_prints: BTreeSet<&'d str>,
+    pub mutest_outputs: Vec<&'d str>,
+}
+
+enum TestTarget<'d> {
+    Rustc,
+    Mutest(MutestTargetDirectives<'d>),
+}
+
+struct TestDirectives<'d> {
+    pub edition: Option<&'d str>,
+    pub bin: bool,
+    pub expect_build_fail: bool,
+    pub exec_build_artifact: bool,
+    pub expected_run_exit_code: i32,
+    pub expectations: BTreeSet<Expectation>,
+    pub target: TestTarget<'d>,
+}
+
 fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, results: &mut TestRunResults) {
     if !path.is_file() { return; }
     if !path.extension().is_some_and(|v| v == "rs") { return; }
@@ -369,114 +394,171 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         crate_name = &unmangled_crate_name[..unmangled_crate_name.floor_char_boundary(48)],
     );
 
-    let directives = parse_directives(&path);
+    let raw_test_directives = parse_directives(&path);
 
-    if directives.iter().any(|d| d == "ignore") {
+    if raw_test_directives.iter().any(|d| d == "ignore") {
         results.ignored_tests_count += 1;
         log_test(&name, TestResult::Ignored, None);
         return;
     }
 
-    let mut edition: Option<&str> = None;
-    let mut bin = false;
-    let mut no_harness = false;
-    let mut expect_build_fail = false;
-    let mut expectations = BTreeSet::new();
-    let mut mutest_prints = BTreeSet::new();
-    let mut exec_build_artifact = false;
-    let mut expected_run_exit_code = mutest_exit_code::SUCCESS;
-    let mut mutest_outputs: Vec<&str> = vec!["info"];
-    for directive in &directives {
+    let mut raw_test_directives_iter = raw_test_directives.iter().peekable();
+    let test_target = match raw_test_directives_iter.peek().map(|s| s.as_str()) {
+        Some("rustc") => {
+            // Consume the first `//@ rustc` directive so it is not encountered later.
+            let _ = raw_test_directives_iter.next();
+            TestTarget::Rustc
+        }
+        _ => TestTarget::Mutest(MutestTargetDirectives {
+            no_harness: false,
+            mutest_prints: BTreeSet::new(),
+            mutest_outputs: vec!["info"],
+        }),
+    };
+    let mut seen_primary_action_directive = false;
+    let mut test_directives = TestDirectives {
+        edition: None,
+        bin: false,
+        expect_build_fail: false,
+        exec_build_artifact: false,
+        expected_run_exit_code: mutest_exit_code::SUCCESS,
+        expectations: BTreeSet::new(),
+        target: test_target,
+    };
+    for directive in raw_test_directives_iter {
         match directive.as_str() {
-            action_directive if matches!(action_directive, "print-tests" | "print-call-graph" | "print-targets" | "print-mutations" | "print-code" | "build" | "build: fail" | "run")
-                || action_directive.starts_with("run: exit ") => {
-                // NOTE: The invariant here is that the moment any action directive resulting in the `test-bin` output is used,
-                //       then no other action directive of any kind can be specified afterwards.
-                //       This ensures the following:
-                //         1. `print-*` action directives must appear before any other action directive, e.g. `build`, and
-                //         2. the `build`, `build: fail`, `run`, `run: exit <CODE>` action directives are mutually exclusive.
-                if mutest_outputs.contains(&"test-bin") {
+            "rustc" => {
+                results.ignored_tests_count += 1;
+                log_test(&name, TestResult::Ignored, Some("invalid directive: `rustc` target directive must be specified as the first directive"));
+                return;
+            }
+
+            primary_action_directive if matches!(primary_action_directive, "build" | "build: fail" | "run")
+                || primary_action_directive.starts_with("run: exit ") => {
+                if seen_primary_action_directive {
                     results.ignored_tests_count += 1;
-                    log_test(&name, TestResult::Ignored, Some("invalid action directives"));
+                    log_test(&name, TestResult::Ignored, Some("invalid directive: multiple primary action directives specified"));
                     return;
                 }
-                match action_directive {
-                    "build" => {
-                        mutest_outputs.push("test-bin");
-                    }
+                seen_primary_action_directive = true;
+
+                // NOTE: All explicit primary action directives require building a test binary, which has to be explicitly requested from mutest-driver.
+                if let TestTarget::Mutest(mutest_target_directives) = &mut test_directives.target {
+                    mutest_target_directives.mutest_outputs.push("test-bin");
+                }
+
+                match primary_action_directive {
+                    "build" => {}
                     "build: fail" => {
-                        expect_build_fail = true;
-                        mutest_outputs.push("test-bin");
+                        test_directives.expect_build_fail = true;
                     }
                     "run" => {
-                        exec_build_artifact = true;
-                        mutest_outputs.push("test-bin");
+                        test_directives.exec_build_artifact = true;
                     }
-                    _ if let Some(exit_code) = action_directive.strip_prefix("run: exit ") => {
+                    _ if let Some(exit_code) = primary_action_directive.strip_prefix("run: exit ") => {
                         let Ok(exit_code) = exit_code.trim().parse() else {
                             results.ignored_tests_count += 1;
-                            log_test(&name, TestResult::Ignored, Some(&format!("invalid directive: `{action_directive}` names no exit code")));
+                            log_test(&name, TestResult::Ignored, Some(&format!("invalid directive: `{primary_action_directive}` names no exit code")));
                             return;
                         };
-                        exec_build_artifact = true;
-                        expected_run_exit_code = exit_code;
-                        mutest_outputs.push("test-bin");
-                    }
-                    "print-tests" => {
-                        mutest_prints.insert("tests");
-                    }
-                    "print-call-graph" => {
-                        mutest_prints.insert("call-graph");
-                    }
-                    "print-targets" => {
-                        mutest_prints.insert("targets");
-                    }
-                    "print-mutations" => {
-                        mutest_prints.insert("mutations");
-                    }
-                    "print-code" => {
-                        mutest_prints.insert("code");
+                        test_directives.exec_build_artifact = true;
+                        test_directives.expected_run_exit_code = exit_code;
                     }
                     _ => unreachable!(),
+                }
+            }
+
+            info_request_directive @ ("print-tests" | "print-call-graph" | "print-targets" | "print-mutations" | "print-code") => {
+                let TestTarget::Mutest(mutest_target_directives) = &mut test_directives.target else {
+                    results.ignored_tests_count += 1;
+                    log_test(&name, TestResult::Ignored, Some(&format!("invalid directive: `{info_request_directive}` directive cannot be used with `rustc` target directive")));
+                    return;
                 };
+
+                if seen_primary_action_directive {
+                    results.ignored_tests_count += 1;
+                    log_test(&name, TestResult::Ignored, Some("invalid directive: info request directives must be specified before an explicit action directive"));
+                    return;
+                }
+
+                match info_request_directive {
+                    "print-tests" => { mutest_target_directives.mutest_prints.insert("tests"); }
+                    "print-call-graph" => { mutest_target_directives.mutest_prints.insert("call-graph"); }
+                    "print-targets" => { mutest_target_directives.mutest_prints.insert("targets"); }
+                    "print-mutations" => { mutest_target_directives.mutest_prints.insert("mutations"); }
+                    "print-code" => { mutest_target_directives.mutest_prints.insert("code"); }
+                    _ => unreachable!(),
+                }
             }
 
             _ if let Some(edition_str) = directive.strip_prefix("edition:").map(str::trim) => {
-                if let Some(_previous_edition) = edition {
+                if let Some(_previous_edition) = test_directives.edition {
                     results.ignored_tests_count += 1;
-                    log_test(&name, TestResult::Ignored, Some("invalid directives: multiple editions"));
+                    log_test(&name, TestResult::Ignored, Some("invalid directive: multiple editions specified"));
                     return;
                 }
-                edition = Some(edition_str);
+                test_directives.edition = Some(edition_str);
             }
 
-            "no-harness" => no_harness = true,
-            "bin" => bin = true,
+            "no-harness" => {
+                match &mut test_directives.target {
+                    TestTarget::Rustc => {
+                        results.ignored_tests_count += 1;
+                        log_test(&name, TestResult::Ignored, Some("invalid directive: `no-harness` directive cannot be used with `rustc` target directive"));
+                        return;
+                    }
+                    TestTarget::Mutest(mutest_target_directives) => {
+                        mutest_target_directives.no_harness = true;
+                    }
+                }
+            }
+            "bin" => test_directives.bin = true,
 
-            "stdout" => { expectations.insert(Expectation::StdOut { empty: false }); }
-            "stdout: empty" => { expectations.insert(Expectation::StdOut { empty: true }); }
-            "stderr" => { expectations.insert(Expectation::StdErr { empty: false }); }
-            "stderr: empty" => { expectations.insert(Expectation::StdErr { empty: true }); }
-            "eval-stream" => { expectations.insert(Expectation::EvalStream); }
+            "stdout" => { test_directives.expectations.insert(Expectation::StdOut { empty: false }); }
+            "stdout: empty" => { test_directives.expectations.insert(Expectation::StdOut { empty: true }); }
+            "stderr" => { test_directives.expectations.insert(Expectation::StdErr { empty: false }); }
+            "stderr: empty" => { test_directives.expectations.insert(Expectation::StdErr { empty: true }); }
+            "eval-stream" => {
+                let TestTarget::Mutest(_) = &test_directives.target else {
+                    results.ignored_tests_count += 1;
+                    log_test(&name, TestResult::Ignored, Some("invalid directive: `eval-stream` directive cannot be used with `rustc` target directive"));
+                    return;
+                };
+                test_directives.expectations.insert(Expectation::EvalStream);
+            }
 
             _ if directive.starts_with("aux-build:") => {}
+
             _ if directive.starts_with("rustc-flags:") => {}
-            _ if directive.starts_with("verify:") => {}
-            _ if directive.starts_with("mutation-operators:") => {}
             _ if directive.starts_with("build-env:") => {
                 if !directive.contains('=') {
-                    log_test(&name, TestResult::Ignored, Some("invalid directive: each environment variable must be specified one `build-env: KEY=value` at a time"));
-                    return;
-                }
-            }
-            _ if directive.starts_with("mutest-flags:") => {}
-            _ if directive.starts_with("run-env:") => {
-                if !directive.contains('=') {
-                    log_test(&name, TestResult::Ignored, Some("invalid directive: each environment variable must be specified one `run-env: KEY=value` at a time"));
+                    log_test(&name, TestResult::Ignored, Some("invalid directive: each compile-time environment variable must be specified one `build-env: KEY=value` at a time"));
                     return;
                 }
             }
             _ if directive.starts_with("run-flags:") => {}
+            _ if directive.starts_with("run-env:") => {
+                if !directive.contains('=') {
+                    log_test(&name, TestResult::Ignored, Some("invalid directive: each runtime environment variable must be specified one `run-env: KEY=value` at a time"));
+                    return;
+                }
+            }
+
+            _ if false
+                || directive.starts_with("verify:")
+                || directive.starts_with("mutation-operators:")
+                || directive.starts_with("mutest-flags:")
+            => {
+                let TestTarget::Mutest(_) = &test_directives.target else {
+                    results.ignored_tests_count += 1;
+                    let directive_name = match directive.split_once(':') {
+                        Some((name, _)) => name,
+                        None => directive,
+                    };
+                    log_test(&name, TestResult::Ignored, Some(&format!("invalid directive: `{directive_name}` directive cannot be used with `rustc` target directive")));
+                    return;
+                };
+            }
 
             _ => {
                 results.ignored_tests_count += 1;
@@ -487,61 +569,62 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
     }
 
     // Set defaults.
-    let edition = edition.unwrap_or("2018");
+    let edition = test_directives.edition.unwrap_or("2018");
 
     let mut aux = false;
-    for directive in &directives {
+    for directive in &raw_test_directives {
         let Some(aux_build) = directive.strip_prefix("aux-build:").map(str::trim) else { continue; };
         aux = true;
 
         let aux_path = aux_dir_path.join(aux_build);
         let aux_crate_name = Path::new(aux_build).file_stem().expect("invalid aux path").to_str().expect("invalid aux path");
 
-        let aux_directives = parse_directives(&aux_path);
+        let raw_aux_directives = parse_directives(&aux_path);
 
-        let mut edition = None;
-        for aux_directive in &aux_directives {
-            match aux_directive.as_str() {
-                _ if let Some(edition_str) = aux_directive.strip_prefix("edition:").map(str::trim) => {
-                    if let Some(_previous_edition) = edition {
+        let mut aux_directives = AuxDirectives {
+            edition: None,
+        };
+        for directive in &raw_aux_directives {
+            match directive.as_str() {
+                _ if let Some(edition_str) = directive.strip_prefix("edition:").map(str::trim) => {
+                    if let Some(_previous_edition) = aux_directives.edition {
                         results.ignored_tests_count += 1;
-                        log_test(&name, TestResult::Ignored, Some("invalid directives: multiple editions"));
+                        log_test(&name, TestResult::Ignored, Some(&format!("invalid directive in `{aux_build}` aux file: multiple editions specified")));
                         return;
                     }
-                    edition = Some(edition_str);
+                    aux_directives.edition = Some(edition_str);
                 }
 
                 _ if directive.starts_with("build-env:") => {
                     if !directive.contains('=') {
-                        log_test(&name, TestResult::Ignored, Some("invalid directive: each environment variable must be specified one `build-env: KEY=value` at a time"));
+                        log_test(&name, TestResult::Ignored, Some(&format!("invalid directive in `{aux_build}` aux file: each compile-time environment variable must be specified one `build-env: KEY=value` at a time")));
                         return;
                     }
                 }
 
                 _ => {
                     results.ignored_tests_count += 1;
-                    log_test(&name, TestResult::Ignored, Some(&format!("unknown directive: `{aux_directive}`")));
+                    log_test(&name, TestResult::Ignored, Some(&format!("unknown directive in `{aux_build}` aux file: `{directive}`")));
                     return;
                 }
             }
         }
 
         // Set defaults.
-        let edition = edition.unwrap_or("2018");
+        let edition = aux_directives.edition.unwrap_or("2018");
 
-        // Run mutest-driver in rustc mode, disabling mutations.
-        let mut cmd = Command::new(&opts.driver);
-        cmd.arg("--rustc");
+        // Run rustc directly.
+        let mut cmd = Command::new("rustc");
 
         cmd.arg(&aux_path);
         cmd.args(["--crate-name", aux_crate_name]);
-        cmd.arg(format!("--edition={edition}"));
+        cmd.args(["--edition", edition]);
 
         cmd.args(["--out-dir", AUX_OUT_DIR]);
 
         cmd.args(["-L", AUX_OUT_DIR]);
 
-        let build_env = aux_directives.iter().filter_map(|d| d.strip_prefix("build-env:").map(str::trim))
+        let build_env = raw_aux_directives.iter().filter_map(|d| d.strip_prefix("build-env:").map(str::trim))
             .flat_map(|env| {
                 let (key, val) = env.split_once("=")?;
                 Some((key.trim(), val.trim()))
@@ -584,28 +667,33 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         }
     }
 
-    let mut cmd = Command::new(&opts.driver);
+    let mut cmd = match test_directives.target {
+        TestTarget::Rustc => Command::new("rustc"),
+        TestTarget::Mutest(_) => Command::new(&opts.driver),
+    };
     cmd.arg(&path);
     cmd.args(["--crate-name", &test_crate_name]);
-    cmd.arg(format!("--edition={edition}"));
+    cmd.args(["--edition", edition]);
 
-    match bin {
+    match test_directives.bin {
         false => { cmd.args(["--crate-type", "lib"]); }
         true => { cmd.args(["--crate-type", "bin"]); }
     }
 
     cmd.args(["--out-dir", BUILD_OUT_DIR]);
 
-    // NOTE: For mutest-driver to not fall back to a rustc invocation, we must have at least `cfg(test)` set.
-    match no_harness {
-        false => { cmd.arg("--test"); }
-        true => { cmd.arg("--cfg=test"); }
+    if let TestTarget::Mutest(mutest_target_directives) = &test_directives.target {
+        // NOTE: For mutest-driver to not fall back to a rustc invocation, we must have at least `cfg(test)` set.
+        match mutest_target_directives.no_harness {
+            false => { cmd.arg("--test"); }
+            true => { cmd.arg("--cfg=test"); }
+        }
     }
 
     // Explicitly disable color output. This mainly affects diagnostic messages generated for undetected mutations.
     cmd.arg("--color=never");
 
-    let build_env = directives.iter().filter_map(|d| d.strip_prefix("build-env:").map(str::trim))
+    let build_env = raw_test_directives.iter().filter_map(|d| d.strip_prefix("build-env:").map(str::trim))
         .flat_map(|env| {
             let (key, val) = env.split_once("=")?;
             Some((key.trim(), val.trim()))
@@ -614,35 +702,37 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         cmd.env(key, val);
     }
 
-    let rustc_flags = directives.iter().filter_map(|d| d.strip_prefix("rustc-flags:").map(str::trim)).flat_map(parse_args);
+    let rustc_flags = raw_test_directives.iter().filter_map(|d| d.strip_prefix("rustc-flags:").map(str::trim)).flat_map(parse_args);
     cmd.args(rustc_flags);
 
     if aux {
         cmd.args(["-L", AUX_OUT_DIR]);
     }
 
-    let mut mutest_args = vec![format!("--emit={}", mutest_outputs.join(","))];
-    let verifications = directives.iter().filter_map(|d| d.strip_prefix("verify:").map(str::trim))
-        .flat_map(|flags| flags.split(",").map(str::trim).filter(|flag| !flag.is_empty()));
-    for verification in verifications {
-        mutest_args.push("-Z".to_owned());
-        mutest_args.push(format!("verify-{}", verification));
+    if let TestTarget::Mutest(mutest_target_directives) = &test_directives.target {
+        let mut mutest_args = vec![format!("--emit={}", mutest_target_directives.mutest_outputs.join(","))];
+        let verifications = raw_test_directives.iter().filter_map(|d| d.strip_prefix("verify:").map(str::trim))
+            .flat_map(|flags| flags.split(",").map(str::trim).filter(|flag| !flag.is_empty()));
+        for verification in verifications {
+            mutest_args.push("-Z".to_owned());
+            mutest_args.push(format!("verify-{}", verification));
+        }
+        let mut mutation_operators = raw_test_directives.iter().filter_map(|d| d.strip_prefix("mutation-operators:").map(str::trim))
+            .flat_map(|flags| flags.split(",").map(str::trim).filter(|flag| !flag.is_empty()))
+            .peekable();
+        if mutation_operators.peek().is_some() {
+            mutest_args.push("--mutation-operators".to_owned());
+            mutest_args.push(mutation_operators.intersperse(",").collect::<String>());
+        }
+        if !mutest_target_directives.mutest_prints.is_empty() {
+            mutest_args.push("--print".to_owned());
+            mutest_args.push(mutest_target_directives.mutest_prints.iter().map(|s| *s).intersperse(",").collect::<String>());
+        }
+        raw_test_directives.iter().filter_map(|d| d.strip_prefix("mutest-flags:").map(str::trim))
+            .flat_map(|flags| parse_args(flags).into_iter().map(str::to_owned))
+            .collect_into(&mut mutest_args);
+        cmd.env("MUTEST_ENCODED_ARGS".to_owned(), mutest_args.join("\x1F"));
     }
-    let mut mutation_operators = directives.iter().filter_map(|d| d.strip_prefix("mutation-operators:").map(str::trim))
-        .flat_map(|flags| flags.split(",").map(str::trim).filter(|flag| !flag.is_empty()))
-        .peekable();
-    if mutation_operators.peek().is_some() {
-        mutest_args.push("--mutation-operators".to_owned());
-        mutest_args.push(mutation_operators.intersperse(",").collect::<String>());
-    }
-    if !mutest_prints.is_empty() {
-        mutest_args.push("--print".to_owned());
-        mutest_args.push(mutest_prints.into_iter().intersperse(",").collect::<String>());
-    }
-    directives.iter().filter_map(|d| d.strip_prefix("mutest-flags:").map(str::trim))
-        .flat_map(|flags| parse_args(flags).into_iter().map(str::to_owned))
-        .collect_into(&mut mutest_args);
-    cmd.env("MUTEST_ENCODED_ARGS".to_owned(), mutest_args.join("\x1F"));
 
     // NOTE: Avoid passing on the `CARGO_*` environment variables from the test runner.
     for (var, _) in env::vars() {
@@ -666,7 +756,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         eprintln!("stderr:\n{}", stderr);
     }
 
-    let expected_exit_code = match expect_build_fail {
+    let expected_exit_code = match test_directives.expect_build_fail {
         true => 1,
         false => 0,
     };
@@ -683,7 +773,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
 
     let mut eval_stream = String::new();
 
-    if exec_build_artifact {
+    if test_directives.exec_build_artifact {
         let build_artifact_path = Path::new(BUILD_OUT_DIR).join(&test_crate_name);
         let mut cmd = Command::new(&build_artifact_path);
         // NOTE: The generated program logs each exit code it reports to `cargo mutest` here.
@@ -693,7 +783,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         cmd.env(CARGO_MUTEST_VAR, &opts.cargo_mutest);
 
         // NOTE: The directory is removed once the stream has been read.
-        let eval_stream_dir = expectations.contains(&Expectation::EvalStream).then(|| {
+        let eval_stream_dir = test_directives.expectations.contains(&Expectation::EvalStream).then(|| {
             let dir = path::absolute(Path::new(EVAL_STREAM_OUT_DIR).join(&test_crate_name)).expect("cannot resolve the evaluation stream directory");
             let _ = fs::remove_dir_all(&dir);
             fs::create_dir_all(&dir).unwrap_or_else(|error| panic!("cannot create `{}`: {error}", dir.display()));
@@ -704,7 +794,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
             cmd.arg("--Zwrite-json-eval-stream");
         }
 
-        let run_env = directives.iter().filter_map(|d| d.strip_prefix("run-env:").map(str::trim))
+        let run_env = raw_test_directives.iter().filter_map(|d| d.strip_prefix("run-env:").map(str::trim))
             .flat_map(|env| {
                 let (key, val) = env.split_once("=")?;
                 Some((key.trim(), val.trim()))
@@ -713,7 +803,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
             cmd.env(key, val);
         }
 
-        let run_flags = directives.iter().filter_map(|d| d.strip_prefix("run-flags:").map(str::trim)).flat_map(parse_args);
+        let run_flags = raw_test_directives.iter().filter_map(|d| d.strip_prefix("run-flags:").map(str::trim)).flat_map(parse_args);
         cmd.args(run_flags);
 
         // NOTE: Avoid passing on the `CARGO_*` environment variables from the test runner.
@@ -753,12 +843,15 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
             eprintln!("stderr:\n{}", stderr);
         }
 
+        let expected_run_exit_code = test_directives.expected_run_exit_code;
+        // NOTE: Only programs generated by mutest-driver record the exit codes they report.
+        let records_exit_codes = matches!(test_directives.target, TestTarget::Mutest(_));
         let failure = if output.status.code() != Some(expected_run_exit_code) {
             Some(match output.status.code() {
                 Some(exit_code) => format!("process exited with code {exit_code}, expected {expected_run_exit_code}"),
                 None => format!("process exited without exit code, expected {expected_run_exit_code}"),
             })
-        } else if recorded_exit_codes != [expected_run_exit_code] {
+        } else if records_exit_codes && recorded_exit_codes != [expected_run_exit_code] {
             Some(format!("recorded exit codes {recorded_exit_codes:?} for `cargo mutest`, expected [{expected_run_exit_code}]"))
         } else if left_running >= 1 {
             Some(format!("left {left_running} processes running after it exited"))
@@ -794,7 +887,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
     let outputs = Outputs { stdout: &stdout, stderr: &stderr, eval_stream: &eval_stream };
 
     if opts.bless {
-        let bless_verdicts = expectations.iter()
+        let bless_verdicts = test_directives.expectations.iter()
             .map(|expectation| expectation.bless(&path, &outputs, opts.dry_run))
             .collect::<Vec<_>>();
 
@@ -810,7 +903,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         }
         log_test(&name, TestResult::Blessed, None);
 
-        for (expectation, bless_verdict) in iter::zip(&expectations, &bless_verdicts) {
+        for (expectation, bless_verdict) in iter::zip(&test_directives.expectations, &bless_verdicts) {
             match bless_verdict {
                 BlessVerdict::New => {}
                 BlessVerdict::Changed(change) => {
@@ -820,7 +913,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
             }
         }
     } else {
-        let expectation_verdicts = expectations.iter()
+        let expectation_verdicts = test_directives.expectations.iter()
             .map(|expectation| expectation.check(&path, &outputs))
             .collect::<Vec<_>>();
 
