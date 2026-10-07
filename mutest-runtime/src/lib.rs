@@ -43,6 +43,7 @@ pub use metadata::*;
 pub use mutest_edition_2021::block as edition_2021_block;
 
 mod journal;
+mod json;
 mod completion;
 mod supervisor;
 #[cfg(target_os = "linux")]

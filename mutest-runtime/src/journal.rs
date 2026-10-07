@@ -10,9 +10,8 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::{Mutex, OnceLock};
 
-use serde_json::{Value, json};
-
 use crate::harness::{MutationTestResult, MutationTestResults};
+use crate::json;
 
 pub(crate) const JOURNAL_VAR: &str = "__MUTEST_JOURNAL";
 
@@ -51,8 +50,8 @@ enum Record {
     },
 }
 
-fn append(file: &mut File, line: &Value) -> io::Result<()> {
-    let mut bytes = serde_json::to_vec(line).map_err(io::Error::other)?;
+fn append(file: &mut File, line: json::Object) -> io::Result<()> {
+    let mut bytes = line.into_vec()?;
     bytes.push(b'\n');
     file.write_all(&bytes)?;
     file.flush()
@@ -83,7 +82,7 @@ fn read(mut file: &File) -> io::Result<Entries> {
     file.seek(SeekFrom::Start(0))?;
     let mut entries = Entries::default();
     for line in BufReader::new(file).lines() {
-        entries.add(serde_json::from_str(&line?).map_err(io::Error::other)?)?;
+        entries.add(json::from_str(&line?)?)?;
     }
     Ok(entries)
 }
@@ -194,7 +193,7 @@ impl WorkerJournal {
     }
 
     /// Stops recording after a failed write, but keeps the earlier rows for diagnosing the run.
-    fn append(&self, line: &Value) {
+    fn append(&self, line: json::Object) {
         let mut file = self.file.lock().unwrap_or_else(|e| e.into_inner());
         let Some(journal_file) = file.as_mut() else {
             return;
@@ -213,16 +212,16 @@ impl WorkerJournal {
     }
 
     pub fn started(&self, mutation_ids: &[u32]) {
-        self.append(&json!({ "started": mutation_ids }));
+        self.append(json::Object::new().field("started", mutation_ids));
     }
 
     pub fn finished(&self, mutation_id: u32, results: &MutationTestResults) {
         let tests = results
             .results_per_test
             .iter()
-            .map(|(name, result)| json!([name.as_slice(), result.map(result_name)]))
+            .map(|(name, result)| (name.as_slice(), result.map(result_name)))
             .collect::<Vec<_>>();
-        self.append(&json!({ "finished": mutation_id, "result": result_name(results.result), "tests": tests }));
+        self.append(json::Object::new().field("finished", &mutation_id).field("result", result_name(results.result)).field("tests", &tests));
     }
 }
 

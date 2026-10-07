@@ -10,9 +10,8 @@ use std::process;
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
-use serde_json::{Value, json};
-
 use super::{CompletedTest, Test, TestResult, subprocess, test};
+use crate::json;
 
 pub(crate) const DIRECTORY: &str = "MUTEST_PROGRESS_DIR";
 pub(crate) const NONCE: &str = "MUTEST_PROGRESS_NONCE";
@@ -36,7 +35,7 @@ struct Writer {
 
 impl Writer {
     /// Writes one record; after any failure the writer refuses every later one.
-    fn append(&mut self, event: Value) -> io::Result<()> {
+    fn append(&mut self, event: json::Object) -> io::Result<()> {
         if !self.healthy || self.terminal {
             return Err(io::Error::other("progress writer is closed or failed"));
         }
@@ -45,18 +44,16 @@ impl Writer {
         result
     }
 
-    fn write_record(&mut self, mut event: Value) -> io::Result<()> {
+    fn write_record(&mut self, event: json::Object) -> io::Result<()> {
         let elapsed = u64::try_from(self.start.elapsed().as_millis()).unwrap_or(u64::MAX);
-        let object = event.as_object_mut().ok_or_else(|| io::Error::other("progress event is not an object"))?;
-        object.extend([
-            ("schema".to_owned(), json!("mutest-progress")),
-            ("version".to_owned(), json!(1)),
-            ("nonce".to_owned(), json!(self.nonce)),
-            ("instance_id".to_owned(), json!(self.harness)),
-            ("seq".to_owned(), json!(self.sequence)),
-            ("elapsed_ms".to_owned(), json!(elapsed)),
-        ]);
-        let mut record = serde_json::to_vec(&event).map_err(io::Error::other)?;
+        let event = event
+            .field("schema", "mutest-progress")
+            .field("version", &1)
+            .field("nonce", &self.nonce)
+            .field("instance_id", &self.harness)
+            .field("seq", &self.sequence)
+            .field("elapsed_ms", &elapsed);
+        let mut record = event.into_vec()?;
         record.push(b'\n');
         if record.len() > RECORD_LIMIT {
             return Err(io::Error::other("progress record limit exceeded"));
@@ -78,7 +75,7 @@ impl Writer {
         if !self.active.is_empty() {
             return Err(io::Error::other("progress phase changed with active tests"));
         }
-        self.append(json!({"event": "phase", "phase": phase}))?;
+        self.append(json::Object::new().field("event", "phase").field("phase", phase))?;
         self.phase = Some(phase);
         Ok(())
     }
@@ -86,12 +83,14 @@ impl Writer {
     fn start_test(&mut self, test: &Test, mutations: &[u32], isolated: bool) -> io::Result<u64> {
         let invocation = self.invocation + 1;
         let timeout = test.timeout.map(|timeout| u64::try_from(timeout.as_nanos().div_ceil(1_000_000)).unwrap_or(u64::MAX));
-        self.append(json!({"event": "test_start", "phase": self.phase, "invocation_id": invocation, "test_name": test.desc.name.as_slice(),
-            "mutation_ids": mutations, "strategy": if isolated { "isolated" } else { "in_process" }, "execution_timeout_ms": timeout,
-            "startup_timeout_ms": if isolated { subprocess::STARTUP_TIMEOUT.as_millis() } else { 0 },
-            "cleanup_timeout_ms": if isolated { subprocess::CLEANUP_TIMEOUT.as_millis() } else { 0 },
-            "report_timeout_ms": if isolated { subprocess::REPORT_TIMEOUT.as_millis() } else { 0 },
-            "join_timeout_ms": if isolated { subprocess::REPORT_TIMEOUT.as_millis() } else { 0 }}))?;
+        let subprocess_timeout_ms = |timeout: std::time::Duration| if isolated { timeout.as_millis() } else { 0 };
+        self.append(json::Object::new().field("event", "test_start").field("phase", &self.phase).field("invocation_id", &invocation)
+            .field("test_name", test.desc.name.as_slice()).field("mutation_ids", mutations)
+            .field("strategy", if isolated { "isolated" } else { "in_process" }).field("execution_timeout_ms", &timeout)
+            .field("startup_timeout_ms", &subprocess_timeout_ms(subprocess::STARTUP_TIMEOUT))
+            .field("cleanup_timeout_ms", &subprocess_timeout_ms(subprocess::CLEANUP_TIMEOUT))
+            .field("report_timeout_ms", &subprocess_timeout_ms(subprocess::REPORT_TIMEOUT))
+            .field("join_timeout_ms", &subprocess_timeout_ms(subprocess::REPORT_TIMEOUT)))?;
         self.invocation = invocation;
         self.active.insert(invocation);
         Ok(invocation)
@@ -110,10 +109,8 @@ impl Writer {
             TestResult::TimedOut => "timed_out",
             TestResult::CrashedMsg(_) => "crashed",
         };
-        self.append(
-            json!({"event": "test_end", "invocation_id": invocation, "result": result,
-            "cleanup": if complete { "complete" } else { "pending" }}),
-        )?;
+        self.append(json::Object::new().field("event", "test_end").field("invocation_id", &invocation).field("result", result)
+            .field("cleanup", if complete { "complete" } else { "pending" }))?;
         if complete {
             self.active.remove(&invocation);
         }
@@ -133,7 +130,7 @@ impl Writer {
         if complete {
             self.ready()?;
         }
-        self.append(json!({"event": "terminal", "status": if complete { "completed" } else { "incomplete" }, "exit_code": code}))?;
+        self.append(json::Object::new().field("event", "terminal").field("status", if complete { "completed" } else { "incomplete" }).field("exit_code", &code))?;
         self.terminal = true;
         Ok(())
     }
@@ -198,8 +195,14 @@ fn create(directory: &Path, nonce: String) -> io::Result<Writer> {
         terminal: false,
         healthy: true,
     };
-    writer.append(json!({"event": "header", "pid": process::id(), "process_start": {"kind": "linux-proc-starttime", "ticks": ticks},
-        "exe": executable, "record_limit_bytes": RECORD_LIMIT, "file_limit_bytes": FILE_LIMIT}))?;
+    #[derive(serde::Serialize)]
+    struct ProcessStart {
+        kind: &'static str,
+        ticks: u64,
+    }
+    let process_start = ProcessStart { kind: "linux-proc-starttime", ticks };
+    writer.append(json::Object::new().field("event", "header").field("pid", &process::id()).field("process_start", &process_start)
+        .field("exe", executable).field("record_limit_bytes", &RECORD_LIMIT).field("file_limit_bytes", &FILE_LIMIT))?;
     Ok(writer)
 }
 
@@ -365,6 +368,7 @@ pub(super) fn end(test: &CompletedTest, complete: bool) {
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
+    use serde_json::Value;
     use std::fs;
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -443,7 +447,7 @@ mod tests {
         for case in ["record", "file"] {
             let (root, mut writer) = fixture();
             match case {
-                "record" => assert!(writer.append(json!({"oversized": "x".repeat(RECORD_LIMIT)})).is_err()),
+                "record" => assert!(writer.append(json::Object::new().field("oversized", &"x".repeat(RECORD_LIMIT))).is_err()),
                 _ => {
                     writer.bytes = FILE_LIMIT;
                     assert!(writer.set_phase("reference").is_err());

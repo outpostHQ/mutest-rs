@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::io::{self, BufWriter, Write};
+use std::io::{self, Write};
 use std::num::NonZeroU64;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use crate::config::WriteOptions;
 use crate::flakiness::MutationFlakinessMatrix;
 use crate::harness::{MutationAnalysisResults, MutationOpStats, MutationTestResult};
+use crate::json;
 use crate::metadata::MutationMeta;
 use crate::test_runner;
 
@@ -38,7 +39,7 @@ impl EvaluationStreamWriter {
 
     /// Unbuffered, so that a mutation that crashes the process loses no event written before it.
     pub fn write_event<T: serde::Serialize>(&self, data: &T) {
-        let mut line = serde_json::to_vec(data).expect("cannot write to stream file");
+        let mut line = json::to_vec(data).expect("cannot write to stream file");
         line.push(b'\n');
         let mut eval_stream_file = self.file.lock().unwrap();
         eval_stream_file.write_all(&line).expect("cannot write to stream file");
@@ -85,10 +86,9 @@ fn detection_stats(stats: MutationOpStats) -> mutest_json::evaluation::MutationD
     }
 }
 
-fn write_metadata_to<T: serde::Serialize>(file: impl Write, data: &T) -> io::Result<()> {
-    let mut buffered_file = BufWriter::new(file);
-    serde_json::to_writer(&mut buffered_file, data).map_err(io::Error::other)?;
-    buffered_file.flush()
+fn write_metadata_to<T: serde::Serialize>(mut file: impl Write, data: &T) -> io::Result<()> {
+    file.write_all(&json::to_vec(data)?)?;
+    file.flush()
 }
 
 fn write_metadata<T: serde::Serialize>(write_opts: &WriteOptions, file_name: &str, data: &T) {
@@ -242,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn buffered_metadata_write_and_flush_failures_are_returned() {
+    fn metadata_write_and_flush_failures_are_returned() {
         struct Fails { on_write: bool }
         impl Write for Fails {
             fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
