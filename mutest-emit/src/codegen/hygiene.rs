@@ -837,6 +837,12 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                         // NOTE: All nested qpaths can be reduced down to a simply qualified path by resolving the definition.
                         let parent_def_id = self.tcx.parent(qres.def_id());
                         match self.tcx.def_kind(parent_def_id) {
+                            // A sealed trait that no path names here can only be reached through a type-relative path (e.g. `T::f` through a supertrait bound).
+                            hir::DefKind::Trait | hir::DefKind::TraitAlias if !self.is_nameable_here(qres.def_id()) => {
+                                let qself_ty_ast = self.sanitize_ty(qself_ty, node_hir_id.owner.to_def_id(), qself_ty_hir.span);
+                                self.make_type_relative(qself, path, qres.def_id(), qself_ty_ast);
+                                return qres.expect_non_local();
+                            }
                             hir::DefKind::Trait | hir::DefKind::TraitAlias => {
                                 let qself_ty_ast = self.sanitize_ty(qself_ty, node_hir_id.owner.to_def_id(), qself_ty_hir.span);
 

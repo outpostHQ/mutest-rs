@@ -3,7 +3,7 @@ use rustc_span::span_bug;
 use crate::analysis::hir;
 use crate::analysis::res;
 use crate::codegen::ast;
-use crate::codegen::symbols::{Span, Symbol, kw};
+use crate::codegen::symbols::{DUMMY_SP, Ident, Span, Symbol, kw};
 
 use super::MacroExpansionSanitizer;
 
@@ -61,6 +61,23 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                 );
             }),
         }
+    }
+
+    /// Whether some path from the current scope names the definition.
+    pub(super) fn is_nameable_here(&self, def_id: hir::DefId) -> bool {
+        match res::visible_def_path(self.tcx, self.crate_res, res::DefPathRequestKind::Def(def_id), self.current_scope, None, DUMMY_SP) {
+            Ok(_) => true,
+            Err(None) => false,
+            Err(Some(_)) => self.super_path_through_common_mod(def_id).is_some(),
+        }
+    }
+
+    /// Rewrites the path to the trait item into the type-relative path `<$qself_ty>::$item`.
+    pub(super) fn make_type_relative(&self, qself: &mut Option<Box<ast::QSelf>>, path: &mut ast::Path, item_def_id: hir::DefId, qself_ty_ast: Box<ast::Ty>) {
+        path.segments.drain(..path.segments.len() - 1);
+        let [item_segment] = &mut path.segments[..] else { unreachable!() };
+        item_segment.ident = Ident::new(self.tcx.item_name(item_def_id), DUMMY_SP);
+        *qself = Some(Box::new(ast::QSelf { ty: qself_ty_ast, path_span: DUMMY_SP, position: 0 }));
     }
 
     /// A `super` path to a local item in another branch of the module tree, through the nearest module containing both,
