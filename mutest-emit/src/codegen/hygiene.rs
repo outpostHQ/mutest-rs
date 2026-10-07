@@ -25,6 +25,7 @@ use crate::codegen::symbols::{DUMMY_SP, ExpnKind, Ident, Span, Symbol, sym, kw};
 use crate::codegen::symbols::hygiene::{ExpnData, ExpnId, MacroKind, Transparency};
 
 mod scope;
+mod self_ty;
 
 fn is_macro_expn(expn: &ExpnData) -> bool {
     match expn.kind {
@@ -469,11 +470,6 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
     fn is_inside_body(&self, hir_id: hir::HirId) -> bool {
         // HACK: This is the heuristic we use below for falling back from `FnCtxt` to `ItemCtxt` lowerings.
         self.typeck_for(hir_id.owner).is_some_and(|typeck| typeck.node_type_opt(hir_id).is_some())
-    }
-
-    /// Whether the self type of the path can keep its higher-ranked types inferred: in a body, with no generic args written for it.
-    fn infers_self_ty_args(&self, qself: &Option<Box<ast::QSelf>>, path: &ast::Path, qself_ty_hir_id: hir::HirId) -> bool {
-        qself.is_none() && path.segments.iter().rev().skip(1).all(|segment| segment.args.is_none()) && self.is_inside_body(qself_ty_hir_id)
     }
 
     fn lookup_hir_node_ty(&self, ty_hir: &hir::Ty<'tcx>) -> Ty<'tcx> {
@@ -1030,10 +1026,12 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                             // If the portion of the path within the qself does not refer to a trait or impl,
                             // then the resolved path no longer needs a qualified self.
                             _ => {
+                                let variant_args = self.enum_args_of_variant_path(qself, path, qself_ty, typeck_node_hir_id, qself_ty_hir.span);
                                 let None = self.sanitize_path(path, qres.expect_non_local(), None) else {
                                     span_bug!(path.span, "produced unexpected type-relative path for non-assoc path")
                                 };
                                 *qself = None;
+                                self_ty::write_variant_args(path, variant_args);
                             }
                         }
 
