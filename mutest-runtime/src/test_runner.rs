@@ -863,6 +863,14 @@ mod tests {
         let pending = marker.with_extension("pending");
         fs::write(&pending, process::id().to_string()).unwrap();
         fs::rename(pending, marker).unwrap();
+        if env::var_os("MUTEST_SERIAL_ABORT").is_some() {
+            let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+            // SAFETY: `getrlimit` writes only the given `rlimit`.
+            assert_eq!(unsafe { libc::getrlimit(libc::RLIMIT_CORE, &mut limit) }, 0);
+            // A core dump would hold this crash past its timeout on hosts with a pipe handler.
+            if limit.rlim_cur != limit.rlim_max.min(1) { process::exit(TR_FAILED); }
+            process::abort();
+        }
         if env::var_os("MUTEST_SERIAL_HANG").is_some() {
             loop { thread::park(); }
         }
@@ -870,7 +878,7 @@ mod tests {
     }
 
     #[test]
-    fn serial_isolated_success_timeout_and_cancellation_reap_children() {
+    fn serial_isolated_success_timeout_crash_and_cancellation_reap_children() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../test-scratch").join(format!(
             "serial-scheduler-{}-{}", process::id(), NEXT.fetch_add(1, atomic::Ordering::Relaxed)));
         fs::create_dir_all(&root).unwrap();
@@ -878,6 +886,7 @@ mod tests {
         for (case, cancel, timeout, expected) in [
             ("success", false, Some(Duration::from_secs(5)), Some(TestResult::Ok)),
             ("timeout", false, Some(Duration::from_secs(2)), Some(TestResult::TimedOut)),
+            ("abort", false, Some(Duration::from_secs(5)), Some(TestResult::CrashedMsg("received signal 6".to_owned()))),
             ("cancel", true, Some(Duration::from_secs(5)), None),
             ("cancel-without-timeout", true, None, None),
         ] {
@@ -886,7 +895,11 @@ mod tests {
             let strategy = TestRunStrategy::InIsolatedChildProcess(Arc::new(move |command| {
                 command.env_clear().args(["--exact", "test_runner::tests::isolated_serial_child", "--test-threads=1", "--nocapture"])
                     .env("MUTEST_SERIAL_CHILD", &child_marker);
-                if case != "success" { command.env("MUTEST_SERIAL_HANG", "1"); }
+                match case {
+                    "success" => {}
+                    "abort" => { command.env("MUTEST_SERIAL_ABORT", "1"); }
+                    _ => { command.env("MUTEST_SERIAL_HANG", "1"); }
+                }
                 keep_loader_environment(command);
             }));
             let mut results = Vec::new();

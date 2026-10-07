@@ -13,7 +13,7 @@ use crate::completion::{self, Completion};
 use crate::journal::Journal;
 
 #[cfg(target_os = "linux")]
-pub(crate) use sys::{kill_descendants_until, reap_with_status};
+pub(crate) use sys::{kill_descendants_until, reap_with_status, skip_core_dumps};
 #[cfg(target_os = "linux")]
 pub use sys::{adopt_orphans, children};
 
@@ -445,6 +445,20 @@ mod sys {
                 return Err(io::Error::other("supervisor exited before parent-death setup"));
             }
             Ok(())
+        }
+
+        /// Keeps a crashed test from dumping core: a pipe handler such as apport holds the test past its timeout.
+        /// The kernel writes no pipe dump at a limit of 1, and no file dump below a page.
+        pub(crate) fn skip_core_dumps() -> io::Result<()> {
+            let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+            // SAFETY: `getrlimit` writes, and `setrlimit` reads, only the given `rlimit`.
+            let result = unsafe {
+                if libc::getrlimit(libc::RLIMIT_CORE, &mut limit) != 0 { -1 } else {
+                    limit.rlim_cur = limit.rlim_max.min(1);
+                    libc::setrlimit(libc::RLIMIT_CORE, &limit)
+                }
+            };
+            if result == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
         }
 
         #[cfg(test)]

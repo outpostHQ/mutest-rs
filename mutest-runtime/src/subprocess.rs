@@ -676,6 +676,7 @@ mod linux {
             return Err(io::Error::from_raw_os_error(libc::EPERM));
         }
         crate::supervisor::adopt_orphans()?;
+        crate::supervisor::skip_core_dumps()?;
         let result = execute(&mut channel);
         crate::supervisor::kill_descendants_until(Instant::now() + CLEANUP_TIMEOUT)?;
         #[cfg(test)]
