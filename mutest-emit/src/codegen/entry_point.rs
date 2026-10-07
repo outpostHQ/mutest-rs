@@ -6,7 +6,7 @@ use crate::codegen::ast;
 use crate::codegen::ast::entry::EntryPointType;
 use crate::codegen::ast::mut_visit::MutVisitor;
 use crate::codegen::expansion::TcxExpansionExt;
-use crate::codegen::symbols::{DUMMY_SP, Ident, Symbol, sym};
+use crate::codegen::symbols::{DUMMY_SP, ExpnKind, Ident, Symbol, sym};
 use crate::codegen::symbols::hygiene::AstPass;
 
 fn entry_point_type(item: &ast::Item, depth: usize) -> EntryPointType {
@@ -47,6 +47,14 @@ impl ast::mut_visit::MutVisitor for EntryPointCleaner {
             // Ignore items that are not entry points.
             EntryPointType::None | EntryPointType::OtherMain => {}
         };
+
+        // Drop the `extern crate test` that the rustc test harness injects for that entry point.
+        // Printed without hygiene, it would conflict with a crate-root item named `test`.
+        if self.depth == 0 && ast::inspect::is_extern_crate_decl(&item, sym::test)
+            && matches!(item.span.ctxt().outer_expn_data().kind, ExpnKind::AstPass(AstPass::TestHarness))
+        {
+            return smallvec![];
+        }
 
         smallvec![item]
     }
