@@ -47,3 +47,21 @@ where
 {
     attrs.into_iter().any(|attr| hir::attr::is_word_attr(attr, Some(sym::mutest), sym::skip))
 }
+
+/// Removes tool attributes, such as `#[clippy::format_args]`, from `#[macro_export]` macros. rustc defines such a macro
+/// one expansion round late, so with no macro call left in the crate root, an import of the macro stays unresolved.
+pub fn strip_from_exported_macros(krate: &mut ast::Crate) {
+    struct ExportedMacroToolAttrStripper;
+
+    impl ast::mut_visit::MutVisitor for ExportedMacroToolAttrStripper {
+        fn visit_item(&mut self, item: &mut ast::Item) {
+            if let ast::ItemKind::MacroDef(_, macro_def) = &item.kind && macro_def.macro_rules && ast::attr::contains_name(&item.attrs, sym::macro_export) {
+                // Only tool attributes have paths with more than one segment.
+                item.attrs.retain(|attr| attr.path().len() == 1);
+            }
+            ast::mut_visit::walk_item(self, item);
+        }
+    }
+
+    ast::mut_visit::MutVisitor::visit_crate(&mut ExportedMacroToolAttrStripper, krate);
+}
