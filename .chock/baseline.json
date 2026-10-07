@@ -13,11 +13,11 @@
       "mutest-runtime/src/harness.rs": 1387
     },
     "binsize": {
-      "cargo-mutest": 1833364,
-      "mutest-driver": 38458301,
-      "mutest-inspector": 9033864,
-      "mutest-runtime-embedded-host-driver": 1093901,
-      "mutest-tests": 2208044
+      "cargo-mutest": 1895552,
+      "mutest-driver": 40384744,
+      "mutest-inspector": 9188648,
+      "mutest-runtime-embedded-host-driver": 1139880,
+      "mutest-tests": 2274712
     },
     "citations": {
       "mutest-driver/src/config.rs": 1
