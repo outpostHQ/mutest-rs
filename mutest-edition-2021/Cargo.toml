@@ -1,0 +1,18 @@
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[package]
+name = "mutest-edition-2021"
+version = "0.0.0"
+description = "Edition 2021 blocks for the code that mutest-rs prints from pre-2024 macro expansions."
+keywords = ["mutation", "mutation-analysis", "mutation-testing", "testing"]
+categories = ["development-tools::testing", "development-tools::cargo-plugins"]
+homepage = "https://mutest.rs"
+repository = "https://github.com/zalanlevai/mutest-rs"
+license = "Apache-2.0 OR MIT"
+# NOTE: The edition of this crate is the edition of the blocks that its macro expands to.
+edition = "2021"
+
+[dependencies]
+
+[lints]
+workspace = true

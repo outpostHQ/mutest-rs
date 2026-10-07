@@ -86,8 +86,6 @@ fn perform_codegen<'tcx, 'ent, 'trg, 'm>(
     };
     mutest_emit::codegen::harness::generate_harness(tcx, cargo_metadata.as_ref(), opts.unstable_flags.embedded, entry_points, meta_mutant, generated_crate_ast);
 
-    struct NoAnn;
-    impl rustc_ast_pretty::pprust::state::PpAnn for NoAnn {}
     pass_result.generated_crate_code = format!("{prelude}\n{code}",
         prelude = mutest_emit::codegen::expansion::GENERATED_CODE_PRELUDE,
         code = rustc_ast_pretty::pprust::print_crate(
@@ -95,7 +93,7 @@ fn perform_codegen<'tcx, 'ent, 'trg, 'm>(
             generated_crate_ast,
             tcx.sess.io.input.file_name(tcx.sess),
             "".to_owned(),
-            &NoAnn,
+            &mutest_emit::codegen::expansion::Edition2021BlockAnn::new(generated_crate_ast, tcx.sess.edition()),
             true,
             tcx.sess.edition(),
             &tcx.sess.psess.attr_id_generator,

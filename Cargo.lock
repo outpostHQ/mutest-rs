@@ -741,6 +741,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "mutest-edition-2021"
+version = "0.0.0"
+
+[[package]]
 name = "mutest-emit"
 version = "0.0.0"
 dependencies = [
@@ -789,6 +793,7 @@ name = "mutest-runtime"
 version = "0.0.0"
 dependencies = [
  "libc",
+ "mutest-edition-2021",
  "mutest-exit-code",
  "mutest-json",
  "phf",
@@ -808,6 +813,7 @@ dependencies = [
 name = "mutest-runtime-embedded-target-stub"
 version = "0.0.0"
 dependencies = [
+ "mutest-edition-2021",
  "phf",
 ]
 

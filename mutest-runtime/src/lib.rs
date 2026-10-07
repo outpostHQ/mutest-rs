@@ -39,6 +39,9 @@ pub use harness::*;
 mod metadata;
 pub use metadata::*;
 
+// NOTE: Codegen in mutest-emit prints blocks from pre-2024 macro expansions through this macro.
+pub use mutest_edition_2021::block as edition_2021_block;
+
 mod journal;
 mod completion;
 mod supervisor;

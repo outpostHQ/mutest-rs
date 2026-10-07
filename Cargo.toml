@@ -6,6 +6,7 @@ members = [
     "cargo-mutest",
     "mutest-driver",
     "mutest-driver-cli",
+    "mutest-edition-2021",
     "mutest-emit",
     "mutest-exit-code",
     "mutest-inspector",

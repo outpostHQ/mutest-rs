@@ -144,6 +144,20 @@ impl Fixture {
             .join("debug/libmutest_runtime_embedded_target_stub.rlib")
     }
 
+    fn build_edition_2021(&self) -> PathBuf {
+        let rlib = self.deps().join("libmutest_edition_2021.rlib");
+        let output = self
+            .command(env!("CARGO_BIN_EXE_mutest-driver"))
+            .args(["--rustc", "--edition=2021"])
+            .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("../mutest-edition-2021/src/lib.rs"))
+            .args(["--crate-name", "mutest_edition_2021", "--crate-type=rlib", "-o"])
+            .arg(&rlib)
+            .output()
+            .unwrap();
+        assert_success(&output);
+        rlib
+    }
+
     fn injected_externs(&self) -> Vec<(String, PathBuf)> {
         let args = vec![
             "rustc".to_owned(),
@@ -326,6 +340,7 @@ fn main() {
     .unwrap();
     fs::create_dir_all(fixture.output.join("consumer")).unwrap();
 
+    let edition_2021 = fixture.build_edition_2021();
     let phf_a = fixture.build_phf(false);
     let rmeta_a = phf_a.with_extension("rmeta");
     assert!(
@@ -349,6 +364,8 @@ fn main() {
             "__mutest_runtime_public_dep_phf={}",
             rmeta_a.display()
         ))
+        .arg("--extern")
+        .arg(format!("mutest_edition_2021={}", edition_2021.display()))
         .arg("-L")
         .arg(format!("dependency={}", fixture.deps().display()))
         .arg("-o")

@@ -595,8 +595,10 @@ pub fn generate_harness<'tcx, 'ent, 'trg, 'm>(
         mutest_generated_mod_items.push(extern_crate_test);
     }
 
-    // extern crate mutest_runtime;
-    let extern_crate_mutest_runtime = ast::mk::item_extern_crate(def_site, sym::mutest_runtime, None);
+    // pub(crate) extern crate mutest_runtime;
+    // NOTE: Printed code reaches the edition 2021 block macro through this item, see `Edition2021BlockAnn`.
+    let mut extern_crate_mutest_runtime = ast::mk::item_extern_crate(def_site, sym::mutest_runtime, None);
+    extern_crate_mutest_runtime.vis = ast::mk::vis_pub_crate(def_site);
     mutest_generated_mod_items.push(extern_crate_mutest_runtime);
 
 

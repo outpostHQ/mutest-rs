@@ -26,5 +26,7 @@ crate-type = ["rlib"]
 # that are renamed to `__mutest_runtime_public_dep_*`.
 __mutest_runtime_public_dep_phf = { package = "phf", version = "0.14", features = ["macros"], default-features = false }
 
+mutest-edition-2021 = { path = "../mutest-edition-2021" }
+
 [lints]
 workspace = true

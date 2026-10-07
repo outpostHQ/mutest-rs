@@ -1,11 +1,13 @@
 use std::iter;
 
 use itertools::Itertools;
+use rustc_data_structures::fx::FxHashSet;
 use rustc_data_structures::smallvec::{SmallVec, smallvec};
 use rustc_data_structures::thin_vec::ThinVec;
 use rustc_middle::ty::TyCtxt;
 use rustc_session::Session;
 use rustc_span::{ExpnData, LocalExpnId};
+use rustc_span::edition::Edition;
 
 use crate::analysis::tests::Test;
 use crate::codegen::ast;
@@ -45,6 +47,69 @@ pub const GENERATED_CODE_PRELUDE: &str = r#"
 #![allow(unused_features)]
 #![allow(unused_imports)]
 "#;
+
+/// Prints each block expression of a pre-2024 expansion in an edition 2024 crate as an edition 2021 block,
+/// which keeps the temporaries of its tail expression alive until the end of the enclosing statement.
+pub struct Edition2021BlockAnn {
+    crate_edition: Edition,
+    /// Closure bodies and anonymous constants, which do not accept a macro call in every position
+    /// (e.g. `|| -> T { .. }`, `Foo<{ .. }>`), and whose block is already a terminating scope.
+    unwrapped_exprs: FxHashSet<*const ast::Expr>,
+}
+
+struct UnwrappedExprCollector {
+    unwrapped_exprs: FxHashSet<*const ast::Expr>,
+}
+
+impl<'ast> ast::visit::Visitor<'ast> for UnwrappedExprCollector {
+    fn visit_expr(&mut self, expr: &'ast ast::Expr) {
+        if let ast::ExprKind::Closure(closure) = &expr.kind {
+            self.unwrapped_exprs.insert(&*closure.body);
+        }
+        ast::visit::walk_expr(self, expr);
+    }
+
+    fn visit_anon_const(&mut self, anon_const: &'ast ast::AnonConst) {
+        self.unwrapped_exprs.insert(&*anon_const.value);
+        ast::visit::walk_anon_const(self, anon_const);
+    }
+}
+
+impl Edition2021BlockAnn {
+    pub fn new(krate: &ast::Crate, crate_edition: Edition) -> Self {
+        let mut collector = UnwrappedExprCollector { unwrapped_exprs: Default::default() };
+        if crate_edition.at_least_rust_2024() {
+            ast::visit::Visitor::visit_crate(&mut collector, krate);
+        }
+        Self { crate_edition, unwrapped_exprs: collector.unwrapped_exprs }
+    }
+
+    fn prints_edition_2021_block(&self, node: &ast::print::state::AnnNode<'_>) -> bool {
+        if self.crate_edition.at_least_rust_2024()
+            && let ast::print::state::AnnNode::Expr(expr) = node
+            && let ast::ExprKind::Block(block, _) = &expr.kind
+            && !block.span.at_least_rust_2024()
+            && let Some(ast::Stmt { kind: ast::StmtKind::Expr(_), .. }) = block.stmts.last()
+        {
+            return !self.unwrapped_exprs.contains(&(&**expr as *const ast::Expr));
+        }
+        false
+    }
+}
+
+impl ast::print::state::PpAnn for Edition2021BlockAnn {
+    fn pre(&self, state: &mut ast::print::state::State<'_>, node: ast::print::state::AnnNode<'_>) {
+        if !self.prints_edition_2021_block(&node) { return; }
+        state.word("crate::mutest_generated::mutest_runtime::edition_2021_block! {");
+        state.space();
+    }
+
+    fn post(&self, state: &mut ast::print::state::State<'_>, node: ast::print::state::AnnNode<'_>) {
+        if !self.prints_edition_2021_block(&node) { return; }
+        state.space();
+        state.word("}");
+    }
+}
 
 fn dedupe_extern_crate_decls(items: &mut ThinVec<Box<ast::Item>>, sym: Symbol) {
     if let Some((first_extern_crate_index, _)) = items.iter().find_position(|&item| ast::inspect::is_extern_crate_decl(item, sym)) {
