@@ -83,6 +83,27 @@ fn only_the_environment_the_crate_read_is_recorded() {
     }
 }
 
+/// A build script's probe inherits its package's Cargo variables, but Cargo names no crate for it.
+#[test]
+fn a_build_script_probe_compiles_as_plain_rustc() {
+    let fixture = Fixture::new();
+    let manifest = fixture.source.join("Cargo.toml");
+    fs::write(&manifest, "[package]\nname = \"fixture\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\n[lib]\npath = \"lib.rs\"\n\n[workspace]\n").unwrap();
+    fs::write(fixture.source.join("lib.rs"), "pub fn value() -> u8 { 42 }").unwrap();
+    fs::write(fixture.source.join("probe.rs"), "pub fn probe() {}").unwrap();
+
+    let output = fixture.driver(&fixture.source)
+        .args(["probe.rs", "--crate-name", "probe", "--crate-type=lib", "--edition=2024", "--emit=metadata", "--out-dir"])
+        .arg(&fixture.output)
+        .env("CARGO_MANIFEST_PATH", &manifest)
+        .env("CARGO_PKG_NAME", "fixture")
+        .output()
+        .unwrap();
+
+    assert_success(&output);
+    assert!(fixture.output.join("libprobe.rmeta").exists());
+}
+
 #[test]
 fn a_record_is_written_beside_each_artifact_in_clean_and_warm_output_directories() {
     let fixture = Fixture::new();

@@ -184,6 +184,13 @@ fn read_replay_request(compiler_config: &mut CompilerConfig, early_dcx: &EarlyDi
     Some(request)
 }
 
+// NOTE: A build script's own rustc calls (such as feature probes) inherit the package's Cargo variables,
+//       but Cargo names no crate for them, as they are not targets of the package.
+fn is_build_script_probe() -> bool {
+    env::var_os("CARGO_MANIFEST_PATH").is_some() && env::var_os("CARGO_CRATE_NAME").is_none()
+        && env::var_os("MUTEST_REPLAY_REQUEST").is_none()
+}
+
 pub fn main() -> process::ExitCode {
     let early_dcx = EarlyDiagCtxt::new(ErrorOutputType::default());
     let mut args = rustc_driver::args::raw_args(&early_dcx);
@@ -267,7 +274,7 @@ pub fn main() -> process::ExitCode {
         env::var_os("MUTEST_TARGET_DIR_ROOT").map(PathBuf::from).as_deref());
 
     // Fall back to a rustc invocation if mutest is not "enabled" for the given crate based on invocation.
-    if info_query || proc_macro_target || (bin_target && !test_target) {
+    if info_query || proc_macro_target || is_build_script_probe() || (bin_target && !test_target) {
         return run_recording_build_failure(&build_label, owned_by_run, || {
             rustc_driver::compiler_entrypoint(&args, &mut RustcCallbacks { mutest_args: mutest_args_str })
         });
