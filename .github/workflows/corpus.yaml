@@ -30,8 +30,6 @@ jobs:
           - { crate: "block2", os: "windows-latest" }
           - { crate: "windows-core", os: "ubuntu-latest" }
           - { crate: "windows-core", os: "macos-latest" }
-          - { crate: "progenitor", os: "macos-latest" }
-          - { crate: "progenitor", os: "windows-latest" }
         include:
           # tokio-1.53.2
           - { crate: "tokio", repo: "tokio-rs/tokio", rev: "ff0c4068a4ba5f3af0fe3c5657ba42879b6ea599", args: "-p tokio --lib --features full" }
@@ -53,8 +51,8 @@ jobs:
           - { crate: "block2", repo: "madsmtm/objc2", rev: "b4167b582b2f75f9a1be75495c41b765344fd03c", args: "-p block2 --lib" }
           # 0.62.0
           - { crate: "windows-core", repo: "microsoft/windows-rs", rev: "50e85cbbc063b2d67c931ba0f6dd96bf8b466373", args: "-p windows-core --lib" }
-          # v0.15.0, a known gap: generated builder modules fail to resolve `use super::…` imports.
-          - { crate: "progenitor", repo: "oxidecomputer/progenitor", rev: "76a3b70f0eb11e044b52ee15bd07bcc370c8adb5", args: "-p progenitor-impl", expect_fail: true }
+          # v0.15.0
+          - { crate: "progenitor", repo: "oxidecomputer/progenitor", rev: "76a3b70f0eb11e044b52ee15bd07bcc370c8adb5", args: "-p progenitor-impl" }
 
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
