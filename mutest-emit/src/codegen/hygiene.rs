@@ -957,7 +957,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                                         Some(hir::Res::SelfTyAlias { alias_to: _trait_def_id, is_trait_impl: false, .. }) => {}
 
                                         // `Self::Assoc` paths.
-                                        // NOTE: We have to resolve the trait impl through the generic predicates in context,
+                                        // NOTE: We have to resolve the trait impl through the supertraits of the impl's trait,
                                         //       as the trait arguments are inferred in this case.
                                         Some(hir::Res::SelfTyAlias { alias_to: impl_def_id, is_trait_impl: true, .. }) => {
                                             if let Some(&impl_item_def_id) = self.tcx.impl_item_implementor_ids(impl_def_id).get(&trait_item_def_id) {
@@ -966,17 +966,14 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
 
                                             let assoc_item_trait_def_id = self.tcx.parent(trait_item_def_id);
 
-                                            let trait_ref = self.tcx.impl_trait_ref(impl_def_id);
-                                            let generic_predicates = self.tcx.clauses_of(trait_ref.skip_binder().def_id).instantiate(self.tcx, trait_ref.skip_binder().args);
+                                            let trait_ref = self.tcx.impl_trait_ref(impl_def_id).skip_binder();
 
-                                            // Extract impl predicate related to the trait of the assoc item.
-                                            let Some(assoc_item_trait_predicate) = generic_predicates.clauses.iter()
-                                                .filter_map(|&clause| clause.as_trait_clause().map(|p| p.skip_binder()))
-                                                .find(|trait_predicate| {
-                                                    trait_predicate.trait_ref.def_id == assoc_item_trait_def_id
-                                                        && trait_predicate.self_ty() == trait_ref.skip_binder().self_ty()
-                                                })
+                                            // Extract the supertrait, at any depth, that declares the assoc item (e.g. `C::Assoc` in `impl A`, with `A: B`, `B: C`).
+                                            let Some(assoc_item_trait_ref) = ty::elaborate::supertraits(self.tcx, ty::Binder::dummy(trait_ref))
+                                                .map(|supertrait_ref| supertrait_ref.skip_binder())
+                                                .find(|supertrait_ref| supertrait_ref.def_id == assoc_item_trait_def_id)
                                             else { span_bug!(path.span, "cannot find trait predicate related to the trait of associated item `{}`", self.tcx.def_path_str(trait_item_def_id)) };
+                                            let assoc_item_trait_predicate = ty::TraitClause { trait_ref: assoc_item_trait_ref, polarity: ty::ClausePolarity::Positive };
 
                                             let param_env = self.tcx.param_env(impl_def_id);
                                             let infcx = self.tcx.infer_ctxt().build(TypingMode::PostAnalysis);
