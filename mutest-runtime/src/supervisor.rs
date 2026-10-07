@@ -80,8 +80,17 @@ pub fn supervise() -> ! {
     // Without a journal the run goes on, but a crash cannot name the unfinished mutations.
     let journal = Journal::create().ok();
 
-    let status = run_worker(run_start, journal.as_ref());
-    let mut status = after_cleanup(status, sys::kill_descendants());
+    let mut worker_status = run_worker(run_start, journal.as_ref());
+    let mut cleanup = sys::kill_descendants();
+    while cleanup.is_ok() && let Some(crashed) = journal.as_ref().and_then(|journal| crashed_mutations(journal, worker_status)) {
+        eprintln!("mutation analysis worker crashed during mutations {crashed:?}; restarting it to run their tests each in a process of its own");
+        worker_status = run_worker(run_start, journal.as_ref());
+        cleanup = sys::kill_descendants();
+    }
+    if worker_status.code() == Some(exit_code::PANIC) {
+        eprintln!("mutation analysis incomplete: no valid completion or interrupted worker");
+    }
+    let mut status = after_cleanup(worker_status, cleanup);
     if let Some(journal) = journal {
         match journal.unfinished() {
             Ok(unfinished) if unfinished.is_empty() => {}
@@ -100,6 +109,13 @@ pub fn supervise() -> ! {
         }
     }
     exit_as(status, exit_code_log.as_deref())
+}
+
+/// The mutations a crashed worker left unfinished that no worker ran in isolation yet, now marked for isolation;
+/// `None` when the worker completed, was stopped, or crashed again in mutations already isolated.
+fn crashed_mutations(journal: &Journal, worker_status: ExitStatus) -> Option<Vec<u32>> {
+    if worker_status.code().is_some_and(exit_code::analysis_completed) || sys::stopped() { return None; }
+    journal.isolate_unfinished().ok().filter(|crashed| !crashed.is_empty())
 }
 
 fn after_initialization<T>(initialized: std::io::Result<()>, proceed: impl FnOnce() -> T) -> Result<T, ExitStatus> {
@@ -144,14 +160,6 @@ fn run_worker(run_start: Instant, journal: Option<&Journal>) -> ExitStatus {
         Ok(worker) => sys::wait_completed(worker, &completion),
         Err(stopped) => stopped,
     }
-}
-
-/// The exit status of a worker's outcome, which says on stderr when the worker left no valid completion.
-fn outcome_status(code: i32) -> ExitStatus {
-    if code == exit_code::PANIC {
-        eprintln!("mutation analysis incomplete: no valid completion or interrupted worker");
-    }
-    sys::exit_status(code)
 }
 
 fn exit_as(status: ExitStatus, exit_code_log: Option<&Path>) -> ! {
@@ -265,6 +273,10 @@ mod sys {
         }
     }
 
+    pub(super) fn stopped() -> bool {
+        stop_signal().is_some()
+    }
+
     /// Leaves the child unreaped, so that its id cannot go to another process yet.
     #[cfg(test)]
     fn wait_for_exit(idtype: libc::idtype_t, id: libc::id_t) -> pid_t {
@@ -343,7 +355,7 @@ mod sys {
             let stopped_late = stop_signal().is_some()
                 && status.signal().is_some_and(|signal| STOP_SIGNALS.contains(&signal));
             let status_code = if witnessed.is_some() && stopped_late { witnessed } else { status.code() };
-            super::outcome_status(completion::outcome(status_code, accepted, cancelled, transport_failed || final_record != accepted))
+            exit_status(completion::outcome(status_code, accepted, cancelled, transport_failed || final_record != accepted))
         }
     }
 
@@ -737,6 +749,9 @@ mod sys {
         Ok(())
     }
     pub(super) fn forward_stop_signals() {}
+    pub(super) fn stopped() -> bool {
+        false
+    }
     pub(super) fn start_worker(cmd: &mut Command) -> Result<Child, ExitStatus> {
         Ok(cmd.spawn().expect("cannot start the mutation analysis worker"))
     }
@@ -752,7 +767,7 @@ mod sys {
     pub(super) fn wait_completed(mut worker: Child, record: &super::Completion) -> ExitStatus {
         let pid = worker.id();
         let status = worker.wait().expect("cannot wait for mutation worker");
-        super::outcome_status(super::completion::outcome(status.code(), record.read(pid).ok().flatten(), false, false))
+        exit_status(super::completion::outcome(status.code(), record.read(pid).ok().flatten(), false, false))
     }
     pub(super) fn signal(_status: ExitStatus) -> Option<i32> {
         None
@@ -929,14 +944,14 @@ mod tests {
             supervisor::sys::die_with(Some(parent)).expect("fixture parent-death setup failed");
             // SAFETY: `setrlimit` only reads the limit it is given; aborting scenarios then leave no core file.
             unsafe { libc::setrlimit(libc::RLIMIT_CORE, &libc::rlimit { rlim_cur: 0, rlim_max: 0 }) };
-            if root.join("worker-pid").exists() {
-                // A second worker would be a restart, which `restart-hold` checks never happens.
-                announce(root, "retry-pid");
+            if root.join("retry-pid").exists() {
+                // A third worker would be a second restart, which `restart-hold` checks never happens.
+                announce(root, "third-pid");
                 loop {
                     thread::park();
                 }
             }
-            announce(root, "worker-pid");
+            announce(root, if root.join("worker-pid").exists() { "retry-pid" } else { "worker-pid" });
             let deadline = Instant::now() + Duration::from_secs(4);
             while !root.join("admit").exists() {
                 assert!(Instant::now() < deadline, "fixture admission deadline");
@@ -1205,15 +1220,17 @@ mod tests {
         }
 
         #[test]
-        fn a_crashed_worker_is_not_restarted() {
+        fn a_worker_that_crashes_again_in_isolated_mutations_is_not_restarted_again() {
             let mut fixture = Fixture::start("restart-hold");
             fixture.admit_worker();
             assert_eq!(fixture.wait().code(), Some(101));
-            assert!(!fixture.root.join("retry-pid").exists(), "the crashed worker was restarted");
+            assert!(fixture.root.join("retry-pid").exists(), "the crashed worker was not restarted");
+            assert!(!fixture.root.join("third-pid").exists(), "the restarted worker was restarted again");
+            assert!(fixture.output().contains("unfinished mutations [99]"), "{}", fixture.output());
         }
 
         #[test]
-        fn one_abort_does_not_complete_unfinished_collateral() {
+        fn an_abort_runs_its_batch_again_isolated_so_collateral_gets_its_own_result() {
             let mut fixture = Fixture::start("collateral");
             fixture.admit_worker();
             let status = fixture.wait();
@@ -1230,9 +1247,12 @@ mod tests {
                 "both mutations were not journaled before abort"
             );
             assert!(!events.iter().any(|event| event.get("finished").is_some()), "collateral already finished");
+            assert!(fixture.root.join("isolated-abort-entered").exists(), "the aborting mutation did not run again isolated");
+            assert!(fixture.root.join("isolated-collateral-entered").exists(), "the collateral did not run again isolated");
+            assert_eq!(status.code(), Some(mutest_exit_code::MISSED), "{}", fixture.output());
             assert!(
-                !status.code().is_some_and(mutest_exit_code::analysis_completed),
-                "aborted batch silently completed collateral: {status}\n{}",
+                fixture.output().contains("0 detected (0 timed out; 1 crashed); 1 undetected; 2 total"),
+                "the abort did not count as crashed: {}",
                 fixture.output()
             );
         }

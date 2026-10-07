@@ -21,13 +21,16 @@ pub struct EvaluationStreamWriter {
 }
 
 impl EvaluationStreamWriter {
-    pub fn new(path: &Path, t_start: Instant) -> Self {
-        let file = fs::File::create(path).expect("cannot create stream file");
+    /// A worker that takes over from a crashed one appends to the stream that the crashed worker began.
+    pub fn new(path: &Path, t_start: Instant, resume: bool) -> Self {
+        let file = fs::OpenOptions::new().write(true).create(true).append(resume).truncate(!resume).open(path).expect("cannot create stream file");
         let eval_stream_writer = Self { file: Arc::new(Mutex::new(file)), t_start };
 
-        eval_stream_writer.write_event(&mutest_json::evaluation_stream::EvaluationStreamHeader {
-            format_version: mutest_json::FORMAT_VERSION,
-        });
+        if !resume {
+            eval_stream_writer.write_event(&mutest_json::evaluation_stream::EvaluationStreamHeader {
+                format_version: mutest_json::FORMAT_VERSION,
+            });
+        }
 
         eval_stream_writer
     }

@@ -10,7 +10,7 @@
       "mutest-emit/src/codegen/hygiene.rs": 2045,
       "mutest-emit/src/codegen/mutation.rs": 1162,
       "mutest-inspector/src/server.rs": 1226,
-      "mutest-runtime/src/harness.rs": 1387
+      "mutest-runtime/src/harness.rs": 1382
     },
     "binsize": {
       "cargo-mutest": 1895552,

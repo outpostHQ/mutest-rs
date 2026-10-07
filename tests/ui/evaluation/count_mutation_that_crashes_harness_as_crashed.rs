@@ -1,16 +1,13 @@
-//@ run: exit 101
+//@ run
 //@ stdout
+//@ stderr
 //@ eval-stream
 //@ mutation-operators: fn_return_default
 
-//! Recursive `Default` aborts on stack overflow; analysis stays incomplete and retains its journal.
+//! A mutation that ends the harness process runs again in a process of its own, where it counts as crashed.
 
-struct Limit(u32);
-
-impl Default for Limit {
-    fn default() -> Self {
-        Limit(3)
-    }
+fn checked(value: u32) -> u32 {
+    value
 }
 
 fn double(value: u32) -> u32 {
@@ -19,6 +16,9 @@ fn double(value: u32) -> u32 {
 
 #[test]
 fn test() {
-    assert_eq!(3, Limit::default().0);
+    // NOTE: An exit code that reports no test result, rather than a stack overflow, whose core dump a host may take longer than the test timeout to collect.
+    if checked(7) != 7 {
+        std::process::exit(9);
+    }
     assert_eq!(4, double(2));
 }

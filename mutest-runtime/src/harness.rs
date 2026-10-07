@@ -330,7 +330,7 @@ fn run_tests(
     external_tests_extra: Option<&ExternalTestsExtra>,
     mutant: Mutant,
     exhaustive: bool,
-    mutation_isolation: config::MutationIsolation,
+    isolated: bool,
     thread_pool: Option<ThreadPool>,
     test_concurrency: Option<usize>,
     eval_stream_writer: Option<EvaluationStreamWriter>,
@@ -433,21 +433,16 @@ fn run_tests(
         Ok(test_runner::Flow::Continue)
     };
 
-    let test_run_strategy = match (mutation_isolation, mutations) {
-        (_, []) => { return Default::default(); }
-
-        (config::MutationIsolation::All, [_, _, ..]) => panic!("cannot isolate multiple mutations into separate processes from one run_tests loop"),
-        // NOTE: Encountered batch of multiple mutations, so we assume none of them are unsafe,
-        //       as that would be an invalid mutation batch.
-        (_, [_, _, ..]) => test_runner::TestRunStrategy::InProcess(thread_pool),
-
-        (config::MutationIsolation::Unsafe, [mutation]) if !mutation.is_unsafe()
-        => test_runner::TestRunStrategy::InProcess(thread_pool),
-
-        (_, [mutation]) => test_runner::TestRunStrategy::InIsolatedChildProcess({
+    let test_run_strategy = match mutations {
+        [] => { return Default::default(); }
+        _ if !isolated => test_runner::TestRunStrategy::InProcess(thread_pool),
+        // NOTE: The child process of a test activates the substitutions of the whole mutant that holds the mutation.
+        [mutation, ..] => test_runner::TestRunStrategy::InIsolatedChildProcess({
             let mutation_id = mutation.id;
             Arc::new(move |cmd| {
                 cmd.env(MUTEST_ISOLATED_WORKER_MUTATION_ID, mutation_id.to_string());
+                #[cfg(all(test, target_os = "linux"))]
+                regression_fixture::run_fixture_entry_only(cmd);
             })
         })
     };
@@ -567,7 +562,7 @@ impl MutationAnalysisResults {
         }
     }
 
-    fn record_mutation_results(&mut self, mutation: &'static MutationMeta, mutation_result: MutationTestResults) {
+    pub(crate) fn record_mutation_results(&mut self, mutation: &'static MutationMeta, mutation_result: MutationTestResults) {
         let op_stats = self.mutation_op_stats.entry(mutation.op_name).or_default();
 
         self.total_mutations_count += 1;
@@ -654,11 +649,13 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
         duration: Duration::ZERO,
     };
 
+    journal::record_earlier_results(journal, &mut results, meta_mutant.mutations, tests);
+
     let t_start = Instant::now();
 
     match meta_mutant.mutation_parallelism {
         MutationParallelism::None(mutants) => {
-            for mutant in mutants {
+            for mutant in mutants.iter().filter(|mutant| !journal::finished_before(journal, mutant.mutation)) {
                 // SAFETY: Ideally, since the previous test runs all completed,
                 //         no other thread is running, no one else is reading from the handle.
                 //         Lingering test cases from previous test runs are forcibly terminated
@@ -689,7 +686,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                 }
 
                 journal_started(journal, &[mutant.mutation]);
-                let (mut run_results, lingering_tests) = run_tests(tests, external_tests_extra, Mutant::Mutation(mutant), opts.exhaustive, opts.mutation_isolation, thread_pool.clone(), None, eval_stream_writer.clone(), opts.verbosity);
+                let (mut run_results, lingering_tests) = run_tests(tests, external_tests_extra, Mutant::Mutation(mutant), opts.exhaustive, journal::isolates(journal, opts.mutation_isolation, &[mutant.mutation]), thread_pool.clone(), None, eval_stream_writer.clone(), opts.verbosity);
                 lingering_test_monitoring_thread.submit_lingering_tests(lingering_tests);
 
                 let Some(mutation_result) = run_results.remove(&mutant.mutation.id) else { unreachable!() };
@@ -701,7 +698,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
             }
         }
         MutationParallelism::Batched(batched_mutants) => {
-            for batched_mutant in batched_mutants {
+            for batched_mutant in batched_mutants.iter().filter(|batched_mutant| !batched_mutant.mutations.iter().all(|mutation| journal::finished_before(journal, mutation))) {
                 // SAFETY: Ideally, since the previous test runs all completed,
                 //         no other thread is running, no one else is reading from the handle.
                 //         Lingering test cases from previous test runs are forcibly terminated
@@ -741,10 +738,10 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                 maximize_mutation_parallelism(&mut tests, external_tests_extra, batched_mutant.mutations);
 
                 journal_started(journal, batched_mutant.mutations);
-                let (mut run_results, lingering_tests) = run_tests(tests, external_tests_extra, Mutant::Batch(batched_mutant), opts.exhaustive, opts.mutation_isolation, thread_pool.clone(), None, eval_stream_writer.clone(), opts.verbosity);
+                let (mut run_results, lingering_tests) = run_tests(tests, external_tests_extra, Mutant::Batch(batched_mutant), opts.exhaustive, journal::isolates(journal, opts.mutation_isolation, batched_mutant.mutations), thread_pool.clone(), None, eval_stream_writer.clone(), opts.verbosity);
                 lingering_test_monitoring_thread.submit_lingering_tests(lingering_tests);
 
-                for mutation in batched_mutant.mutations {
+                for mutation in batched_mutant.mutations.iter().filter(|mutation| !journal::finished_before(journal, mutation)) {
                     let Some(mutation_result) = run_results.remove(&mutation.id) else { unreachable!() };
                     journal_finished(journal, mutation, &mutation_result);
                     if let MutationTestResult::Undetected = mutation_result.result {
@@ -761,7 +758,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
             };
             let max_thread_count = thread_pool.max_thread_count();
 
-            let mut remaining_mutants = mutants.iter().collect::<Vec<_>>();
+            let mut remaining_mutants = mutants.iter().filter(|mutant| !journal::finished_before(journal, mutant.mutation)).collect::<Vec<_>>();
 
             struct RunningMutant {
                 mutant: &'static StandaloneMutantMeta,
@@ -821,14 +818,14 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                         }
 
                         let job_exhaustive = opts.exhaustive;
-                        let job_mutation_isolation = opts.mutation_isolation;
+                        let job_isolated = journal::isolates(journal, opts.mutation_isolation, &[mutant.mutation]);
                         let job_thread_pool = Some(thread_pool.clone());
                         let job_eval_stream_writer = eval_stream_writer.clone();
                         let job_lingering_test_monitoring_thread = lingering_test_monitoring_thread.clone();
                         let job_verbosity = opts.verbosity;
                         let job = move || {
                             // Mutants running side by side share the pool's slots, so each runs one test at a time.
-                            let (mut run_results, lingering_tests) = run_tests(tests, external_tests_extra, Mutant::Mutation(mutant), job_exhaustive, job_mutation_isolation, job_thread_pool, Some(1), job_eval_stream_writer, job_verbosity);
+                            let (mut run_results, lingering_tests) = run_tests(tests, external_tests_extra, Mutant::Mutation(mutant), job_exhaustive, job_isolated, job_thread_pool, Some(1), job_eval_stream_writer, job_verbosity);
                             job_lingering_test_monitoring_thread.submit_lingering_tests(lingering_tests);
 
                             let Some(result) = run_results.remove(&mutant.mutation.id) else { unreachable!() };
@@ -993,7 +990,7 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
 
     let eval_stream_writer = match &opts.write_opts {
         Some(write_opts) if let Some(()) = write_opts.eval_stream => {
-            Some(EvaluationStreamWriter::new(&write_opts.out_dir.join("evaluation.jsonl"), t_start))
+            Some(EvaluationStreamWriter::new(&write_opts.out_dir.join("evaluation.jsonl"), t_start, journal::worker().is_some_and(WorkerJournal::resumes)))
         }
         _ => None,
     };
@@ -1285,9 +1282,7 @@ fn mutest_simulate_main<S: SubstMap>(args: &[&str], tests: Vec<test::TestDescAnd
             Arc::new(move |cmd| {
                 cmd.env(MUTEST_ISOLATED_WORKER_MUTATION_ID, mutation_id.to_string());
                 #[cfg(all(test, target_os = "linux"))]
-                if env::var("MUTEST_REGRESSION_SCENARIO").is_ok_and(|scenario| scenario == "unsafe-simulate") {
-                    cmd.args(["--exact", "supervisor::tests::regressions::runtime_fixture_entry", "--test-threads=1", "--nocapture"]);
-                }
+                regression_fixture::run_fixture_entry_only(cmd);
             })
         }),
     };

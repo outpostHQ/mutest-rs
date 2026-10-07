@@ -153,10 +153,29 @@ fn isolated_abort() -> Result<(), String> {
 }
 
 pub(crate) fn isolated_entry() {
-    mutest_isolated_worker(case("isolated", isolated_abort), &UNSAFE_META);
+    match env::var(test_runner::TEST_SUBPROCESS_INVOCATION).unwrap().as_str() {
+        "abort" => mutest_isolated_worker(case("abort", aborting), &BATCH),
+        "collateral" => mutest_isolated_worker(case("collateral", collateral), &BATCH),
+        _ => mutest_isolated_worker(case("isolated", isolated_abort), &UNSAFE_META),
+    }
+}
+
+/// Makes the isolated child of a fixture worker run only the fixture entry, not every test of this binary.
+pub(crate) fn run_fixture_entry_only(cmd: &mut process::Command) {
+    if env::var_os("MUTEST_REGRESSION_SCENARIO").is_some() {
+        cmd.args(["--exact", "supervisor::tests::regressions::runtime_fixture_entry", "--test-threads=1", "--nocapture"]);
+    }
+}
+
+fn isolated() -> bool {
+    env::var_os(MUTEST_ISOLATED_WORKER_MUTATION_ID).is_some()
 }
 
 fn aborting() -> Result<(), String> {
+    if ACTIVE.subst_at(0).is_some() && isolated() {
+        mark("isolated-abort-entered");
+        process::abort();
+    }
     if ACTIVE.subst_at(0).is_some() {
         mark("abort-entered");
         let root = PathBuf::from(env::var_os("MUTEST_REGRESSION_ROOT").unwrap());
@@ -170,6 +189,10 @@ fn aborting() -> Result<(), String> {
 }
 
 fn collateral() -> Result<(), String> {
+    if ACTIVE.subst_at(1).is_some() && isolated() {
+        mark("isolated-collateral-entered");
+        return Ok(());
+    }
     if ACTIVE.subst_at(1).is_some() {
         mark("collateral-entered");
         RENDEZVOUS.get_or_init(|| Barrier::new(2)).wait();

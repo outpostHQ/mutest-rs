@@ -1,6 +1,7 @@
-//! The mutations a worker started and finished, so that a crash can name those left unfinished.
+//! The mutations a worker started and finished, so that a crash can name those left unfinished,
+//! and a restarted worker can skip those finished and isolate those that crashed the worker before.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::env;
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
@@ -10,8 +11,11 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::{Mutex, OnceLock};
 
-use crate::harness::{MutationTestResult, MutationTestResults};
+use crate::config::MutationIsolation;
+use crate::harness::{MutationAnalysisResults, MutationTestResult, MutationTestResults};
 use crate::json;
+use crate::metadata::MutationMeta;
+use crate::test_runner;
 
 pub(crate) const JOURNAL_VAR: &str = "__MUTEST_JOURNAL";
 
@@ -25,7 +29,7 @@ fn result_name(result: MutationTestResult) -> &'static str {
 }
 
 /// The results `result_name` writes, so that a row naming any other is refused.
-#[derive(serde::Deserialize)]
+#[derive(Clone, Copy, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum RecordedResult {
     Undetected,
@@ -34,7 +38,18 @@ enum RecordedResult {
     Crashed,
 }
 
-/// The results are kept for diagnosing a crashed run; only the ids are read back.
+impl From<RecordedResult> for MutationTestResult {
+    fn from(result: RecordedResult) -> Self {
+        match result {
+            RecordedResult::Undetected => Self::Undetected,
+            RecordedResult::Detected => Self::Detected,
+            RecordedResult::TimedOut => Self::TimedOut,
+            RecordedResult::Crashed => Self::Crashed,
+        }
+    }
+}
+
+/// The worker writes the `started` and `finished` rows; the supervisor writes `isolate` before it restarts a crashed worker.
 #[derive(serde::Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
 enum Record {
@@ -43,14 +58,20 @@ enum Record {
     },
     Finished {
         finished: u32,
-        #[serde(rename = "result")]
-        _result: RecordedResult,
-        #[serde(rename = "tests")]
-        _tests: Vec<(String, Option<RecordedResult>)>,
+        result: RecordedResult,
+        tests: Vec<(String, Option<RecordedResult>)>,
+    },
+    Isolate {
+        isolate: Vec<u32>,
     },
 }
 
-fn append(file: &mut File, line: json::Object) -> io::Result<()> {
+struct Finished {
+    result: RecordedResult,
+    tests: Vec<(String, Option<RecordedResult>)>,
+}
+
+fn append(mut file: impl Write, line: json::Object) -> io::Result<()> {
     let mut bytes = line.into_vec()?;
     bytes.push(b'\n');
     file.write_all(&bytes)?;
@@ -60,20 +81,26 @@ fn append(file: &mut File, line: json::Object) -> io::Result<()> {
 #[derive(Default)]
 struct Entries {
     started: BTreeSet<u32>,
-    finished: BTreeSet<u32>,
+    finished: BTreeMap<u32, Finished>,
+    isolated: BTreeSet<u32>,
 }
 
 impl Entries {
     fn add(&mut self, record: Record) -> io::Result<()> {
         match record {
             Record::Started { started } => self.started.extend(started),
-            Record::Finished { finished, .. } => {
-                if !self.finished.insert(finished) {
+            Record::Finished { finished, result, tests } => {
+                if self.finished.insert(finished, Finished { result, tests }).is_some() {
                     return Err(io::Error::other("duplicate finished journal result"));
                 }
             }
+            Record::Isolate { isolate } => self.isolated.extend(isolate),
         }
         Ok(())
+    }
+
+    fn unfinished(&self) -> impl Iterator<Item = u32> {
+        self.started.iter().copied().filter(|id| !self.finished.contains_key(id))
     }
 }
 
@@ -139,12 +166,19 @@ impl Journal {
     }
 
     pub fn unfinished(&self) -> io::Result<Vec<u32>> {
+        Ok(read(&self.file)?.unfinished().collect())
+    }
+
+    /// Records the unfinished mutations that are not isolated yet as isolated, for the next worker, and returns them.
+    pub fn isolate_unfinished(&self) -> io::Result<Vec<u32>> {
         let entries = read(&self.file)?;
-        Ok(entries
-            .started
-            .into_iter()
-            .filter(|id| !entries.finished.contains(id))
-            .collect())
+        let crashed = entries.unfinished().filter(|id| !entries.isolated.contains(id)).collect::<Vec<_>>();
+        if !crashed.is_empty() {
+            let mut file = &self.file;
+            file.seek(SeekFrom::End(0))?;
+            append(file, json::Object::new().field("isolate", &crashed))?;
+        }
+        Ok(crashed)
     }
 
     pub(crate) fn path(&self) -> &Path {
@@ -167,6 +201,8 @@ impl Drop for Journal {
 pub struct WorkerJournal {
     path: PathBuf,
     file: Mutex<Option<File>>,
+    /// The rows of the workers before this one, which crashed.
+    earlier: Entries,
 }
 
 static WORKER_JOURNAL: OnceLock<Option<WorkerJournal>> = OnceLock::new();
@@ -186,10 +222,47 @@ pub fn worker() -> Option<&'static WorkerJournal> {
     WORKER_JOURNAL.get().and_then(Option::as_ref)
 }
 
+/// Whether an earlier worker finished `mutation`.
+pub(crate) fn finished_before(journal: Option<&WorkerJournal>, mutation: &MutationMeta) -> bool {
+    journal.is_some_and(|journal| journal.earlier.finished.contains_key(&mutation.id))
+}
+
+/// Whether the tests of `mutations` run each in a process of their own: as `isolation` asks, or because they crashed an earlier worker.
+pub(crate) fn isolates(journal: Option<&WorkerJournal>, isolation: MutationIsolation, mutations: &[&MutationMeta]) -> bool {
+    journal.is_some_and(|journal| mutations.iter().any(|mutation| journal.earlier.isolated.contains(&mutation.id)))
+        || isolation.isolates(mutations)
+}
+
+/// Records the results of the mutations that the crashed workers before this one finished.
+pub(crate) fn record_earlier_results(journal: Option<&WorkerJournal>, results: &mut MutationAnalysisResults, mutations: &[&'static MutationMeta], tests: &[test_runner::Test]) {
+    for (mutation, mutation_result) in journal.map(|journal| journal.earlier_results(mutations, tests)).unwrap_or_default() {
+        results.record_mutation_results(mutation, mutation_result);
+    }
+}
+
 impl WorkerJournal {
     fn open(path: PathBuf) -> Option<Self> {
-        let file = OpenOptions::new().append(true).open(&path).ok()?;
-        Some(Self { path, file: Mutex::new(Some(file)) })
+        let file = OpenOptions::new().read(true).append(true).open(&path).ok()?;
+        let earlier = read(&file).ok()?;
+        Some(Self { path, file: Mutex::new(Some(file)), earlier })
+    }
+
+    /// Whether this worker takes over the analysis from a worker that crashed.
+    pub(crate) fn resumes(&self) -> bool {
+        !self.earlier.started.is_empty()
+    }
+
+    /// The results of the earlier workers, with the names of `tests`, so that this worker does not run those mutations again.
+    pub(crate) fn earlier_results<'m>(&self, mutations: &[&'m MutationMeta], tests: &[test_runner::Test]) -> Vec<(&'m MutationMeta, MutationTestResults)> {
+        let names = tests.iter().map(|test| (test.desc.name.as_slice(), &test.desc.name)).collect::<HashMap<_, _>>();
+        let test_name = |name: &String| names.get(name.as_str()).map_or_else(|| test::DynTestName(name.clone()), |&name| name.clone());
+        mutations.iter()
+            .filter_map(|&mutation| Some((mutation, self.earlier.finished.get(&mutation.id)?)))
+            .map(|(mutation, finished)| (mutation, MutationTestResults {
+                result: finished.result.into(),
+                results_per_test: finished.tests.iter().map(|(name, result)| (test_name(name), result.map(Into::into))).collect(),
+            }))
+            .collect()
     }
 
     /// Stops recording after a failed write, but keeps the earlier rows for diagnosing the run.
@@ -277,6 +350,22 @@ mod tests {
         worker_journal.started(&[3]);
         assert_eq!(journal.unfinished().unwrap(), [1]);
         assert_eq!(std::fs::read_to_string(&journal.path).unwrap(), "{\"started\":[1]}\n");
+    }
+
+    #[test]
+    fn each_crashed_mutation_is_isolated_once_and_a_restart_keeps_the_finished_results() {
+        let journal = Journal::create().unwrap();
+        let worker_journal = WorkerJournal::open(journal.path.clone()).unwrap();
+        worker_journal.started(&[1, 2]);
+        worker_journal.finished(1, &Default::default());
+        assert_eq!(journal.isolate_unfinished().unwrap(), [2]);
+        assert_eq!(journal.isolate_unfinished().unwrap(), [] as [u32; 0]);
+
+        let restarted = WorkerJournal::open(journal.path.clone()).unwrap();
+        assert!(restarted.resumes());
+        assert!(restarted.earlier.finished.contains_key(&1) && restarted.earlier.isolated.contains(&2));
+        restarted.started(&[2, 3]);
+        assert_eq!(journal.isolate_unfinished().unwrap(), [3]);
     }
 
     #[test]
