@@ -3,9 +3,29 @@ use rustc_span::span_bug;
 use crate::analysis::hir;
 use crate::analysis::res;
 use crate::codegen::ast;
-use crate::codegen::symbols::{Span, kw};
+use crate::codegen::symbols::{Span, Symbol, kw};
 
 use super::MacroExpansionSanitizer;
+
+/// Pushes the names that the use tree brings into scope, with `None` for a glob import.
+fn push_use_tree_names(use_tree: &ast::UseTree, names: &mut Vec<Option<Symbol>>) {
+    match &use_tree.kind {
+        ast::UseTreeKind::Simple(_) => names.push(Some(use_tree.ident().name)),
+        ast::UseTreeKind::Nested { items, .. } => items.iter().for_each(|item| push_use_tree_names(&item.inner, names)),
+        ast::UseTreeKind::Glob(..) => names.push(None),
+    }
+}
+
+/// Pushes the names that the items and imports of the block bring into scope, with `None` for a glob import.
+pub(super) fn push_block_names(block: &ast::Block, names: &mut Vec<Option<Symbol>>) {
+    for stmt in &block.stmts {
+        let ast::StmtKind::Item(item) = &stmt.kind else { continue; };
+        match &item.kind {
+            ast::ItemKind::Use(use_tree) => push_use_tree_names(use_tree, names),
+            kind => names.extend(kind.ident().map(|ident| Some(ident.name))),
+        }
+    }
+}
 
 /// How many `super` segments a `super{::super}*` path prefix has, which may start with a `self` that changes nothing.
 pub(super) fn super_count(segments: &[ast::PathSegment]) -> Option<usize> {
@@ -17,6 +37,14 @@ pub(super) fn super_count(segments: &[ast::PathSegment]) -> Option<usize> {
 }
 
 impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
+    /// Whether an item or import of an enclosing block can shadow the module item that starts the local path.
+    pub(super) fn is_shadowed_in_block(&self, def_path: &res::DefPath<'tcx>) -> bool {
+        let Some(first) = def_path.segments.first() else { return false; };
+        if first.ident.is_path_segment_keyword() { return false; }
+        let is_module_item = first.reexport.is_some() || self.tcx.def_kind(self.tcx.parent(first.def_id)) == hir::DefKind::Mod;
+        is_module_item && self.block_names.iter().any(|name| name.is_none_or(|name| name == first.ident.name))
+    }
+
     pub(super) fn expect_visible_def_path(&self, request: res::DefPathRequestKind, ignore_reexport: Option<hir::DefId>, span: Span) -> res::DefPath<'tcx> {
         match res::visible_def_path(self.tcx, self.crate_res, request, self.current_scope, ignore_reexport, span) {
             Ok(def_path) => def_path,

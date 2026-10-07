@@ -160,6 +160,9 @@ struct MacroExpansionSanitizer<'tcx, 'op> {
     /// We do not want to sanitize some idents (mostly temporarily) in the AST.
     /// During the visit we keep track of these so that they can be excluded from sanitization.
     protected_idents: FxHashSet<Ident>,
+    /// Names that the items and imports of the enclosing blocks bring into scope, which can shadow module items.
+    /// `None` stands for a glob import, which can shadow any name.
+    block_names: Vec<Option<Symbol>>,
 
     /// Keep track of the seen expansions.
     seen_expn_ids: FxHashSet<ExpnId>,
@@ -322,6 +325,10 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                 qself = Some(ty);
             }
 
+            // Local path, shadowed by the names of an enclosing block: `self::..`.
+            res::DefPathRootKind::Local if self.is_shadowed_in_block(def_path) => {
+                segments.insert(0, ast::PathSegment { id: ast::DUMMY_NODE_ID, ident: Ident::new(kw::SelfLower, DUMMY_SP), args: None });
+            }
             // Local path, no special prefix.
             res::DefPathRootKind::Local => {}
 
@@ -1343,6 +1350,7 @@ pub fn sanitize_path<'tcx>(tcx: TyCtxt<'tcx>, crate_res: &res::CrateResolutions<
         macros_2_0_top_level_relative_path_res_hack: Macros2_0TopLevelRelativePathResHack::NotInMacros2_0Scope,
         next_vis_owner: None,
         protected_idents: Default::default(),
+        block_names: vec![],
         seen_expn_ids: Default::default(),
         allow_internal_unstables: Default::default(),
     };
@@ -1789,6 +1797,13 @@ impl<'tcx, 'op> ast::mut_visit::MutVisitor for MacroExpansionSanitizer<'tcx, 'op
         self.current_scope = previous_scope;
     }
 
+    fn visit_block(&mut self, block: &mut ast::Block) {
+        let outer_block_names = self.block_names.len();
+        scope::push_block_names(block, &mut self.block_names);
+        ast::mut_visit::walk_block(self, block);
+        self.block_names.truncate(outer_block_names);
+    }
+
     fn visit_path(&mut self, path: &mut ast::Path) {
         let Some(last_segment) = path.segments.last() else { unreachable!(); };
         let Some(res) = self.def_res.node_res(last_segment.id) else {
@@ -1926,6 +1941,7 @@ pub fn sanitize_macro_expansions<'tcx>(tcx: TyCtxt<'tcx>, crate_res: &res::Crate
         macros_2_0_top_level_relative_path_res_hack: Macros2_0TopLevelRelativePathResHack::NotInMacros2_0Scope,
         next_vis_owner: None,
         protected_idents: Default::default(),
+        block_names: vec![],
         seen_expn_ids: Default::default(),
         allow_internal_unstables: Default::default(),
     };
