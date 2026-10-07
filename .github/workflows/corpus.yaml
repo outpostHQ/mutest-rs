@@ -1,0 +1,108 @@
+name: corpus
+
+# Builds the mutated test harness of real crates, each pinned to a release commit, without running it.
+# A gap in printing the mutated crate shows here as a crate that does not build.
+on:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "rust-toolchain.toml"
+      - ".github/workflows/corpus.yaml"
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-harness:
+    name: ${{ matrix.crate }} (${{ matrix.os }})
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ["ubuntu-latest", "macos-latest", "windows-latest"]
+        crate: ["tokio", "serde", "pest", "libp2p", "iroh", "quinn", "hyper", "tonic", "block2", "windows-core", "progenitor"]
+        exclude:
+          - { crate: "block2", os: "ubuntu-latest" }
+          - { crate: "block2", os: "windows-latest" }
+          - { crate: "windows-core", os: "ubuntu-latest" }
+          - { crate: "windows-core", os: "macos-latest" }
+          - { crate: "progenitor", os: "macos-latest" }
+          - { crate: "progenitor", os: "windows-latest" }
+        include:
+          # tokio-1.53.2
+          - { crate: "tokio", repo: "tokio-rs/tokio", rev: "ff0c4068a4ba5f3af0fe3c5657ba42879b6ea599", args: "-p tokio --lib --features full" }
+          # v1.0.229
+          - { crate: "serde", repo: "serde-rs/serde", rev: "7fc3b4c30c94f73a96ebd1553f2b090d928fc3a8", args: "-p serde --lib" }
+          # v2.9.2, grammars defined through the derive macro's DSL
+          - { crate: "pest", repo: "pest-parser/pest", rev: "67e5acbbe622fab0771cf9d515e4ea7744f482d5", args: "-p pest_grammars --lib" }
+          # libp2p-v0.56.0
+          - { crate: "libp2p", repo: "libp2p/rust-libp2p", rev: "70082df7e6181722630eabc5de5373733aac9a21", args: "-p libp2p-swarm --lib" }
+          # v0.98.2
+          - { crate: "iroh", repo: "n0-computer/iroh", rev: "7867f7164a5c902f6ea17f1a1a5430c0e02526d7", args: "-p iroh --lib" }
+          # quinn-0.11.12
+          - { crate: "quinn", repo: "quinn-rs/quinn", rev: "eaec0db4bcb698f76df736d89938743c88a2ad5f", args: "-p quinn-proto --lib" }
+          # v1.12.0
+          - { crate: "hyper", repo: "hyperium/hyper", rev: "7f67699ce32d717081deb7018b4da7d679277ac0", args: "--lib --features full" }
+          # v0.14.5
+          - { crate: "tonic", repo: "hyperium/tonic", rev: "3f7caf3171393734ef19e12d010bd9c945c9e242", args: "-p tonic --lib" }
+          # block2-0.6.2
+          - { crate: "block2", repo: "madsmtm/objc2", rev: "b4167b582b2f75f9a1be75495c41b765344fd03c", args: "-p block2 --lib" }
+          # 0.62.0
+          - { crate: "windows-core", repo: "microsoft/windows-rs", rev: "50e85cbbc063b2d67c931ba0f6dd96bf8b466373", args: "-p windows-core --lib" }
+          # v0.15.0, a known gap: generated builder modules fail to resolve `use super::…` imports.
+          - { crate: "progenitor", repo: "oxidecomputer/progenitor", rev: "76a3b70f0eb11e044b52ee15bd07bcc370c8adb5", args: "-p progenitor-impl", expect_fail: true }
+
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      # Install Rust toolchain specified in rust-toolchain.toml.
+      - name: Install Rust toolchain
+        run: rustc --version
+
+      - name: Build mutest-runtime
+        run: cargo build --release -p mutest-runtime
+
+      - name: Install mutest-driver and cargo-mutest
+        run: |
+          cargo install --force --path mutest-driver
+          cargo install --force --path cargo-mutest
+
+      # The crate's own toolchain file must not replace the nightly that mutest-driver is linked against.
+      - name: Use the mutest toolchain for the crate
+        shell: bash
+        run: echo "RUSTUP_TOOLCHAIN=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_ENV"
+
+      - name: Fetch ${{ matrix.repo }}
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          git init -q crate
+          git -C crate fetch -q --depth 1 "https://github.com/${{ matrix.repo }}" "${{ matrix.rev }}"
+          git -C crate checkout -q FETCH_HEAD
+
+      - name: Build the mutated test harness
+        shell: bash
+        working-directory: ${{ runner.temp }}/crate
+        env:
+          ARGS: ${{ matrix.args }}
+          EXPECT_FAIL: ${{ matrix.expect_fail }}
+        run: |
+          status=0
+          cargo mutest run --no-run $ARGS || status=$?
+          if [ "$EXPECT_FAIL" = "true" ]; then
+            if [ "$status" -eq 0 ]; then
+              echo "::error::${{ matrix.crate }} builds now; remove its expect_fail"
+              exit 1
+            fi
+            echo "::notice::${{ matrix.crate }} does not build, as expected"
+            exit 0
+          fi
+          exit "$status"
