@@ -101,7 +101,7 @@
       "mutest-emit/src/analysis/ast_lowering.rs#walk_qpath": 18,
       "mutest-emit/src/analysis/ast_lowering.rs#walk_ty": 24,
       "mutest-emit/src/analysis/call_graph.rs#mir_callees": 21,
-      "mutest-emit/src/analysis/call_graph.rs#reachable_fns": 105,
+      "mutest-emit/src/analysis/call_graph.rs#reachable_fns": 101,
       "mutest-emit/src/analysis/res.rs#absolute_def_paths": 76,
       "mutest-emit/src/analysis/res.rs#visible_def_path": 35,
       "mutest-emit/src/analysis/res.rs#visible_parent_map": 42,

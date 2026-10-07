@@ -1,0 +1,27 @@
+//@ stderr: empty
+
+// Each function calls both functions of the next layer, so 32 layers make 2^31 call paths to the last layer.
+macro_rules! layers {
+    ($a:ident $b:ident) => {
+        fn $a() {}
+        fn $b() {}
+    };
+    ($a:ident $b:ident, $next_a:ident $next_b:ident $(, $rest_a:ident $rest_b:ident)*) => {
+        fn $a() { $next_a(); $next_b(); }
+        fn $b() { $next_a(); $next_b(); }
+        layers!($next_a $next_b $(, $rest_a $rest_b)*);
+    };
+}
+
+layers!(
+    a0 b0, a1 b1, a2 b2, a3 b3, a4 b4, a5 b5, a6 b6, a7 b7,
+    a8 b8, a9 b9, a10 b10, a11 b11, a12 b12, a13 b13, a14 b14, a15 b15,
+    a16 b16, a17 b17, a18 b18, a19 b19, a20 b20, a21 b21, a22 b22, a23 b23,
+    a24 b24, a25 b25, a26 b26, a27 b27, a28 b28, a29 b29, a30 b30, a31 b31
+);
+
+#[test]
+fn test() {
+    a0();
+    b0();
+}

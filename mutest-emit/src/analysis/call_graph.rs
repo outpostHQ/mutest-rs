@@ -1,10 +1,10 @@
 use std::cell::UnsafeCell;
 use std::collections::hash_map;
+use std::collections::vec_deque::VecDeque;
 use std::hash::{Hash, Hasher};
 use std::iter;
 
 use rustc_data_structures::fx::{FxHashSet, FxHashMap};
-use rustc_data_structures::smallvec::{SmallVec, smallvec};
 use rustc_middle::middle::codegen_fn_attrs::CodegenFnAttrFlags;
 use rustc_middle::mir;
 use rustc_middle::ty::TyCtxt;
@@ -494,24 +494,6 @@ pub struct InstanceCall<'tcx> {
     pub span: Span,
 }
 
-pub struct CallTrace<'tcx> {
-    pub root: hir::LocalDefId,
-    pub nested_calls: SmallVec<[Callee<'tcx>; 1]>,
-}
-
-impl<'tcx> CallTrace<'tcx> {
-    pub fn contains(&self, callee: Callee<'tcx>) -> bool {
-        self.nested_calls.iter().any(|nested_call| *nested_call == callee)
-    }
-
-    pub fn display_str(&self, tcx: TyCtxt<'tcx>) -> String {
-        iter::once(tcx.def_path_str(self.root))
-            .chain(self.nested_calls.iter().map(|nested_call| format!("{} at {:?}", nested_call.display_str(tcx), tcx.def_span(nested_call.def_id))))
-            .intersperse("\n    -> ".to_owned())
-            .collect::<String>()
-    }
-}
-
 pub struct CallGraph<'tcx> {
     pub virtual_calls_count: usize,
     pub dynamic_calls_count: usize,
@@ -545,6 +527,89 @@ where
     T: ty::TypeFoldable<TyCtxt<'tcx>>,
 {
     ty::EarlyBinder::bind(tcx, foldable).instantiate(tcx, generic_args).skip_normalization()
+}
+
+fn new_nested_target<'ast, 'tcx>(
+    tcx: TyCtxt<'tcx>,
+    def_res: &ast_lowering::DefResolutions,
+    krate: &'ast ast::Crate,
+    test_def_ids: &FxHashSet<hir::LocalDefId>,
+    targeting: Targeting,
+    def_id: hir::DefId,
+    distance: usize,
+) -> Option<Target> {
+    let target_kind = targeting.matches(tcx, test_def_ids, def_id)?;
+
+    let item_unsafety = match def_id.as_local() {
+        Some(local_def_id) => check_item_unsafety(ast_lowering::find_def_in_ast(tcx, def_res, local_def_id, krate)?),
+        None => {
+            match tcx.fn_sig(def_id).skip_binder().safety() {
+                hir::Safety::Safe => Unsafety::None,
+                hir::Safety::Unsafe => Unsafety::Unsafe(UnsafeSource::Unsafe),
+            }
+        }
+    };
+
+    Some(Target {
+        kind: target_kind,
+        unsafety: item_unsafety,
+        reachability: TargetReachability::NestedCallee { distance },
+        reachable_from: EntryPointAssocs::Local(Default::default()),
+    })
+}
+
+fn record_target<'ast, 'tcx>(
+    tcx: TyCtxt<'tcx>,
+    def_res: &ast_lowering::DefResolutions,
+    krate: &'ast ast::Crate,
+    test_def_ids: &FxHashSet<hir::LocalDefId>,
+    entry_point: LocalEntryPoint,
+    targeting: Targeting,
+    caller: Callee<'tcx>,
+    unsafety: Option<UnsafeSource>,
+    distance: usize,
+    targets: &mut FxHashMap<hir::DefId, Target>,
+) {
+    let target = match targets.entry(caller.def_id) {
+        hash_map::Entry::Occupied(entry) => entry.into_mut(),
+        hash_map::Entry::Vacant(entry) => {
+            let Some(target) = new_nested_target(tcx, def_res, krate, test_def_ids, targeting, caller.def_id, distance) else { return; };
+            entry.insert(target)
+        }
+    };
+
+    if let TargetReachability::NestedCallee { distance: target_distance } = &mut target.reachability {
+        *target_distance = Ord::min(distance, *target_distance)
+    }
+
+    let caller_tainting = unsafety.map(Unsafety::Tainted).unwrap_or(Unsafety::None);
+    target.unsafety = Ord::max(caller_tainting, target.unsafety);
+
+    let EntryPointAssocs::Local(reachable_from) = &mut target.reachable_from else { unreachable!() };
+    let entry_point = reachable_from.entry(entry_point).or_insert_with(|| {
+        EntryPointAssoc {
+            distance,
+            unsafe_call_path: None,
+        }
+    });
+
+    entry_point.distance = Ord::min(distance, entry_point.distance);
+    entry_point.unsafe_call_path = Ord::max(unsafety, entry_point.unsafe_call_path);
+}
+
+/// Records the unsafety of a reach of the callee, and returns whether it is more than in all earlier reaches.
+fn reaches_more_unsafety<'tcx>(max_unsafety_reached: &mut FxHashMap<Callee<'tcx>, Option<UnsafeSource>>, callee: Callee<'tcx>, unsafety: Option<UnsafeSource>) -> bool {
+    match max_unsafety_reached.entry(callee) {
+        hash_map::Entry::Occupied(mut entry) => {
+            if *entry.get() >= unsafety { return false; }
+            entry.insert(unsafety);
+            true
+        }
+        hash_map::Entry::Vacant(entry) => {
+            entry.insert(unsafety);
+            true
+        }
+    }
 }
 
 pub fn reachable_fns<'ast, 'tcx, 'ent>(
@@ -828,6 +893,8 @@ pub fn reachable_fns<'ast, 'tcx, 'ent>(
         }
     }
 
+    /// Records the targets reachable from the entry point with a breadth-first search over (callee, unsafety) states.
+    /// A callee reached again, so at no shorter distance, without more unsafety cannot change any target.
     fn record_nested_targets<'ast, 'tcx>(
         tcx: TyCtxt<'tcx>,
         def_res: &ast_lowering::DefResolutions,
@@ -836,87 +903,43 @@ pub fn reachable_fns<'ast, 'tcx, 'ent>(
         callee_lookup_cache: &CalleeLookupCache<'tcx, '_>,
         entry_point: LocalEntryPoint,
         targeting: Targeting,
-        unsafety: Option<UnsafeSource>,
-        call_trace: &mut CallTrace<'tcx>,
+        root_calls: &[InstanceCall<'tcx>],
+        root_unsafety: Option<UnsafeSource>,
         targets: &mut FxHashMap<hir::DefId, Target>,
         trace_length_limit: Option<usize>,
     ) {
-        stop::abort_if_requested(tcx);
+        let mut max_unsafety_reached: FxHashMap<Callee<'tcx>, Option<UnsafeSource>> = Default::default();
+        let mut queue: VecDeque<(Callee<'tcx>, Option<UnsafeSource>, usize)> = Default::default();
 
-        let &[.., caller] = &call_trace.nested_calls[..] else { return; };
+        for call in root_calls {
+            if reaches_more_unsafety(&mut max_unsafety_reached, call.callee, root_unsafety) {
+                queue.push_back((call.callee, root_unsafety, 0));
+            }
+        }
 
-        let distance = call_trace.nested_calls.len() - 1;
+        while let Some((caller, unsafety, distance)) = queue.pop_front() {
+            stop::abort_if_requested(tcx);
 
-        // `const` functions, like other `const` scopes, cannot be mutated.
-        if tcx.is_const_fn(caller.def_id) { return; }
+            // `const` functions, like other `const` scopes, cannot be mutated.
+            if tcx.is_const_fn(caller.def_id) { continue; }
 
-        // Record or update target.
-        'target: {
-            let target = match targets.entry(caller.def_id) {
-                hash_map::Entry::Occupied(entry) => entry.into_mut(),
-                hash_map::Entry::Vacant(entry) => {
-                    let Some(target_kind) = targeting.matches(tcx, test_def_ids, caller.def_id) else { break 'target; };
+            record_target(tcx, def_res, krate, test_def_ids, entry_point, targeting, caller, unsafety, distance, targets);
 
-                    let item_unsafety = match caller.def_id.as_local() {
-                        Some(local_def_id) => {
-                            let Some(def_item) = ast_lowering::find_def_in_ast(tcx, def_res, local_def_id, krate) else { break 'target; };
-                            check_item_unsafety(def_item)
-                        }
-                        None => {
-                            match tcx.fn_sig(caller.def_id).skip_binder().safety() {
-                                hir::Safety::Safe => Unsafety::None,
-                                hir::Safety::Unsafe => Unsafety::Unsafe(UnsafeSource::Unsafe),
-                            }
-                        }
-                    };
-
-                    entry.insert(Target {
-                        kind: target_kind,
-                        unsafety: item_unsafety,
-                        reachability: TargetReachability::NestedCallee { distance },
-                        reachable_from: EntryPointAssocs::Local(Default::default()),
-                    })
-                }
-            };
-
-            if let TargetReachability::NestedCallee { distance: target_distance } = &mut target.reachability {
-                *target_distance = Ord::min(distance, *target_distance)
+            if let Some(trace_length_limit) = trace_length_limit && distance + 1 >= trace_length_limit {
+                tcx.dcx().warn("exceeded explicit call graph trace length limit");
+                continue;
             }
 
-            let caller_tainting = unsafety.map(Unsafety::Tainted).unwrap_or(Unsafety::None);
-            target.unsafety = Ord::max(caller_tainting, target.unsafety);
+            for &call in callee_lookup_cache.callees_of_nested_caller(caller) {
+                let unsafety = match call.safety {
+                    hir::Safety::Safe => unsafety,
+                    hir::Safety::Unsafe => Some(UnsafeSource::Unsafe),
+                };
 
-            let EntryPointAssocs::Local(reachable_from) = &mut target.reachable_from else { unreachable!() };
-            let entry_point = reachable_from.entry(entry_point).or_insert_with(|| {
-                EntryPointAssoc {
-                    distance,
-                    unsafe_call_path: None,
+                if reaches_more_unsafety(&mut max_unsafety_reached, call.callee, unsafety) {
+                    queue.push_back((call.callee, unsafety, distance + 1));
                 }
-            });
-
-            entry_point.distance = Ord::min(distance, entry_point.distance);
-            entry_point.unsafe_call_path = Ord::max(unsafety, entry_point.unsafe_call_path);
-        }
-
-        if let Some(trace_length_limit) = trace_length_limit && call_trace.nested_calls.len() >= trace_length_limit {
-            tcx.dcx().warn("exceeded explicit call graph trace length limit");
-            return;
-        }
-
-        for &call in callee_lookup_cache.callees_of_nested_caller(caller) {
-            // We have encontered a recursion point along this call trace; end the search along this trace.
-            if call_trace.nested_calls.iter().any(|callee_in_trace| call.callee == *callee_in_trace) { continue; }
-
-            call_trace.nested_calls.push(call.callee);
-
-            let unsafety = match call.safety {
-                hir::Safety::Safe => unsafety,
-                hir::Safety::Unsafe => Some(UnsafeSource::Unsafe),
-            };
-
-            record_nested_targets(tcx, def_res, krate, test_def_ids, callee_lookup_cache, entry_point, targeting, unsafety, call_trace, targets, trace_length_limit);
-
-            call_trace.nested_calls.pop();
+            }
         }
     }
 
@@ -924,18 +947,13 @@ pub fn reachable_fns<'ast, 'tcx, 'ent>(
     let mut targets: FxHashMap<hir::DefId, Target> = Default::default();
     for (&entry_point, calls) in &call_graph.root_calls {
         let Some(def_item) = ast_lowering::find_def_in_ast(tcx, def_res, entry_point, krate) else { continue };
-        let unsafety = check_item_unsafety(def_item);
-
-        for call in calls {
-            let unsafety = match unsafety {
-                Unsafety::Unsafe(unsafe_source) => Some(unsafe_source),
-                _ => None,
-            };
-            let mut call_trace = CallTrace { root: entry_point, nested_calls: smallvec![call.callee] };
-            // HACK: We can discard any def body overrides for entry points, as we have already collected all call information from them.
-            let entry_point = LocalEntryPoint { local_def_id: entry_point, body_local_def_id: None };
-            record_nested_targets(tcx, def_res, krate, &test_def_ids, &callee_lookup_cache, entry_point, targeting, unsafety, &mut call_trace, &mut targets, trace_length_limit);
-        }
+        let unsafety = match check_item_unsafety(def_item) {
+            Unsafety::Unsafe(unsafe_source) => Some(unsafe_source),
+            _ => None,
+        };
+        // HACK: We can discard any def body overrides for entry points, as we have already collected all call information from them.
+        let entry_point = LocalEntryPoint { local_def_id: entry_point, body_local_def_id: None };
+        record_nested_targets(tcx, def_res, krate, &test_def_ids, &callee_lookup_cache, entry_point, targeting, calls, unsafety, &mut targets, trace_length_limit);
     }
 
     (call_graph, targets.into_values().collect())

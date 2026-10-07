@@ -1,0 +1,10 @@
+tests -(0)-> [tainted] visit at tests/ui/call_graph/unsafety/taint_callees_reached_again_through_unsafe_calls.rs:5:1: 5:23 (#0)
+  (0) [tainted] test
+
+tests -(1)-> [unsafe] descend at tests/ui/call_graph/unsafety/taint_callees_reached_again_through_unsafe_calls.rs:10:1: 10:25 (#0)
+  (1) [tainted] test
+
+tests -(2)-> [unsafe] visit_unchecked at tests/ui/call_graph/unsafety/taint_callees_reached_again_through_unsafe_calls.rs:14:1: 14:40 (#0)
+  (2) [tainted] test
+
+targets: 3 total; 0 safe; 3 unsafe (1 tainted)
