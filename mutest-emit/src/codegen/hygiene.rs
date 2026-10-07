@@ -702,7 +702,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
     /// Extract bound params from local trait bounds corresponding to the parameter,
     /// which must be appended to the trait subpath if the parameter is in a qualified self position:
     /// `<T as Trait<'a, 'b>>::$assoc where T: Trait<'a, 'b>`.
-    fn extract_local_trait_bound_params(&self, trait_def_id: hir::DefId, param_res: hir::Res<ast::NodeId>, allow_infer_args: bool, span: Span) -> Option<Option<Box<ast::GenericArgs>>> {
+    fn extract_local_trait_bound_params(&self, trait_def_id: hir::DefId, param_res: hir::Res<ast::NodeId>, scope_def_id: hir::DefId, allow_infer_args: bool, span: Span) -> Option<Option<Box<ast::GenericArgs>>> {
         let (parent_def_id, generic_predicates, param_index) = match param_res {
             // `Self::$assoc` in `impl<'a, 'b> Trait<'a, 'b> for T`
             hir::Res::SelfTyAlias { alias_to: impl_def_id, is_trait_impl: true, .. } => {
@@ -739,12 +739,16 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
 
                 (trait_def_id, generic_predicates, 0)
             }
-            // `T::$assoc`
+            // `T::$assoc`, with the bounds of the item holding the path, which include those of its parents
+            // and bounds on the parent's params (e.g. `where T: Trait` on a method).
             hir::Res::Def(hir::DefKind::TyParam, param_def_id) => {
-                let generics = self.tcx.generics_of(self.tcx.parent(param_def_id));
-                let Some(&param_index) = generics.param_def_id_to_index.get(&param_def_id) else { unreachable!() };
-                let generic_predicates = self.tcx.clauses_of(self.tcx.parent(param_def_id)).instantiate_identity(self.tcx).clauses;
-                (self.tcx.parent(param_def_id), generic_predicates, param_index)
+                let bounds_def_id = match self.tcx.generics_of(scope_def_id).param_def_id_to_index(self.tcx, param_def_id) {
+                    Some(_) => scope_def_id,
+                    None => self.tcx.parent(param_def_id),
+                };
+                let Some(param_index) = self.tcx.generics_of(bounds_def_id).param_def_id_to_index(self.tcx, param_def_id) else { unreachable!() };
+                let generic_predicates = self.tcx.clauses_of(bounds_def_id).instantiate_identity(self.tcx).clauses;
+                (bounds_def_id, generic_predicates, param_index)
             }
             _ => { return None; }
         };
@@ -867,7 +871,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
 
                                     // Bound params from local trait bounds corresponding to parameter types to the trait subpath.
                                     _ if let Some(parent_path_segment_res) = parent_path_segment_res => {
-                                        self.extract_local_trait_bound_params(parent_def_id, parent_path_segment_res, self.is_inside_body(typeck_node_hir_id), qself_ty_hir.span)
+                                        self.extract_local_trait_bound_params(parent_def_id, parent_path_segment_res, node_hir_id.owner.to_def_id(), self.is_inside_body(typeck_node_hir_id), qself_ty_hir.span)
                                     }
 
                                     _ => None,
