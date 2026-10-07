@@ -116,12 +116,36 @@ pub fn print_targets<'tcx, 'trg>(tcx: TyCtxt<'tcx>, crate_kind: &config::CrateKi
     );
 }
 
+fn matches_entry_point_filters(entry_point_path_str: &str, entry_point_filters: &[String]) -> bool {
+    entry_point_filters.is_empty() || entry_point_filters.iter().any(|entry_point_filter| entry_point_path_str.contains(entry_point_filter))
+}
+
+/// Returns the entry points that match the filters, and all the callees they reach, through calls at any distance.
+fn filtered_call_graph_nodes<'tcx>(tcx: TyCtxt<'tcx>, entry_points: EntryPoints<'_>, call_graph: &CallGraph<'tcx>, entry_point_filters: &[String]) -> FxHashSet<Callee<'tcx>> {
+    let mut filtered_nodes: FxHashSet<Callee<'tcx>> = Default::default();
+    if entry_point_filters.is_empty() { return filtered_nodes; }
+
+    let mut callees_to_visit = vec![];
+    for entry_point in entry_points.iter() {
+        if !matches_entry_point_filters(&entry_point.path_str(tcx), entry_point_filters) { continue; }
+        filtered_nodes.insert(Callee::new(entry_point.local_def_id.to_def_id(), tcx.mk_args(&[])));
+        callees_to_visit.extend(call_graph.root_calls.get(&entry_point.local_def_id).map(|v| &**v).unwrap_or_default().iter().map(|call| call.callee));
+    }
+
+    while let Some(callee) = callees_to_visit.pop() {
+        if !filtered_nodes.insert(callee) { continue; }
+        callees_to_visit.extend(call_graph.callees_of_nested_caller(callee).unwrap_or_default().iter().map(|call| call.callee));
+    }
+
+    filtered_nodes
+}
+
 pub fn print_call_graph<'tcx, 'ent, 'trg>(tcx: TyCtxt<'tcx>, entry_points: EntryPoints<'ent>, call_graph: &CallGraph<'tcx>, targets: &[Target], format: config::GraphFormat, entry_point_filters: &[String], non_local_call_view: config::CallGraphNonLocalCallView) {
     if let EntryPoints::External = entry_points {
         bug!("cannot print call graph for external entry points");
     }
 
-    let mut filtered_nodes: FxHashSet<Callee> = Default::default();
+    let filtered_nodes = filtered_call_graph_nodes(tcx, entry_points, call_graph, entry_point_filters);
 
     match format {
         config::GraphFormat::Simple => {
@@ -133,10 +157,7 @@ pub fn print_call_graph<'tcx, 'ent, 'trg>(tcx: TyCtxt<'tcx>, entry_points: Entry
             println!("entry points:\n");
 
             for (entry_point_path_str, entry_point) in entry_points_in_print_order {
-                if !entry_point_filters.is_empty() {
-                    if !entry_point_filters.iter().any(|entry_point_filter| entry_point_path_str.contains(entry_point_filter)) { continue; }
-                    filtered_nodes.insert(Callee::new(entry_point.local_def_id.to_def_id(), tcx.mk_args(&[])));
-                }
+                if !matches_entry_point_filters(&entry_point_path_str, entry_point_filters) { continue; }
 
                 println!("{descr} {path}",
                     descr = match entry_points {
@@ -155,11 +176,7 @@ pub fn print_call_graph<'tcx, 'ent, 'trg>(tcx: TyCtxt<'tcx>, entry_points: Entry
                     span_diagnostic_ord(*callee_a_span, *callee_b_span).then(Ord::cmp(callee_a_display_str, callee_b_display_str))
                 });
 
-                for (callee_display_str, callee_span, callee) in callees_in_print_order {
-                    if !entry_point_filters.is_empty() {
-                        filtered_nodes.insert(callee);
-                    }
-
+                for (callee_display_str, callee_span, _) in callees_in_print_order {
                     println!("  -> {} at {:#?}", callee_display_str, callee_span);
                 }
             }
@@ -190,11 +207,7 @@ pub fn print_call_graph<'tcx, 'ent, 'trg>(tcx: TyCtxt<'tcx>, entry_points: Entry
                         span_diagnostic_ord(*callee_a_span, *callee_b_span).then(Ord::cmp(callee_a_display_str, callee_b_display_str))
                     });
 
-                    for (callee_display_str, callee_span, callee) in callees_in_print_order {
-                        if !entry_point_filters.is_empty() {
-                            filtered_nodes.insert(callee);
-                        }
-
+                    for (callee_display_str, callee_span, _) in callees_in_print_order {
                         println!("  -> {} at {:#?}", callee_display_str, callee_span);
                     }
                 }
@@ -239,10 +252,7 @@ pub fn print_call_graph<'tcx, 'ent, 'trg>(tcx: TyCtxt<'tcx>, entry_points: Entry
             for entry_point in entry_points.iter() {
                 let entry_point_path_str = entry_point.path_str(tcx);
 
-                if !entry_point_filters.is_empty() {
-                    if !entry_point_filters.iter().any(|entry_point_filter| entry_point_path_str.contains(entry_point_filter)) { continue; }
-                    filtered_nodes.insert(Callee::new(entry_point.local_def_id.to_def_id(), tcx.mk_args(&[])));
-                }
+                if !matches_entry_point_filters(&entry_point_path_str, entry_point_filters) { continue; }
 
                 // TODO: Use different styling for ignored test, or use strikethrough.
                 println!("    {} [label=\"{}\"];", def_node_id(entry_point.local_def_id.to_def_id()), entry_point_path_str);
@@ -281,10 +291,7 @@ pub fn print_call_graph<'tcx, 'ent, 'trg>(tcx: TyCtxt<'tcx>, entry_points: Entry
             println!("  }}");
             for (root_def_id, calls) in &call_graph.root_calls {
                 for call in calls {
-                    if !entry_point_filters.is_empty() {
-                        if !filtered_nodes.contains(&Callee::new(root_def_id.to_def_id(), tcx.mk_args(&[]))) { continue; }
-                        filtered_nodes.insert(call.callee);
-                    }
+                    if !entry_point_filters.is_empty() && !filtered_nodes.contains(&Callee::new(root_def_id.to_def_id(), tcx.mk_args(&[]))) { continue; }
 
                     // Override non-local root call edge rendering.
                     if !call.callee.def_id.is_local() {
@@ -332,10 +339,7 @@ pub fn print_call_graph<'tcx, 'ent, 'trg>(tcx: TyCtxt<'tcx>, entry_points: Entry
                 println!("  }}");
                 for (caller, calls) in calls {
                     for call in calls {
-                        if !entry_point_filters.is_empty() {
-                            if !filtered_nodes.contains(caller) { continue; }
-                            filtered_nodes.insert(call.callee);
-                        }
+                        if !entry_point_filters.is_empty() && !filtered_nodes.contains(caller) { continue; }
 
                         // Override non-local deep call edge rendering.
                         if !caller.def_id.is_local() || !call.callee.def_id.is_local() {

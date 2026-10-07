@@ -14,3 +14,15 @@ pub fn extern_fn_calling_trait_fn<T: ExternTrait>() {
     //       See `rustc_metadata::rmeta::encoder::should_encode_mir` for more details.
     extern_private_fn();
 }
+
+pub fn extern_fn_calling_trait_fn_through_nested_calls<T: ExternTrait>() {
+    extern_nested_fn::<T>();
+}
+
+fn extern_nested_fn<T: ExternTrait>() {
+    extern_more_nested_fn::<T>();
+}
+
+fn extern_more_nested_fn<T: ExternTrait>() {
+    <T as ExternTrait>::extern_trait_fn();
+}

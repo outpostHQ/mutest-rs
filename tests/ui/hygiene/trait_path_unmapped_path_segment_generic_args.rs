@@ -1,5 +1,5 @@
 //@ build
-//@ stderr
+//@ stderr: empty
 //@ mutest-flags: --depth=1 --call-graph-depth-limit=1
 
 //! The following paths get normalized into paths that point to their trait items,

@@ -1,0 +1,13 @@
+tests -(1)-> feed at tests/ui/call_graph/count_only_local_frames_in_distance.rs:12:1: 12:52 (#0)
+  (1) test_local_callee_through_std_io_copy
+
+tests -(0)-> <Counted as std::io::Read>::read at tests/ui/call_graph/count_only_local_frames_in_distance.rs:18:5: 18:60 (#0)
+  (0) test_local_callee_through_std_io_copy
+
+tests -(1)-> extern_trait_fn_impl at tests/ui/call_graph/count_only_local_frames_in_distance.rs:33:1: 33:26 (#0)
+  (1) test_local_callee_through_nested_extern_calls
+
+tests -(0)-> <ImplsExternTrait as crate_with_calls::ExternTrait>::extern_trait_fn at tests/ui/call_graph/count_only_local_frames_in_distance.rs:35:5: 35:25 (#0)
+  (0) test_local_callee_through_nested_extern_calls
+
+targets: 4 total; 4 safe; 0 unsafe (0 tainted)
