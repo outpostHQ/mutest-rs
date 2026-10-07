@@ -102,6 +102,16 @@ pub mod print {
         binding_item_def_id: hir::DefId,
     }
 
+    impl<'tcx, 'op> AstTyPrinter<'tcx, 'op> {
+        /// The associated type of a return-position `impl Trait` in a trait has no name, so it can only be inferred.
+        fn print_impl_trait_in_trait_ty(&self, ty: Ty<'tcx>) -> Result<Box<ast::Ty>, String> {
+            match self.opaque_ty_handling {
+                OpaqueTyHandling::Infer => Ok(ast::mk::ty(self.sp, ast::TyKind::Infer)),
+                OpaqueTyHandling::Keep | OpaqueTyHandling::Resolve => Err(format!("`{ty}` is the type of an `impl Trait` in a trait, which has no name")),
+            }
+        }
+    }
+
     impl<'tcx, 'op> Printer<'tcx> for AstTyPrinter<'tcx, 'op> {
         type Error = String;
 
@@ -598,6 +608,9 @@ pub mod print {
                                     self.print_ty(ty)
                                 }
                             }
+                        }
+                        ty::AliasTyKind::Projection { def_id } if self.tcx.is_impl_trait_in_trait(def_id) => {
+                            self.print_impl_trait_in_trait_ty(ty)
                         }
                         ty::AliasTyKind::Projection { def_id } => {
                             let def_path = self.print_def_path(def_id, alias_ty.args)?;
