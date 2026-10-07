@@ -3,6 +3,7 @@
 //@ stdout
 //@ stderr: empty
 //@ mutation-operators: call_delete, call_value_default_shadow
+//@ mutations: none
 
 fn ascii_letters(uppercase: bool) -> impl Iterator<Item = char> {
     match uppercase {

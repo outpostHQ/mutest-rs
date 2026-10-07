@@ -3,6 +3,7 @@
 //@ stdout
 //@ stderr: empty
 //@ mutation-operators: fn_return_default
+//@ mutations: none
 
 struct NoDefault(u32);
 

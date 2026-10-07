@@ -3,6 +3,7 @@
 //@ stdout
 //@ stderr: empty
 //@ mutation-operators: math_op_add_sub_swap, math_op_mul_div_swap
+//@ mutations: none
 
 use std::ops::{Add, Div, Mul, MulAssign};
 

@@ -3,6 +3,7 @@
 //@ stdout
 //@ stderr: empty
 //@ mutation-operators: arg_default_shadow
+//@ mutations: none
 
 fn f<D: Default>(_: usize, _: bool, (_, (_, _)): (Result<&str, usize>, (D, ()))) {
     print!("");

@@ -3,6 +3,7 @@
 //@ stdout
 //@ stderr: empty
 //@ mutation-operators: range_limit_swap
+//@ mutations: none
 
 fn f() {
     let arr = [0, 1, 2, 3, 4];

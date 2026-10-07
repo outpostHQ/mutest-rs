@@ -3,6 +3,7 @@
 //@ stdout
 //@ stderr: empty
 //@ mutation-operators: bool_expr_negate
+//@ mutations: none
 
 use std::cell::Cell;
 use std::collections::BTreeSet;

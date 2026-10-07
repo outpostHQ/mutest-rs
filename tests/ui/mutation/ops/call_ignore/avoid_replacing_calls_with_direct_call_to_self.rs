@@ -3,6 +3,7 @@
 //@ stdout
 //@ stderr: empty
 //@ mutation-operators: call_delete, call_value_default_shadow
+//@ mutations: none
 
 #![allow(unused)]
 

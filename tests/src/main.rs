@@ -218,6 +218,7 @@ fn test_normalize_retained_journal_paths() {
 const BUILD_OUT_DIR: &str = "target/mutest_test/debug/deps";
 const AUX_OUT_DIR: &str = "target/mutest_test/debug/deps/auxiliary";
 const EVAL_STREAM_OUT_DIR: &str = "target/mutest_test/json";
+const MUTATIONS_OUT_DIR: &str = "target/mutest_test/mutations";
 
 struct Opts {
     pub filters: Option<Vec<String>>,
@@ -355,8 +356,17 @@ struct TestDirectives<'d> {
     pub expect_build_fail: bool,
     pub exec_build_artifact: bool,
     pub expected_run_exit_code: i32,
+    /// Set by `//@ mutations: none`. A test that selects mutation operators must otherwise produce mutations.
+    pub expect_no_mutations: bool,
     pub expectations: BTreeSet<Expectation>,
     pub target: TestTarget<'d>,
+}
+
+fn read_mutations_count(dir: &Path) -> Result<u64, String> {
+    let path = dir.join("mutations.json");
+    let json = fs::read_to_string(&path).map_err(|error| format!("cannot read `{}`: {error}", path.display()))?;
+    let mutations_info = serde_json::from_str::<serde_json::Value>(&json).map_err(|error| format!("cannot parse `{}`: {error}", path.display()))?;
+    mutations_info["stats"]["total_mutations_count"].as_u64().ok_or_else(|| format!("`{}` has no mutation count", path.display()))
 }
 
 fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, results: &mut TestRunResults) {
@@ -422,6 +432,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         expect_build_fail: false,
         exec_build_artifact: false,
         expected_run_exit_code: mutest_exit_code::SUCCESS,
+        expect_no_mutations: false,
         expectations: BTreeSet::new(),
         target: test_target,
     };
@@ -518,6 +529,14 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
             "stdout: empty" => { test_directives.expectations.insert(Expectation::StdOut { empty: true }); }
             "stderr" => { test_directives.expectations.insert(Expectation::StdErr { empty: false }); }
             "stderr: empty" => { test_directives.expectations.insert(Expectation::StdErr { empty: true }); }
+            "mutations: none" => {
+                let TestTarget::Mutest(_) = &test_directives.target else {
+                    results.ignored_tests_count += 1;
+                    log_test(&name, TestResult::Ignored, Some("invalid directive: `mutations` directive cannot be used with `rustc` target directive"));
+                    return;
+                };
+                test_directives.expect_no_mutations = true;
+            }
             "eval-stream" => {
                 let TestTarget::Mutest(_) = &test_directives.target else {
                     results.ignored_tests_count += 1;
@@ -709,8 +728,27 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         cmd.args(["-L", AUX_OUT_DIR]);
     }
 
+    // NOTE: A test that selects mutation operators but produces no mutations tests none of their code generation.
+    let selects_mutation_operators = raw_test_directives.iter().any(|d| d.starts_with("mutation-operators:"));
+    let counts_mutations = (selects_mutation_operators || test_directives.expect_no_mutations) && !test_directives.expect_build_fail;
+    let mutations_dir = match &test_directives.target {
+        TestTarget::Mutest(mutest_target_directives) if counts_mutations && mutest_target_directives.mutest_outputs.contains(&"test-bin") => {
+            let dir = path::absolute(Path::new(MUTATIONS_OUT_DIR).join(&test_crate_name)).expect("cannot resolve the mutations directory");
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).unwrap_or_else(|error| panic!("cannot create `{}`: {error}", dir.display()));
+            Some(dir)
+        }
+        _ => None,
+    };
     if let TestTarget::Mutest(mutest_target_directives) = &test_directives.target {
-        let mut mutest_args = vec![format!("--emit={}", mutest_target_directives.mutest_outputs.join(","))];
+        let mut mutest_outputs = mutest_target_directives.mutest_outputs.clone();
+        if mutations_dir.is_some() {
+            mutest_outputs.push("metadata");
+        }
+        let mut mutest_args = vec![format!("--emit={}", mutest_outputs.join(","))];
+        if let Some(dir) = &mutations_dir {
+            mutest_args.push(format!("--metadata-out-root-dir={}", dir.display()));
+        }
         let verifications = raw_test_directives.iter().filter_map(|d| d.strip_prefix("verify:").map(str::trim))
             .flat_map(|flags| flags.split(",").map(str::trim).filter(|flag| !flag.is_empty()));
         for verification in verifications {
@@ -769,6 +807,22 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         eprintln!("stdout:\n{}", stdout);
         eprintln!("stderr:\n{}", stderr);
         return;
+    }
+
+    if let Some(dir) = &mutations_dir {
+        let mutations_count = read_mutations_count(dir);
+        let _ = fs::remove_dir_all(dir);
+        let failure = match (mutations_count, test_directives.expect_no_mutations) {
+            (Err(error), _) => Some(error),
+            (Ok(0), false) => Some("the selected mutation operators produced no mutations; add `//@ mutations: none` if none are expected".to_owned()),
+            (Ok(count @ 1..), true) => Some(format!("the harness contains {count} mutations, expected none")),
+            (Ok(_), _) => None,
+        };
+        if let Some(reason) = failure {
+            results.failed_tests_count += 1;
+            log_test(&name, TestResult::Failed, Some(&reason));
+            return;
+        }
     }
 
     let mut eval_stream = String::new();
