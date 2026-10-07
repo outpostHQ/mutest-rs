@@ -87,6 +87,7 @@ jobs:
           git init -q crate
           git -C crate fetch -q --depth 1 "https://github.com/${{ matrix.repo }}" "${{ matrix.rev }}"
           git -C crate checkout -q FETCH_HEAD
+          git -C crate submodule update -q --init --depth 1
 
       - name: Build the mutated test harness
         shell: bash
