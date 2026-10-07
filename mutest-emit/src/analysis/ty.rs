@@ -50,22 +50,15 @@ pub mod print {
     use rustc_middle::mir;
     use rustc_middle::ty::{self, Ty, TyCtxt};
     use rustc_middle::ty::consts::ConstExt as _;
-    use rustc_crate_store::{ExternCrate, ExternCrateSource};
 
     use crate::analysis::ast_lowering;
-    use crate::analysis::hir::{self, LOCAL_CRATE};
+    use crate::analysis::hir;
     use crate::analysis::res;
     use crate::codegen::ast;
     use crate::codegen::hygiene;
     use crate::codegen::symbols::{DUMMY_SP, Ident, Span, Symbol, sym, kw};
 
     use super::SpanFromGenericsExt;
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub enum ScopedItemPaths {
-        FullyQualified,
-        Trimmed,
-    }
 
     pub trait Printer<'tcx> {
         type Error;
@@ -76,11 +69,6 @@ pub mod print {
         type Region;
         type Path;
 
-        fn tcx(&self) -> TyCtxt<'tcx>;
-        fn crate_res(&self) -> &res::CrateResolutions<'tcx>;
-
-        fn path_crate(&mut self, cnum: hir::CrateNum) -> Result<Self::Path, Self::Error>;
-        fn path_append(&mut self, path: Self::Path, disambiguated_data: &hir::DisambiguatedDefPathData) -> Result<Self::Path, Self::Error>;
         fn path_generic_args(
             &mut self,
             path: Self::Path,
@@ -88,117 +76,12 @@ pub mod print {
             assoc_constraints: impl Iterator<Item = ty::ExistentialProjection<'tcx>>,
         ) -> Result<Self::Path, Self::Error>;
 
-        fn print_res_def_path(&mut self, def_path: res::DefPath<'tcx>) -> Result<Self::Path, Self::Error>;
-
-        fn try_print_visible_def_path(&mut self, def_id: hir::DefId, scope: Option<hir::DefId>, scoped_item_paths: ScopedItemPaths) -> Result<Option<Self::Path>, Self::Error> {
-            fn try_print_visible_def_path_impl<'tcx, T: Printer<'tcx> + ?Sized>(
-                printer: &mut T,
-                def_id: hir::DefId,
-                scope: Option<hir::DefId>,
-                scoped_item_paths: ScopedItemPaths,
-                callers: &mut Vec<hir::DefId>,
-            ) -> Result<Option<T::Path>, T::Error> {
-                if let Some(cnum) = def_id.as_crate_root() {
-                    if cnum == LOCAL_CRATE {
-                        return Ok(Some(printer.path_crate(cnum)?));
-                    }
-
-                    match printer.tcx().extern_crate(cnum) {
-                        Some(&ExternCrate { src, dependency_of, span, .. }) => match (src, dependency_of) {
-                            // Crate loaded by implicitly injected `extern crate core` / `extern crate std`.
-                            (ExternCrateSource::Extern(_), LOCAL_CRATE) if span.is_dummy() => {
-                                return Ok(Some(printer.path_crate(cnum)?));
-                            }
-                            // Crate loaded by `extern crate` declaration.
-                            (ExternCrateSource::Extern(def_id), LOCAL_CRATE) => {
-                                return Ok(Some(printer.print_def_path(def_id, &[])?));
-                            }
-                            // Crate implicitly loaded by a path resolving through extern prelude.
-                            (ExternCrateSource::Path, LOCAL_CRATE) => {
-                                return Ok(Some(printer.path_crate(cnum)?));
-                            }
-                            _ => {}
-                        }
-                        None => {
-                            return Ok(Some(printer.path_crate(cnum)?));
-                        }
-                    }
-                }
-
-                if let Some(visible_def_path) = res::visible_def_path(printer.tcx(), printer.crate_res(), def_id, scope, None) {
-                    return Some(printer.print_res_def_path(visible_def_path)).transpose();
-                }
-                if let Some(scope) = scope {
-                    let visible_def_path = res::locally_visible_def_path(printer.tcx(), def_id, scope);
-                    if let Ok(visible_def_path) = visible_def_path {
-                        return Some(printer.print_res_def_path(visible_def_path)).transpose();
-                    }
-                }
-
-                let visible_parent_map = printer.tcx().visible_parent_map(());
-                let mut cur_def_key = printer.tcx().def_key(def_id);
-
-                // Constructors are unnamed by themselves. We must use the name of their parent instead.
-                if let hir::DefPathData::Ctor = cur_def_key.disambiguated_data.data {
-                    let parent = hir::DefId {
-                        krate: def_id.krate,
-                        index: cur_def_key.parent.expect("constructor without a parent"),
-                    };
-
-                    cur_def_key = printer.tcx().def_key(parent);
-                }
-
-                let Some(visible_parent) = visible_parent_map.get(&def_id).cloned() else { return Ok(None); };
-                let actual_parent = printer.tcx().opt_parent(def_id);
-
-                let mut data = cur_def_key.disambiguated_data.data;
-
-                match data {
-                    hir::DefPathData::TypeNs(ref mut name) if Some(visible_parent) != actual_parent => {
-                        // Item might be re-exported several times, but filter for the ones that are public and whose
-                        // identifier is not `_`.
-                        let reexport = printer.tcx().module_children(visible_parent).iter()
-                            .filter(|child| child.res.opt_def_id() == Some(def_id))
-                            .find(|child| child.vis.is_public() && child.ident.name != kw::Underscore)
-                            .map(|child| child.ident.name);
-
-                        let Some(new_name) = reexport else { return Ok(None); };
-                        *name = new_name;
-                    }
-                    // Re-exported `extern crate`.
-                    hir::DefPathData::CrateRoot => {
-                        data = hir::DefPathData::TypeNs(printer.tcx().crate_name(def_id.krate));
-                    }
-                    _ => {}
-                }
-
-                if callers.contains(&visible_parent) { return Ok(None); }
-                callers.push(visible_parent);
-                let Some(path) = try_print_visible_def_path_impl(printer, visible_parent, scope, scoped_item_paths, callers)? else { return Ok(None); };
-                callers.pop();
-
-                let disambiguated_data = hir::DisambiguatedDefPathData { data, disambiguator: 0 };
-                let path = printer.path_append(path, &disambiguated_data)?;
-                Ok(Some(path))
-            }
-
-            let mut callers = vec![];
-            try_print_visible_def_path_impl(self, def_id, scope, scoped_item_paths, &mut callers)
-        }
-
         fn print_def_path(&mut self, def_id: hir::DefId, args: &'tcx [ty::GenericArg<'tcx>]) -> Result<Self::Path, Self::Error>;
 
         fn print_region(&mut self, region: ty::Region<'tcx>) -> Result<Self::Region, Self::Error>;
         fn print_const(&mut self, ct: ty::Const<'tcx>) -> Result<Self::Const, Self::Error>;
         fn print_dyn_existential(&mut self, predicates: &'tcx ty::List<ty::PolyExistentialPredicate<'tcx>>) -> Result<Self::DynExistential, Self::Error>;
         fn print_ty(&mut self, ty: Ty<'tcx>) -> Result<Self::Type, Self::Error>;
-    }
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub enum DefPathHandling {
-        PreferVisible(ScopedItemPaths),
-        ForceVisible(ScopedItemPaths),
-        FullyQualified,
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -215,9 +98,7 @@ pub mod print {
         def_res: &'op ast_lowering::DefResolutions,
         scope: Option<hir::DefId>,
         sp: Span,
-        def_path_handling: DefPathHandling,
         opaque_ty_handling: OpaqueTyHandling,
-        sanitize_macro_expns: bool,
         binding_item_def_id: hir::DefId,
     }
 
@@ -229,34 +110,6 @@ pub mod print {
         type Const = ast::AnonConst;
         type Region = Option<ast::Lifetime>;
         type Path = ast::Path;
-
-        fn tcx(&self) -> TyCtxt<'tcx> {
-            self.tcx
-        }
-
-        fn crate_res(&self) -> &res::CrateResolutions<'tcx> {
-            self.crate_res
-        }
-
-        fn path_crate(&mut self, cnum: hir::CrateNum) -> Result<Self::Path, Self::Error> {
-            match cnum {
-                LOCAL_CRATE => Ok(ast::mk::path_ident(self.sp, Ident::new(kw::Crate, self.sp))),
-                _ => {
-                    let crate_name = self.crate_res.visible_crate_name(cnum);
-                    Ok(ast::mk::path_ident(self.sp, Ident::new(crate_name, self.sp)))
-                }
-            }
-        }
-
-        fn path_append(&mut self, mut path: Self::Path, disambiguated_data: &hir::DisambiguatedDefPathData) -> Result<Self::Path, Self::Error> {
-            let hir::DefPathDataName::Named(name) = disambiguated_data.data.name() else {
-                return Err("encountered anonymous, ambiguous path segment".to_owned());
-            };
-
-            path = ast::mk::pathx(self.sp, path, vec![Ident::new(name, self.sp)]);
-
-            Ok(path)
-        }
 
         fn path_generic_args(
             &mut self,
@@ -338,38 +191,18 @@ pub mod print {
             Ok(path)
         }
 
-        fn print_res_def_path(&mut self, def_path: res::DefPath<'tcx>) -> Result<Self::Path, Self::Error> {
-            let (None, path) = def_path.ast_path(self.crate_res, self) else {
-                return Err("encountered unresolved definition with qualified path in type position".to_owned());
-            };
-
-            Ok(path)
-        }
-
         fn print_def_path(&mut self, def_id: hir::DefId, args: &'tcx [ty::GenericArg<'tcx>]) -> Result<Self::Path, Self::Error> {
-            let mut path = 'path: {
-                if let DefPathHandling::PreferVisible(scoped_item_paths) | DefPathHandling::ForceVisible(scoped_item_paths) = self.def_path_handling {
-                    if let Some(path) = self.try_print_visible_def_path(def_id, self.scope, scoped_item_paths)? {
-                        break 'path Ok(path);
-                    }
-
-                    if let DefPathHandling::ForceVisible(_) = self.def_path_handling {
-                        break 'path Err("cannot find visible path for definition".to_owned());
-                    }
-                }
-
-                // FIXME
-                Err(format!("encountered definition `{}` with no visible path", self.tcx.def_path_str(def_id)))
-            }?;
-
-            if self.sanitize_macro_expns {
-                // HACK: This is inefficient, as it resolves the path again, which already happens in `try_print_visible_def_path`.
-                // TODO: Remove most code in `try_print_visible_def_path` and just use the logic in the `hygiene` module once sanitization becomes the default.
-                hygiene::sanitize_path(self.tcx, self.crate_res, self.def_res, self.scope, &mut path, hir::Res::Def(self.tcx.def_kind(def_id), def_id), false);
-            }
+            let Ok(def_path) = res::visible_def_path(self.tcx, self.crate_res, res::DefPathRequestKind::Def(def_id), self.scope, None, self.sp) else {
+                return Err(format!("encountered definition `{}` with no visible path", self.tcx.def_path_str(def_id)));
+            };
+            let (None, mut path) = def_path.unhygienic_ast_path(self.crate_res, self) else {
+                return Err("encountered definition with qualified path in type position".to_owned());
+            };
+            // HACK: This is inefficient, as it resolves the path again, which already happens in `visible_def_path`.
+            hygiene::sanitize_path(self.tcx, self.crate_res, self.def_res, self.scope, &mut path, hir::Res::Def(self.tcx.def_kind(def_id), def_id), false);
 
             if args.is_empty() { return Ok(path); }
-            let item_args = self.tcx().generics_of(def_id).own_args(args);
+            let item_args = self.tcx.generics_of(def_id).own_args(args);
             if !item_args.is_empty() {
                 path = self.path_generic_args(path, item_args, iter::empty())?;
             }
@@ -379,7 +212,7 @@ pub mod print {
                 // HACK: Temporarily turn the path into a path to the containing trait itself to append generic args to it.
                 let Some(assoc_item_path_segment) = path.segments.pop() else { unreachable!("empty path") };
 
-                let trait_args = self.tcx().generics_of(trait_def_id).own_args(args);
+                let trait_args = self.tcx.generics_of(trait_def_id).own_args(args);
                 if !trait_args.is_empty() {
                     path = self.path_generic_args(path, trait_args, iter::empty())?;
                 }
@@ -400,16 +233,15 @@ pub mod print {
                     if early_param_region.name == sym::empty { return Ok(None); }
 
                     let mut ident = Ident::new(early_param_region.name, sp);
-                    if self.sanitize_macro_expns {
-                        let generic_param_def = self.tcx.generics_of(self.binding_item_def_id).region_param(early_param_region, self.tcx);
 
-                        if generic_param_def.is_anonymous_lifetime() {
-                            hygiene::generate_revealed_name_for_anonymous_region(&mut ident, generic_param_def);
-                        } else {
-                            let def_ident_span = self.tcx.def_ident_span(generic_param_def.def_id).unwrap_or(DUMMY_SP);
-                            hygiene::sanitize_ident_if_def_from_expansion(&mut ident, def_ident_span);
-                        }
+                    let generic_param_def = self.tcx.generics_of(self.binding_item_def_id).region_param(early_param_region, self.tcx);
+                    if generic_param_def.is_anonymous_lifetime() {
+                        hygiene::generate_revealed_name_for_anonymous_region(&mut ident, generic_param_def);
+                    } else {
+                        let def_ident_span = self.tcx.def_ident_span(generic_param_def.def_id).unwrap_or(DUMMY_SP);
+                        hygiene::sanitize_ident_if_def_from_expansion(&mut ident, def_ident_span);
                     }
+
                     Ok(Some(ast::mk::lifetime(sp, ident)))
                 }
 
@@ -421,10 +253,10 @@ pub mod print {
                     if region_name == sym::empty || region_name == kw::UnderscoreLifetime { return Ok(None); }
 
                     let mut ident = Ident::new(region_name, sp);
-                    if self.sanitize_macro_expns {
-                        let def_ident_span = self.tcx.def_ident_span(def_id).unwrap_or(DUMMY_SP);
-                        hygiene::sanitize_ident_if_def_from_expansion(&mut ident, def_ident_span);
-                    }
+
+                    let def_ident_span = self.tcx.def_ident_span(def_id).unwrap_or(DUMMY_SP);
+                    hygiene::sanitize_ident_if_def_from_expansion(&mut ident, def_ident_span);
+
                     Ok(Some(ast::mk::lifetime(sp, ident)))
                 }
 
@@ -434,10 +266,10 @@ pub mod print {
                     if region_name == sym::empty || region_name == kw::UnderscoreLifetime { return Ok(None); }
 
                     let mut ident = Ident::new(region_name, sp);
-                    if self.sanitize_macro_expns {
-                        let def_ident_span = self.tcx.def_ident_span(def_id).unwrap_or(DUMMY_SP);
-                        hygiene::sanitize_ident_if_def_from_expansion(&mut ident, def_ident_span);
-                    }
+
+                    let def_ident_span = self.tcx.def_ident_span(def_id).unwrap_or(DUMMY_SP);
+                    hygiene::sanitize_ident_if_def_from_expansion(&mut ident, def_ident_span);
+
                     Ok(Some(ast::mk::lifetime(sp, ident)))
                 }
 
@@ -582,12 +414,10 @@ pub mod print {
             match ct.kind() {
                 ty::ConstKind::Param(param_const) => {
                     let mut ident = Ident::new(param_const.name, sp);
-                    if self.sanitize_macro_expns {
-                        'sanitize: {
-                            let Some(scope) = self.scope else { break 'sanitize; };
-                            let def_ident_span = param_const.span_from_generics(self.tcx, scope);
-                            hygiene::sanitize_ident_if_def_from_expansion(&mut ident, def_ident_span);
-                        }
+                    'sanitize: {
+                        let Some(scope) = self.scope else { break 'sanitize; };
+                        let def_ident_span = param_const.span_from_generics(self.tcx, scope);
+                        hygiene::sanitize_ident_if_def_from_expansion(&mut ident, def_ident_span);
                     }
 
                     Ok(ast::mk::anon_const(sp, ast::mk::expr_ident(sp, ident).kind))
@@ -794,13 +624,11 @@ pub mod print {
                     }
 
                     let mut ident = Ident::new(param_ty.name, sp);
-                    if self.sanitize_macro_expns {
-                        'sanitize: {
-                            let Some(scope) = self.scope else { break 'sanitize; };
-                            if ident.name == kw::SelfUpper { break 'sanitize; }
-                            let def_ident_span = param_ty.span_from_generics(self.tcx, scope);
-                            hygiene::sanitize_ident_if_def_from_expansion(&mut ident, def_ident_span);
-                        }
+                    'sanitize: {
+                        let Some(scope) = self.scope else { break 'sanitize; };
+                        if ident.name == kw::SelfUpper { break 'sanitize; }
+                        let def_ident_span = param_ty.span_from_generics(self.tcx, scope);
+                        hygiene::sanitize_ident_if_def_from_expansion(&mut ident, def_ident_span);
                     }
                     Ok(ast::mk::ty_ident(sp, None, ident))
                 }
@@ -855,9 +683,7 @@ pub mod print {
         scope: Option<hir::DefId>,
         sp: Span,
         ty: Ty<'tcx>,
-        def_path_handling: DefPathHandling,
         opaque_ty_handling: OpaqueTyHandling,
-        sanitize_macro_expns: bool,
         binding_item_def_id: hir::DefId,
     ) -> Option<Box<ast::Ty>> {
         let mut printer = AstTyPrinter {
@@ -866,9 +692,7 @@ pub mod print {
             def_res,
             scope,
             sp,
-            def_path_handling,
             opaque_ty_handling,
-            sanitize_macro_expns,
             binding_item_def_id,
         };
         printer.print_ty(ty).ok()
@@ -879,7 +703,6 @@ pub mod print {
         sp: Span,
         region: ty::Region<'tcx>,
         binding_item_def_id: hir::DefId,
-        sanitize_macro_expns: bool,
     ) -> Option<ast::Lifetime> {
         // HACK: We construct an AstTyPrinter with some unused dummy values to call the `print_region` impl.
         let mut printer = AstTyPrinter {
@@ -888,9 +711,7 @@ pub mod print {
             def_res: &ast_lowering::DefResolutions::empty(),
             scope: None,
             sp,
-            def_path_handling: DefPathHandling::FullyQualified,
             opaque_ty_handling: OpaqueTyHandling::Infer,
-            sanitize_macro_expns,
             binding_item_def_id,
         };
         printer.print_region(region).ok().flatten()
@@ -904,7 +725,6 @@ pub mod print {
         sp: Span,
         ct: ty::Const<'tcx>,
         binding_item_def_id: hir::DefId,
-        sanitize_macro_expns: bool,
     ) -> Option<ast::AnonConst> {
         let mut printer = AstTyPrinter {
             tcx,
@@ -912,9 +732,7 @@ pub mod print {
             def_res,
             scope,
             sp,
-            def_path_handling: DefPathHandling::FullyQualified,
             opaque_ty_handling: OpaqueTyHandling::Infer,
-            sanitize_macro_expns,
             binding_item_def_id,
         };
         printer.print_const(ct).ok()

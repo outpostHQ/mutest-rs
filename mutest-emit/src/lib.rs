@@ -14,7 +14,6 @@ extern crate rustc_ast_lowering;
 extern crate rustc_ast_pretty;
 extern crate rustc_attr_ir;
 extern crate rustc_const_eval;
-extern crate rustc_crate_store;
 extern crate rustc_data_structures;
 extern crate rustc_driver;
 extern crate rustc_error_messages;

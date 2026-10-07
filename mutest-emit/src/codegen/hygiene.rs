@@ -120,12 +120,6 @@ fn is_macro_helper_attr(syntax_extensions: &[SyntaxExtension], attr: &ast::Attri
 }
 
 #[derive(Clone, Copy)]
-enum DefPathRequestKind {
-    Item(hir::DefId),
-    ParentModStub(hir::ModId),
-}
-
-#[derive(Clone, Copy)]
 enum Macros2_0TopLevelRelativePathResHack {
     InTopLevelMacros2_0Scope { parent_module: hir::ModId },
     InNestedMacros2_0Scope(ExpnId),
@@ -353,81 +347,16 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
         qself
     }
 
-    fn expect_visible_def_path(&self, request: DefPathRequestKind, span: Span, ignore_reexport: Option<hir::DefId>) -> res::DefPath<'tcx> {
-        let def_id = match request {
-            DefPathRequestKind::Item(def_id) => def_id,
-            DefPathRequestKind::ParentModStub(def_id) => def_id.to_def_id(),
-        };
-
-        // Prefer using a direct, local path to local items within the same module as the enclosing module (or parent modules) of the current scope.
-        // NOTE: This helps avoid visibility-related resolution issues in local items, see
-        //       `tests/ui/hygiene/rustc_res/private_ctor_not_available_in_same_scope_through_reexport`, and
-        //       `tests/ui/hygiene/rustc_res/private_ctor_not_available_in_child_scope_through_reexport`.
-        if let Some(current_scope) = self.current_scope && let Some(local_def_id) = def_id.as_local() && def_id != current_scope {
-            let mod_scope = match self.tcx.def_kind(current_scope) {
-                hir::DefKind::Mod => current_scope,
-                _ => self.tcx.parent_module_from_def_id(current_scope.expect_local()).to_def_id(),
-            };
-            let containing_mod = match request {
-                DefPathRequestKind::Item(_) => self.tcx.parent_module_from_def_id(local_def_id).to_def_id(),
-                DefPathRequestKind::ParentModStub(_) => def_id,
-            };
-
-            if containing_mod == mod_scope {
-                if let Ok(visible_path) = res::locally_visible_def_path(self.tcx, def_id, current_scope) {
-                    return visible_path;
-                }
-            } else if !containing_mod.is_crate_root() {
-                let is_locally_accessible_through_supers = 'v: {
-                    let mut parent_mod_scope = mod_scope;
-                    let mut super_mods = vec![];
-
-                    while parent_mod_scope != containing_mod {
-                        let parent_mod = self.tcx.parent_module_from_def_id(parent_mod_scope.expect_local()).to_def_id();
-                        if parent_mod.is_crate_root() {
-                            break 'v None;
-                        }
-
-                        super_mods.push(parent_mod);
-                        parent_mod_scope = parent_mod;
-                    }
-
-                    Some(super_mods)
-                };
-
-                if let Some(super_mods) = is_locally_accessible_through_supers {
-                    match request {
-                        DefPathRequestKind::Item(_) => {
-                            if let Ok(mut visible_path) = res::locally_visible_def_path(self.tcx, def_id, containing_mod) {
-                                // Construct path to containing parent module, which are
-                                // always accessible through consecutive `super` path segments.
-                                visible_path.root = res::DefPathRootKind::Parent { supers: super_mods.len() };
-                                return visible_path;
-                            }
-                        }
-                        DefPathRequestKind::ParentModStub(_) => {
-                            // Construct direct path of `super` path segments, which is not valid by itself,
-                            // but will be valid once the caller appends the item segment(s) to it.
-                            return res::DefPath::new(res::DefPathRootKind::Parent { supers: super_mods.len() }, vec![]);
-                        }
-                    }
-                }
-            }
-        }
-
-        if let Some(visible_path) = res::visible_def_path(self.tcx, self.crate_res, def_id, self.current_scope, ignore_reexport) {
-            return visible_path;
-        }
-
-        // Ensure that the def is in the current scope, otherwise it really is not visible from here.
-        let Some(current_scope) = self.current_scope else {
-            span_bug!(span, "`{}` is not accessible in this crate", self.tcx.def_path_str(def_id));
-        };
-        match res::locally_visible_def_path(self.tcx, def_id, current_scope) {
-            Ok(visible_path) => { return visible_path; }
-            Err(adjusted_scope) => self.super_path_through_common_mod(def_id).unwrap_or_else(|| {
+    fn expect_visible_def_path(&self, request: res::DefPathRequestKind, ignore_reexport: Option<hir::DefId>, span: Span) -> res::DefPath<'tcx> {
+        match res::visible_def_path(self.tcx, self.crate_res, request, self.current_scope, ignore_reexport, span) {
+            Ok(def_path) => def_path,
+            // NOTE: `TyCtxt::def_path_str` prints implicit tuple/unit variant constructors
+            //       the same way as the variant itself (i.e., without `::{{constructor}}`),
+            //       so no adjustments are needed.
+            Err(None) => span_bug!(span, "`{}` is not accessible in this crate", self.tcx.def_path_str(request.def_id())),
+            Err(Some(adjusted_scope)) => self.super_path_through_common_mod(request.def_id()).unwrap_or_else(|| {
                 span_bug!(span, "`{def}` is not defined in {scope} and is not otherwise accessible here",
-                    def = self.tcx.def_path_str(def_id),
+                    def = self.tcx.def_path_str(request.def_id()),
                     scope = match adjusted_scope.is_top_level_module() {
                         true => "the crate root".to_owned(),
                         false => format!("the scope `{}`", self.tcx.def_path_str(adjusted_scope)),
@@ -440,6 +369,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
     /// A `super` path to a local item in another branch of the module tree, through the nearest module containing both,
     /// for items that no path from the crate root reaches, such as those in modules inside function bodies.
     fn super_path_through_common_mod(&self, def_id: hir::DefId) -> Option<res::DefPath<'tcx>> {
+        let def_id = match self.tcx.def_kind(def_id) { hir::DefKind::Ctor(..) => self.tcx.parent(def_id), _ => def_id };
         let local_def_id = def_id.as_local()?;
         let current_scope = self.current_scope?;
         let containing_mod = self.tcx.parent_module_from_def_id(local_def_id).to_def_id();
@@ -452,8 +382,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
             common_mod = self.tcx.parent_module_from_def_id(common_mod.as_local()?).to_def_id();
             supers += 1;
         }
-
-        let mut path = res::locally_visible_def_path(self.tcx, def_id, common_mod).ok()?;
+        let mut path = res::lexical_def_path(self.tcx, def_id, common_mod).ok()?;
         let [through @ .., _] = path.segments.as_slice() else { return None; };
         // NOTE: `super` never reaches into a function body, so the path may only pass through modules.
         let through_mods = through.iter().all(|segment| self.tcx.def_kind(segment.def_id) == hir::DefKind::Mod);
@@ -496,7 +425,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                 None
             }
 
-            hir::Res::Def(def_kind, mut def_id) => {
+            hir::Res::Def(def_kind, def_id) => {
                 match def_kind {
                     | hir::DefKind::Mod
                     | hir::DefKind::Struct
@@ -517,12 +446,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                     | hir::DefKind::AssocConst { .. }
                     | hir::DefKind::Macro(..)
                     => {
-                        if let hir::DefKind::Ctor(..) = def_kind {
-                            // Adjust target definition to the parent to avoid naming the unnamed constructors.
-                            def_id = self.tcx.parent(def_id);
-                        }
-
-                        let visible_def_path = self.expect_visible_def_path(DefPathRequestKind::Item(def_id), path.span, ignore_reexport);
+                        let visible_def_path = self.expect_visible_def_path(res::DefPathRequestKind::Def(def_id), ignore_reexport, path.span);
                         self.overwrite_path_with_def_path(path, &visible_def_path)
                     }
 
@@ -701,13 +625,12 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
     }
 
     fn sanitize_region(&self, region: ty::Region<'tcx>, binding_item_def_id: hir::DefId, span: Span) -> Option<ast::Lifetime> {
-        ty::print::region_ast(self.tcx, span, region, binding_item_def_id, true)
+        ty::print::region_ast(self.tcx, span, region, binding_item_def_id)
     }
 
     fn try_sanitize_ty(&self, ty: Ty<'tcx>, binding_item_def_id: hir::DefId, span: Span) -> Option<Box<ast::Ty>> {
-        let def_path_handling = ty::print::DefPathHandling::PreferVisible(ty::print::ScopedItemPaths::Trimmed);
         let opaque_ty_handling = ty::print::OpaqueTyHandling::Infer;
-        ty::ast_repr(self.tcx, self.crate_res, self.def_res, self.current_scope, span, ty, def_path_handling, opaque_ty_handling, true, binding_item_def_id)
+        ty::ast_repr(self.tcx, self.crate_res, self.def_res, self.current_scope, span, ty, opaque_ty_handling, binding_item_def_id)
     }
 
     #[inline]
@@ -719,7 +642,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
     }
 
     fn try_sanitize_const(&self, ct: ty::Const<'tcx>, binding_item_def_id: hir::DefId, span: Span) -> Option<ast::AnonConst> {
-        ty::print::const_ast(self.tcx, self.crate_res, self.def_res, self.current_scope, span, ct, binding_item_def_id, true)
+        ty::print::const_ast(self.tcx, self.crate_res, self.def_res, self.current_scope, span, ct, binding_item_def_id)
     }
 
     /// Hygienically print the generic arguments corresponding to the definition referenced by a path segment, such as a trait.
@@ -1151,11 +1074,11 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
 
         let adjust_mod_path_from_expansion = |path: &mut ast::Path, mod_id: hir::ModId, mod_path_kind: ModPathKind, ignore_reexport: Option<hir::DefId>| {
             let def_path_request = match mod_path_kind {
-                ModPathKind::DirectPath => DefPathRequestKind::Item(mod_id.to_def_id()),
-                ModPathKind::ParentModPathStub => DefPathRequestKind::ParentModStub(mod_id),
+                ModPathKind::DirectPath => res::DefPathRequestKind::Def(mod_id.to_def_id()),
+                ModPathKind::ParentModPathStub => res::DefPathRequestKind::ParentModPrefix(mod_id),
             };
 
-            let visible_def_path = self.expect_visible_def_path(def_path_request, path.span, ignore_reexport);
+            let visible_def_path = self.expect_visible_def_path(def_path_request, ignore_reexport, path.span);
             let None = self.overwrite_path_with_def_path(path, &visible_def_path) else {
                 span_bug!(path.span, "produced type-relative path in context which disallows qualified paths");
             };
