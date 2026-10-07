@@ -1,6 +1,6 @@
 name: corpus
 
-# Builds the mutated test harness of real crates, each pinned to a release commit, without running it.
+# Builds the mutated test harness of real crates, each pinned to a release commit, and runs the analysis of the small ones.
 # A gap in printing the mutated crate shows here as a crate that does not build.
 on:
   push:
@@ -37,6 +37,7 @@ jobs:
           - { crate: "serde", repo: "serde-rs/serde", rev: "7fc3b4c30c94f73a96ebd1553f2b090d928fc3a8", args: "-p serde --lib" }
           # v2.9.2, grammars defined through the derive macro's DSL
           - { crate: "pest", repo: "pest-parser/pest", rev: "67e5acbbe622fab0771cf9d515e4ea7744f482d5", args: "-p pest_grammars --lib" }
+          - { crate: "pest", os: "ubuntu-latest", analyze: "-p pest --lib" }
           # libp2p-v0.56.0
           - { crate: "libp2p", repo: "libp2p/rust-libp2p", rev: "70082df7e6181722630eabc5de5373733aac9a21", args: "-p libp2p-swarm --lib" }
           # v0.98.2
@@ -105,3 +106,26 @@ jobs:
             exit 0
           fi
           exit "$status"
+
+      - name: Run the mutation analysis
+        if: matrix.analyze
+        shell: bash
+        working-directory: ${{ runner.temp }}/crate
+        timeout-minutes: 30
+        env:
+          ARGS: ${{ matrix.analyze }}
+        run: |
+          status=0
+          cargo mutest run $ARGS > "$RUNNER_TEMP/analysis.log" 2>&1 || status=$?
+          tail -n 40 "$RUNNER_TEMP/analysis.log"
+          case "$status" in
+            0|2|3) ;;
+            *) echo "::error::${{ matrix.crate }} analysis did not complete (exit $status)"; exit 1 ;;
+          esac
+          summary=$(grep -m1 '^ *mutations: ' "$RUNNER_TEMP/analysis.log")
+          detected=$(sed -n 's/.* \([0-9]*\) detected .*/\1/p' <<< "$summary")
+          if [ "${detected:-0}" -eq 0 ]; then
+            echo "::error::${{ matrix.crate }} analysis detected no mutations: $summary"
+            exit 1
+          fi
+          echo "::notice::${{ matrix.crate }} (exit $status) $summary"
