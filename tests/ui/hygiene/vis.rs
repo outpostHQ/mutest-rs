@@ -17,6 +17,12 @@ mod inner {
         pub(in super::super) const SUPER_INNER_CONST: () = ();
         pub(in crate::inner) const IN_INNER_CONST: () = ();
 
+        pub(crate) mod crate_mod {}
+        pub(super) mod inner_mod {}
+        pub(self) mod self_mod {}
+        pub(in super::super) mod super_inner_mod {}
+        pub(in crate::inner) mod in_inner_mod {}
+
         pub struct Fields {
             pub(crate) crate_field: (),
             pub(super) inner_field: (),
@@ -51,5 +57,12 @@ mod inner {
         trait Trait {
             fn f();
         }
+    }
+}
+
+mod outer {
+    mod middle {
+        pub(self) mod self_mod {}
+        pub(super) mod outer_mod {}
     }
 }

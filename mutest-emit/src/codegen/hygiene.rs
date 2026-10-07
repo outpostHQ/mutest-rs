@@ -1837,7 +1837,12 @@ impl<'tcx, 'op> ast::mut_visit::MutVisitor for MacroExpansionSanitizer<'tcx, 'op
                     span_bug!(vis.span, "restricted visibility path `{}` cannot be resolved", ast::print::path_to_string(path));
                 };
                 let res = hir::Res::Def(self.tcx.def_kind(mod_id), mod_id.to_def_id());
-                let None = self.adjust_path_from_expansion(path, res, None) else {
+                // Visibility paths are relative to the module containing the item, even for module items.
+                let vis_scope = self.tcx.parent_module_from_def_id(owner_def_id).to_def_id();
+                let previous_scope = self.current_scope.replace(vis_scope);
+                let qself = self.adjust_path_from_expansion(path, res, None);
+                self.current_scope = previous_scope;
+                let None = qself else {
                     span_bug!(path.span, "produced type-relative path in context which disallows qualified paths");
                 };
             }
