@@ -1,0 +1,14 @@
+warning: use of deprecated function `old`
+  --> tests/ui/harness/denied_lints_only_warn.rs:13:5
+   |
+13 |     old();
+   |     ^^^
+   |
+note: the lint level is defined here
+  --> tests/ui/harness/denied_lints_only_warn.rs:6:9
+   |
+ 6 | #![deny(deprecated)]
+   |         ^^^^^^^^^^
+
+warning: 1 warning emitted
+

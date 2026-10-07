@@ -10,6 +10,7 @@ use mutest_emit::codegen::symbols::{Symbol, span_diagnostic_ord};
 use rustc_data_structures::fx::{FxHashSet, FxHashMap};
 use rustc_interface::{create_and_enter_global_ctxt, passes, run_compiler};
 use rustc_interface::interface::Result as CompilerResult;
+use rustc_lint_defs::Level as LintLevel;
 use rustc_middle::ty::TyCtxt;
 use rustc_session::config::OptLevel;
 use rustc_span::{ErrorGuaranteed, FileName};
@@ -132,6 +133,10 @@ pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
     //       argument nodes between the AST and the HIR.
     //       See `mutest_emit::analysis::ast_lowering` for more details.
     compiler_config.opts.unstable_opts.flatten_format_args = false;
+
+    // NOTE: Lints only warn, so that a crate which denies warnings can be mutation tested
+    //       on a toolchain with new lints and deprecations.
+    compiler_config.opts.lint_cap = Some(compiler_config.opts.lint_cap.map_or(LintLevel::Warn, |cap| cap.min(LintLevel::Warn)));
 
     // NOTE: Disable all MIR optimizations in all cases to ensure identical MIRs
     //       during analysis regardless of final optimization level.
