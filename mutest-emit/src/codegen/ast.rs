@@ -170,12 +170,12 @@ pub mod mk {
     }
 
     pub fn parenthesized_args(sp: Span, inputs: ThinVec<Box<ast::Ty>>, output: Option<Box<ast::Ty>>) -> Box<ast::GenericArgs> {
-        // NOTE: Parenthesized args are full params, whose patterns are unused here.
+        // NOTE: Parenthesized args are full params. A `_` pattern would print `Fn(_: T)`, which is feature-gated.
         let inputs = inputs.into_iter()
             .map(|ty| ast::Param {
                 attrs: ast::AttrVec::new(),
                 ty,
-                pat: self::pat_wild(sp),
+                pat: self::pat(sp, ast::PatKind::Missing),
                 id: ast::DUMMY_NODE_ID,
                 span: sp,
                 is_placeholder: false,

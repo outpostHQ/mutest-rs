@@ -62,8 +62,7 @@ macro t($f:ident $(<$($param_ty:tt),*>)? -> $ty:ty $([<$($arg_ty:ty),*>])?) {
     assert_eq!(AssertMutated::Mutated(PhantomData), v);
 }
 
-#[test]
-fn test() {
+fn ty_printing_cases() {
     // NOTE: We need to declare a non-#[test] function to place the
     //       mutation-based test cases into.
     //       This function must also not be in a #[cfg(test)] context.
@@ -144,4 +143,10 @@ fn test() {
     // TODO: Enable all mutations and run this test.
 
     f();
+}
+
+// NOTE: Functions nested in a #[test] function are not mutated, so the cases live outside it.
+#[test]
+fn test() {
+    ty_printing_cases();
 }
