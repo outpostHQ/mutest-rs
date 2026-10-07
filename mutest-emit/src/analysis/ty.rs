@@ -48,7 +48,7 @@ pub mod print {
     use rustc_data_structures::thin_vec::{ThinVec, thin_vec};
     use rustc_infer::infer::TyCtxtInferExt;
     use rustc_middle::mir;
-    use rustc_middle::ty::{self, Ty, TyCtxt};
+    use rustc_middle::ty::{self, Ty, TyCtxt, TypeVisitableExt};
     use rustc_middle::ty::consts::ConstExt as _;
 
     use crate::analysis::ast_lowering;
@@ -99,6 +99,9 @@ pub mod print {
         scope: Option<hir::DefId>,
         sp: Span,
         opaque_ty_handling: OpaqueTyHandling,
+        /// Print `_` for trait object and function pointer types with lifetimes that no written type keeps: each written binder
+        /// is distinct (e.g. for MIR building of `vec![]`), and `'_` in `Fn(..)` binds a new lifetime instead of the erased one.
+        infer_higher_ranked_tys: bool,
         binding_item_def_id: hir::DefId,
     }
 
@@ -108,6 +111,15 @@ pub mod print {
             match self.opaque_ty_handling {
                 OpaqueTyHandling::Infer => Ok(ast::mk::ty(self.sp, ast::TyKind::Infer)),
                 OpaqueTyHandling::Keep | OpaqueTyHandling::Resolve => Err(format!("`{ty}` is the type of an `impl Trait` in a trait, which has no name")),
+            }
+        }
+
+        /// Whether the type is printed as `_`, see `infer_higher_ranked_tys`.
+        fn infers_higher_ranked_ty(&self, ty: Ty<'tcx>) -> bool {
+            self.infer_higher_ranked_tys && match ty.kind() {
+                ty::TyKind::Dynamic(predicates, _) => predicates.iter().any(|predicate| !predicate.bound_vars().is_empty()) || predicates.has_erased_regions(),
+                ty::TyKind::FnPtr(fn_sig_tys, _) => !fn_sig_tys.bound_vars().is_empty() || fn_sig_tys.has_erased_regions(),
+                _ => false,
             }
         }
     }
@@ -577,6 +589,9 @@ pub mod print {
                     let def_path = self.print_def_path(def_id, &[])?;
                     Ok(ast::mk::ty_path(None, def_path))
                 }
+                ty::TyKind::Dynamic(..) | ty::TyKind::FnPtr(..) if self.infers_higher_ranked_ty(ty) => {
+                    Ok(ast::mk::ty(sp, ast::TyKind::Infer))
+                }
                 ty::TyKind::Dynamic(predicates, region) => {
                     let mut dyn_existential = self.print_dyn_existential(predicates)?;
                     let ast::TyKind::TraitObject(bounds, _syntax) = &mut dyn_existential.kind else { unreachable!() };
@@ -697,6 +712,7 @@ pub mod print {
         sp: Span,
         ty: Ty<'tcx>,
         opaque_ty_handling: OpaqueTyHandling,
+        infer_higher_ranked_tys: bool,
         binding_item_def_id: hir::DefId,
     ) -> Option<Box<ast::Ty>> {
         let mut printer = AstTyPrinter {
@@ -706,6 +722,7 @@ pub mod print {
             scope,
             sp,
             opaque_ty_handling,
+            infer_higher_ranked_tys,
             binding_item_def_id,
         };
         printer.print_ty(ty).ok()
@@ -725,6 +742,7 @@ pub mod print {
             scope: None,
             sp,
             opaque_ty_handling: OpaqueTyHandling::Infer,
+            infer_higher_ranked_tys: false,
             binding_item_def_id,
         };
         printer.print_region(region).ok().flatten()
@@ -746,6 +764,7 @@ pub mod print {
             scope,
             sp,
             opaque_ty_handling: OpaqueTyHandling::Infer,
+            infer_higher_ranked_tys: false,
             binding_item_def_id,
         };
         printer.print_const(ct).ok()

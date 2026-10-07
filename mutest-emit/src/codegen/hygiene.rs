@@ -471,6 +471,11 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
         self.typeck_for(hir_id.owner).is_some_and(|typeck| typeck.node_type_opt(hir_id).is_some())
     }
 
+    /// Whether the self type of the path can keep its higher-ranked types inferred: in a body, with no generic args written for it.
+    fn infers_self_ty_args(&self, qself: &Option<Box<ast::QSelf>>, path: &ast::Path, qself_ty_hir_id: hir::HirId) -> bool {
+        qself.is_none() && path.segments.iter().rev().skip(1).all(|segment| segment.args.is_none()) && self.is_inside_body(qself_ty_hir_id)
+    }
+
     fn lookup_hir_node_ty(&self, ty_hir: &hir::Ty<'tcx>) -> Ty<'tcx> {
         if let Some(typeck) = self.typeck_for(ty_hir.hir_id.owner) {
             if let Some(ty) = typeck.node_type_opt(ty_hir.hir_id) {
@@ -586,7 +591,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
 
     fn try_sanitize_ty(&self, ty: Ty<'tcx>, binding_item_def_id: hir::DefId, span: Span) -> Option<Box<ast::Ty>> {
         let opaque_ty_handling = ty::print::OpaqueTyHandling::Infer;
-        ty::ast_repr(self.tcx, self.crate_res, self.def_res, self.current_scope, span, ty, opaque_ty_handling, binding_item_def_id)
+        ty::ast_repr(self.tcx, self.crate_res, self.def_res, self.current_scope, span, ty, opaque_ty_handling, false, binding_item_def_id)
     }
 
     #[inline]
@@ -595,6 +600,12 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
             span_bug!(span, "cannot construct AST representation of type `{ty:?}`");
         };
         ty_ast
+    }
+
+    fn sanitize_ty_with(&self, ty: Ty<'tcx>, binding_item_def_id: hir::DefId, infer_higher_ranked_tys: bool, span: Span) -> Box<ast::Ty> {
+        let opaque_ty_handling = ty::print::OpaqueTyHandling::Infer;
+        let ty_ast = ty::ast_repr(self.tcx, self.crate_res, self.def_res, self.current_scope, span, ty, opaque_ty_handling, infer_higher_ranked_tys, binding_item_def_id);
+        ty_ast.unwrap_or_else(|| span_bug!(span, "cannot construct AST representation of type `{ty:?}`"))
     }
 
     fn try_sanitize_const(&self, ct: ty::Const<'tcx>, binding_item_def_id: hir::DefId, span: Span) -> Option<ast::AnonConst> {
@@ -980,7 +991,8 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                             }
 
                             hir::DefKind::Impl { of_trait: false } => {
-                                let qself_ty_ast = self.sanitize_ty(qself_ty, node_hir_id.owner.to_def_id(), qself_ty_hir.span);
+                                let infer_higher_ranked_tys = self.infers_self_ty_args(qself, path, qself_ty_hir.hir_id);
+                                let qself_ty_ast = self.sanitize_ty_with(qself_ty, node_hir_id.owner.to_def_id(), infer_higher_ranked_tys, qself_ty_hir.span);
 
                                 // Discard self ty generic args in the original path.
                                 // NOTE: The parent path segment corresponds to the self ty, which we replace entirely after path sanitization.
