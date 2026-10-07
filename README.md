@@ -83,11 +83,13 @@ See `--help` for more options and subcommands.
 | 0    | The analysis completed, and the tests caught every mutation. |
 | 1    | The command could not run as given: an argument is wrong, or a part of mutest-rs it needs is not installed. |
 | 2    | The analysis completed, and the tests missed some mutations. |
-| 3    | The analysis completed, and some mutations timed out. |
+| 3    | The analysis completed, and some mutations timed out, also when run again alone. |
 | 4    | A test harness did not build, or its tests failed without mutations, so its mutations were not evaluated. |
 | 101  | mutest-rs panicked, or a test harness ended abnormally, such as being killed by a signal. |
 
 A run of several test harnesses exits with the most severe of these codes, in the order 101, 1, 4, 3, 2, 0. With `--simulate`, it exits 0 if the tests catch the mutation and 2 if they miss it.
+
+A mutation that times out runs again after the analysis, alone and one test at a time. Each test then gets five times its first time limit, and at least ten seconds more. The result of this rerun is the result of the mutation, and the line `timeouts confirmed: R re-run alone; D detected, U undetected, C crashed, T timed out again` counts the reruns.
 
 ### Using `cfg(mutest)`
 

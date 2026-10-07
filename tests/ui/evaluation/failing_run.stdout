@@ -99,3 +99,4 @@ ran 1 out of 1 test
 mutations: 16.67%. 1 detected (0 timed out; 0 crashed); 5 undetected; 6 total
      safe: 16.67%. 1 detected (0 timed out; 0 crashed); 5 undetected; 6 total
    unsafe: none. 0 detected (0 timed out; 0 crashed); 0 undetected; 0 total
+timeouts confirmed: 0 re-run alone; 0 detected, 0 undetected, 0 crashed, 0 timed out again

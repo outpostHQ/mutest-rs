@@ -33,3 +33,4 @@ warning: [fn_return_default] mutation was not detected
 mutations: 0.00%. 0 detected (0 timed out; 0 crashed); 2 undetected; 2 total
      safe: 0.00%. 0 detected (0 timed out; 0 crashed); 2 undetected; 2 total
    unsafe: none. 0 detected (0 timed out; 0 crashed); 0 undetected; 0 total
+timeouts confirmed: 0 re-run alone; 0 detected, 0 undetected, 0 crashed, 0 timed out again

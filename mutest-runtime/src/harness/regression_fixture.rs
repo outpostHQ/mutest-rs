@@ -143,6 +143,8 @@ fn completed_mutation() -> Result<(), String> {
         mark("mutation-entered");
         let scenario = env::var("MUTEST_REGRESSION_SCENARIO").unwrap();
         if scenario == "evaluate-timeout" { loop { thread::park(); } }
+        // Slower than the first limit of about one second, but faster than the limit of the rerun.
+        if scenario == "evaluate-slow" { thread::sleep(Duration::from_secs(2)); }
     }
     Ok(())
 }
@@ -244,7 +246,7 @@ pub(crate) fn run(scenario: &str) {
     let (tests, meta_mutant): (_, &'static MetaMutant<Map>) = match scenario {
         "collateral" => (vec![case("abort", aborting), case("collateral", collateral)], &BATCH),
         "unsafe-simulate" => (vec![case("isolated", isolated_abort)], &EMPTY),
-        "evaluate-missed" | "evaluate-timeout" | "finished-output-failure" | "finished-cancel" => (vec![case("abort", completed_mutation)], &SINGLE),
+        "evaluate-missed" | "evaluate-slow" | "evaluate-timeout" | "finished-output-failure" | "finished-cancel" => (vec![case("abort", completed_mutation)], &SINGLE),
         _ => (vec![case("reference", reference)], &EMPTY),
     };
     let mut args = if scenario.ends_with("-flakes") || scenario == "zero-flakes" { vec!["--flakes=2"] } else { vec![] };

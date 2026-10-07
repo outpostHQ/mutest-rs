@@ -271,6 +271,7 @@ mod tests {
             crashed_safe_mutations_count: crashed,
             mutation_detection_matrix: MutationDetectionMatrix::new(0),
             mutation_op_stats: HashMap::new(),
+            timeout_reruns: Default::default(),
             duration: Duration::ZERO,
         };
         let out_dir = env::temp_dir().join(format!("mutest-write-test-{}-{total}-{undetected}-{crashed}", process::id()));

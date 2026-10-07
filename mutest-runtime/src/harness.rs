@@ -26,6 +26,9 @@ use crate::test_runner;
 use crate::thread_pool::ThreadPool;
 use crate::write::{EvaluationStreamWriter, write_evaluation};
 
+mod timeouts;
+pub use timeouts::TimeoutReruns;
+
 mod test {
     #![allow(unused_imports, reason = "a glob shim over the unstable `test` crate, of which this crate uses only a part")]
 
@@ -530,6 +533,7 @@ pub struct MutationAnalysisResults {
     pub crashed_safe_mutations_count: usize,
     pub mutation_detection_matrix: MutationDetectionMatrix,
     pub mutation_op_stats: HashMap<&'static str, MutationOpStats>,
+    pub timeout_reruns: TimeoutReruns,
     pub duration: Duration,
 }
 
@@ -608,8 +612,29 @@ fn journal_started(journal: Option<&WorkerJournal>, mutations: &[&'static Mutati
     }
 }
 
-fn journal_finished(journal: Option<&WorkerJournal>, mutation: &MutationMeta, mutation_result: &MutationTestResults) {
-    if let Some(journal) = journal { journal.finished(mutation.id, mutation_result); }
+fn record_finished_mutation(results: &mut MutationAnalysisResults, journal: Option<&WorkerJournal>, mutation: &'static MutationMeta, mutation_result: MutationTestResults, timeout_rerun: bool) {
+    if let Some(journal) = journal { journal.finished(mutation.id, &mutation_result, timeout_rerun); }
+    if let MutationTestResult::Undetected = mutation_result.result {
+        print!("{}", mutation.undetected_diagnostic);
+    }
+    results.record_mutation_results(mutation, mutation_result);
+}
+
+fn print_mutation(mutation: &MutationMeta, verbosity: u8) {
+    print!("- ");
+    if verbosity >= 1 {
+        print!("{}: ", mutation.id);
+    }
+    println!("{unsafe_marker}[{op_name}] {display_name} at {display_location}",
+        unsafe_marker = match mutation.safety {
+            MutationSafety::Safe => "",
+            MutationSafety::Tainted => "(tainted) ",
+            MutationSafety::Unsafe => "(unsafe) ",
+        },
+        op_name = mutation.op_name,
+        display_name = mutation.display_name,
+        display_location = mutation.display_location,
+    );
 }
 
 struct MutationAnalysis<'a, S: SubstMap + 'static> {
@@ -646,55 +671,20 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
         crashed_safe_mutations_count: 0,
         mutation_detection_matrix: MutationDetectionMatrix::new(meta_mutant.mutations.len()),
         mutation_op_stats: Default::default(),
+        timeout_reruns: Default::default(),
         duration: Duration::ZERO,
     };
 
     journal::record_earlier_results(journal, &mut results, meta_mutant.mutations, tests);
 
     let t_start = Instant::now();
+    let mut timed_out_mutations = vec![];
 
     match meta_mutant.mutation_parallelism {
         MutationParallelism::None(mutants) => {
             for mutant in mutants.iter().filter(|mutant| !journal::finished_before(journal, mutant.mutation)) {
-                // SAFETY: Ideally, since the previous test runs all completed,
-                //         no other thread is running, no one else is reading from the handle.
-                //         Lingering test cases from previous test runs are forcibly terminated
-                //         before they try to read from the handle after the corresponding thread
-                //         has been marked inactive.
-                unsafe { meta_mutant.active_mutant_handle.replace(Some(S::with(mutant.substitutions))); }
-
-                println!("applying mutation:");
-                print!("- ");
-                if opts.verbosity >= 1 {
-                    print!("{}: ", mutant.mutation.id);
-                }
-                println!("{unsafe_marker}[{op_name}] {display_name} at {display_location}",
-                    unsafe_marker = match mutant.mutation.safety {
-                        MutationSafety::Safe => "",
-                        MutationSafety::Tainted => "(tainted) ",
-                        MutationSafety::Unsafe => "(unsafe) ",
-                    },
-                    op_name = mutant.mutation.op_name,
-                    display_name = mutant.mutation.display_name,
-                    display_location = mutant.mutation.display_location,
-                );
-                println!();
-
-                let mut tests = clone_tests(tests.iter().filter(|test| is_reachable_test(mutant.mutation, &test.desc, external_tests_extra)));
-                if let config::TestOrdering::MutationDistance = opts.test_ordering {
-                    prioritize_tests_by_distance(&mut tests, external_tests_extra, &[mutant.mutation]);
-                }
-
-                journal_started(journal, &[mutant.mutation]);
-                let (mut run_results, lingering_tests) = run_tests(tests, external_tests_extra, Mutant::Mutation(mutant), opts.exhaustive, journal::isolates(journal, opts.mutation_isolation, &[mutant.mutation]), thread_pool.clone(), None, eval_stream_writer.clone(), opts.verbosity);
-                lingering_test_monitoring_thread.submit_lingering_tests(lingering_tests);
-
-                let Some(mutation_result) = run_results.remove(&mutant.mutation.id) else { unreachable!() };
-                journal_finished(journal, mutant.mutation, &mutation_result);
-                if let MutationTestResult::Undetected = mutation_result.result {
-                    print!("{}", mutant.mutation.undetected_diagnostic);
-                }
-                results.record_mutation_results(mutant.mutation, mutation_result);
+                let mutation_result = evaluate_alone(analysis, (Mutant::Mutation(mutant), mutant.mutation), false, thread_pool.clone(), &lingering_test_monitoring_thread, eval_stream_writer.clone(), journal);
+                timeouts::finish_mutation(&mut results, &mut timed_out_mutations, journal, Mutant::Mutation(mutant), mutant.mutation, mutation_result);
             }
         }
         MutationParallelism::Batched(batched_mutants) => {
@@ -714,20 +704,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                     n => println!("applying batch of {n} mutations:"),
                 }
                 for mutation in batched_mutant.mutations {
-                    print!("- ");
-                    if opts.verbosity >= 1 {
-                        print!("{}: ", mutation.id);
-                    }
-                    println!("{unsafe_marker}[{op_name}] {display_name} at {display_location}",
-                        unsafe_marker = match mutation.safety {
-                            MutationSafety::Safe => "",
-                            MutationSafety::Tainted => "(tainted) ",
-                            MutationSafety::Unsafe => "(unsafe) ",
-                        },
-                        op_name = mutation.op_name,
-                        display_name = mutation.display_name,
-                        display_location = mutation.display_location,
-                    );
+                    print_mutation(mutation, opts.verbosity);
                 }
                 println!();
 
@@ -743,11 +720,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
 
                 for mutation in batched_mutant.mutations.iter().filter(|mutation| !journal::finished_before(journal, mutation)) {
                     let Some(mutation_result) = run_results.remove(&mutation.id) else { unreachable!() };
-                    journal_finished(journal, mutation, &mutation_result);
-                    if let MutationTestResult::Undetected = mutation_result.result {
-                        print!("{}", mutation.undetected_diagnostic);
-                    }
-                    results.record_mutation_results(mutation, mutation_result);
+                    timeouts::finish_mutation(&mut results, &mut timed_out_mutations, journal, Mutant::Batch(batched_mutant), mutation, mutation_result);
                 }
             }
         }
@@ -796,20 +769,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
 
                     for mutant in newly_scheduled_mutants.drain(..) {
                         println!("applying mutation:");
-                        print!("- ");
-                        if opts.verbosity >= 1 {
-                            print!("{}: ", mutant.mutation.id);
-                        }
-                        println!("{unsafe_marker}[{op_name}] {display_name} at {display_location}",
-                            unsafe_marker = match mutant.mutation.safety {
-                                MutationSafety::Safe => "",
-                                MutationSafety::Tainted => "(tainted) ",
-                                MutationSafety::Unsafe => "(unsafe) ",
-                            },
-                            op_name = mutant.mutation.op_name,
-                            display_name = mutant.mutation.display_name,
-                            display_location = mutant.mutation.display_location,
-                        );
+                        print_mutation(mutant.mutation, opts.verbosity);
                         println!();
 
                         let mut tests = clone_tests(tests.iter().filter(|test| is_reachable_test(mutant.mutation, &test.desc, external_tests_extra)));
@@ -851,11 +811,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                     let mutation = completed_mutant.mutant.mutation;
 
                     let Ok(mutation_result) = completed_mutant.join_handle.join() else { unreachable!() };
-                    journal_finished(journal, mutation, &mutation_result);
-                    if let MutationTestResult::Undetected = mutation_result.result {
-                        print!("{}", mutation.undetected_diagnostic);
-                    }
-                    results.record_mutation_results(mutation, mutation_result);
+                    timeouts::finish_mutation(&mut results, &mut timed_out_mutations, journal, Mutant::Mutation(completed_mutant.mutant), mutation, mutation_result);
                 }
 
                 if any_removed {
@@ -874,9 +830,43 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
         }
     }
 
+    timeouts::confirm_timeouts(analysis, timed_out_mutations, &mut results, thread_pool, &lingering_test_monitoring_thread, eval_stream_writer, journal);
+
     results.duration = t_start.elapsed();
 
     results
+}
+
+/// Evaluates `mutation` while no other mutant runs; a timeout rerun runs one test at a time, with longer limits.
+fn evaluate_alone<S: SubstMap + Sync>(analysis: &MutationAnalysis<'_, S>, (mutant, mutation): (Mutant, &'static MutationMeta), timeout_rerun: bool, thread_pool: Option<ThreadPool>, lingering_test_monitoring_thread: &LingeringTestMonitoringThread, eval_stream_writer: Option<EvaluationStreamWriter>, journal: Option<&WorkerJournal>) -> MutationTestResults {
+    let &MutationAnalysis { opts, tests, external_tests_extra, meta_mutant } = analysis;
+
+    // SAFETY: Ideally, since the previous test runs all completed,
+    //         no other thread is running, no one else is reading from the handle.
+    //         Lingering test cases from previous test runs are forcibly terminated
+    //         before they try to read from the handle after the corresponding thread
+    //         has been marked inactive.
+    unsafe { meta_mutant.active_mutant_handle.replace(Some(S::with(mutant.substitutions()))); }
+
+    println!("{}", if timeout_rerun { "confirming timeout of mutation alone:" } else { "applying mutation:" });
+    print_mutation(mutation, opts.verbosity);
+    println!();
+
+    // The other mutations of a batch stay active, but no test of this mutation reaches them.
+    let mut tests = clone_tests(tests.iter().filter(|test| is_reachable_test(mutation, &test.desc, external_tests_extra)));
+    if timeout_rerun {
+        tests.iter_mut().for_each(|test| test.timeout = test.timeout.map(timeouts::confirmation_timeout));
+    }
+    if let config::TestOrdering::MutationDistance = opts.test_ordering {
+        prioritize_tests_by_distance(&mut tests, external_tests_extra, &[mutation]);
+    }
+
+    if !timeout_rerun { journal_started(journal, &[mutation]); }
+    let (mut run_results, lingering_tests) = run_tests(tests, external_tests_extra, mutant, opts.exhaustive, journal::isolates(journal, opts.mutation_isolation, &[mutation]), thread_pool, timeout_rerun.then_some(1), eval_stream_writer, opts.verbosity);
+    lingering_test_monitoring_thread.submit_lingering_tests(lingering_tests);
+
+    let Some(mutation_result) = run_results.remove(&mutation.id) else { unreachable!() };
+    mutation_result
 }
 
 fn print_mutation_analysis_epilogue(results: &MutationAnalysisResults, verbosity: u8) {
@@ -915,6 +905,8 @@ fn print_mutation_analysis_epilogue(results: &MutationAnalysisResults, verbosity
             total = stats.total_mutations_count,
         );
     }
+
+    results.timeout_reruns.print();
 }
 
 pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_tests_extra: Option<&'static ExternalTestsExtra>, meta_mutant: &'static MetaMutant<impl SubstMap + Sync>) {

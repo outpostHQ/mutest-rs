@@ -60,6 +60,8 @@ enum Record {
         finished: u32,
         result: RecordedResult,
         tests: Vec<(String, Option<RecordedResult>)>,
+        #[serde(default)]
+        timeout_rerun: bool,
     },
     Isolate {
         isolate: Vec<u32>,
@@ -69,6 +71,7 @@ enum Record {
 struct Finished {
     result: RecordedResult,
     tests: Vec<(String, Option<RecordedResult>)>,
+    timeout_rerun: bool,
 }
 
 fn append(mut file: impl Write, line: json::Object) -> io::Result<()> {
@@ -89,8 +92,8 @@ impl Entries {
     fn add(&mut self, record: Record) -> io::Result<()> {
         match record {
             Record::Started { started } => self.started.extend(started),
-            Record::Finished { finished, result, tests } => {
-                if self.finished.insert(finished, Finished { result, tests }).is_some() {
+            Record::Finished { finished, result, tests, timeout_rerun } => {
+                if self.finished.insert(finished, Finished { result, tests, timeout_rerun }).is_some() {
                     return Err(io::Error::other("duplicate finished journal result"));
                 }
             }
@@ -235,7 +238,11 @@ pub(crate) fn isolates(journal: Option<&WorkerJournal>, isolation: MutationIsola
 
 /// Records the results of the mutations that the crashed workers before this one finished.
 pub(crate) fn record_earlier_results(journal: Option<&WorkerJournal>, results: &mut MutationAnalysisResults, mutations: &[&'static MutationMeta], tests: &[test_runner::Test]) {
-    for (mutation, mutation_result) in journal.map(|journal| journal.earlier_results(mutations, tests)).unwrap_or_default() {
+    let Some(journal) = journal else { return; };
+    for (mutation, mutation_result) in journal.earlier_results(mutations, tests) {
+        if journal.earlier.finished[&mutation.id].timeout_rerun {
+            results.timeout_reruns.record(mutation_result.result);
+        }
         results.record_mutation_results(mutation, mutation_result);
     }
 }
@@ -288,13 +295,14 @@ impl WorkerJournal {
         self.append(json::Object::new().field("started", mutation_ids));
     }
 
-    pub fn finished(&self, mutation_id: u32, results: &MutationTestResults) {
+    pub fn finished(&self, mutation_id: u32, results: &MutationTestResults, timeout_rerun: bool) {
         let tests = results
             .results_per_test
             .iter()
             .map(|(name, result)| (name.as_slice(), result.map(result_name)))
             .collect::<Vec<_>>();
-        self.append(json::Object::new().field("finished", &mutation_id).field("result", result_name(results.result)).field("tests", &tests));
+        let line = json::Object::new().field("finished", &mutation_id).field("result", result_name(results.result)).field("tests", &tests);
+        self.append(if timeout_rerun { line.field("timeout_rerun", &true) } else { line });
     }
 }
 
@@ -356,14 +364,16 @@ mod tests {
     fn each_crashed_mutation_is_isolated_once_and_a_restart_keeps_the_finished_results() {
         let journal = Journal::create().unwrap();
         let worker_journal = WorkerJournal::open(journal.path.clone()).unwrap();
-        worker_journal.started(&[1, 2]);
-        worker_journal.finished(1, &Default::default());
+        worker_journal.started(&[1, 2, 4]);
+        worker_journal.finished(1, &Default::default(), false);
+        worker_journal.finished(4, &Default::default(), true);
         assert_eq!(journal.isolate_unfinished().unwrap(), [2]);
         assert_eq!(journal.isolate_unfinished().unwrap(), [] as [u32; 0]);
 
         let restarted = WorkerJournal::open(journal.path.clone()).unwrap();
         assert!(restarted.resumes());
         assert!(restarted.earlier.finished.contains_key(&1) && restarted.earlier.isolated.contains(&2));
+        assert!(restarted.earlier.finished[&4].timeout_rerun && !restarted.earlier.finished[&1].timeout_rerun);
         restarted.started(&[2, 3]);
         assert_eq!(journal.isolate_unfinished().unwrap(), [3]);
     }

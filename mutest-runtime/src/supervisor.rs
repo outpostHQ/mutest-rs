@@ -894,7 +894,11 @@ mod tests {
             }
 
             fn wait(&mut self) -> ExitStatus {
-                let deadline = Instant::now() + Duration::from_secs(4);
+                self.wait_within(Duration::from_secs(4))
+            }
+
+            fn wait_within(&mut self, limit: Duration) -> ExitStatus {
+                let deadline = Instant::now() + limit;
                 loop {
                     if let Some(status) = self.child.try_wait().unwrap() {
                         return status;
@@ -1174,12 +1178,18 @@ mod tests {
 
         #[test]
         fn genuine_evaluation_miss_and_timeout_keep_completed_statuses() {
-            for (scenario, code) in [("evaluate-missed", 2), ("evaluate-timeout", 3)] {
+            for (scenario, code, reruns) in [
+                ("evaluate-missed", 2, "0 re-run alone; 0 detected, 0 undetected, 0 crashed, 0 timed out again"),
+                ("evaluate-slow", 2, "1 re-run alone; 0 detected, 1 undetected, 0 crashed, 0 timed out again"),
+                ("evaluate-timeout", 3, "1 re-run alone; 0 detected, 0 undetected, 0 crashed, 1 timed out again"),
+            ] {
                 let mut fixture = Fixture::start(scenario);
                 fixture.admit_worker();
-                assert_eq!(fixture.wait().code(), Some(code), "{}", fixture.output());
+                // The rerun of a timed-out mutation gives each test at least ten seconds more.
+                assert_eq!(fixture.wait_within(Duration::from_secs(30)).code(), Some(code), "{}", fixture.output());
                 assert!(fixture.root.join("mutation-entered").exists());
                 assert!(fixture.output().contains("1 total"));
+                assert!(fixture.output().contains(&format!("\ntimeouts confirmed: {reruns}\n")), "{}", fixture.output());
             }
         }
 
