@@ -7,8 +7,9 @@ use std::io;
 use std::num::NonZeroUsize;
 use std::panic;
 use std::process::{self, Command};
+use std::ptr;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{self, AtomicBool};
+use std::sync::atomic::{self, AtomicBool, AtomicUsize};
 use std::sync::mpsc;
 use std::thread::{self, ThreadId};
 use std::time::{Duration, Instant};
@@ -212,20 +213,56 @@ pub enum ControlMsg {
 }
 
 thread_local! {
-    static TEST_THREAD_ACTIVE: Cell<Arc<AtomicBool>> = Cell::new(Arc::new(AtomicBool::new(true)));
+    /// The signal of the in-process test this thread runs, or null when it runs none.
+    static TEST_THREAD_ACTIVE: Cell<*const AtomicBool> = const { Cell::new(ptr::null()) };
+}
+
+/// The in-process tests the run gave up whose threads still run; while there are none, no thread reads its signal.
+static ABANDONED_TEST_THREADS: AtomicUsize = AtomicUsize::new(0);
+
+/// Gives this thread the signal of its in-process test, until dropped.
+struct TestThreadSignal(Arc<AtomicBool>);
+
+impl TestThreadSignal {
+    fn set(active_signal: Arc<AtomicBool>) -> Self {
+        TEST_THREAD_ACTIVE.set(Arc::as_ptr(&active_signal));
+        Self(active_signal)
+    }
+}
+
+impl Drop for TestThreadSignal {
+    fn drop(&mut self) {
+        TEST_THREAD_ACTIVE.set(ptr::null());
+        if !self.0.swap(false, atomic::Ordering::SeqCst) {
+            ABANDONED_TEST_THREADS.fetch_sub(1, atomic::Ordering::SeqCst);
+        }
+    }
+}
+
+/// Clears the signal of a test that has not ended yet, and counts its thread as abandoned until the test ends.
+fn abandon_signal(active_signal: &AtomicBool) {
+    if active_signal.swap(false, atomic::Ordering::SeqCst) {
+        ABANDONED_TEST_THREADS.fetch_add(1, atomic::Ordering::SeqCst);
+    }
+}
+
+/// Whether the test of this thread is still active; `None` when the thread runs no test, or no test thread is abandoned.
+#[inline]
+fn active_signal() -> Option<bool> {
+    if ABANDONED_TEST_THREADS.load(atomic::Ordering::Relaxed) == 0 { return None; }
+    // SAFETY: The `TestThreadSignal` of this thread owns the signal, and clears the pointer before it drops it.
+    unsafe { TEST_THREAD_ACTIVE.get().as_ref() }.map(|active_signal| active_signal.load(atomic::Ordering::SeqCst))
 }
 
 /// Whether the run gave up the test of this thread, after its timeout or after the run stopped early.
+#[inline]
 pub(crate) fn test_thread_abandoned() -> bool {
-    TEST_THREAD_ACTIVE.with(|cell| {
-        // SAFETY: This thread-local cell is not mutated while its pointer is borrowed.
-        let value = (unsafe { &*cell.as_ptr() }).as_ref();
-        !value.load(atomic::Ordering::SeqCst)
-    })
+    active_signal() == Some(false)
 }
 
 /// Whether this thread may go on past a substitution point, where an abandoned test is cancelled by a panic;
 /// an abandoned test that unwinds already goes on with no substitution, as a second panic would abort the process.
+#[inline]
 pub fn is_test_thread_active() -> bool {
     !test_thread_abandoned() || thread::panicking()
 }
@@ -245,9 +282,7 @@ fn run_test_in_process(
         io::set_output_capture(Some(io_buffer.clone()));
     }
 
-    if let Some(active_signal) = active_signal {
-        TEST_THREAD_ACTIVE.set(active_signal);
-    }
+    let _active_signal = active_signal.map(TestThreadSignal::set);
 
     fn fold_err<T, E>(result: Result<Result<T, E>, Box<dyn Any + Send>>) -> Result<T, Box<dyn Any + Send>>
     where
@@ -626,7 +661,7 @@ fn timed_out_in_process_tests(running_tests: &HashMap<test::TestId, RunningTest>
 /// Stops an in-process test from reading the active substitutions, which may soon belong to another mutation.
 fn abandon(running_test: &RunningTest) {
     if let Some(active_signal) = &running_test.active_signal {
-        active_signal.store(false, atomic::Ordering::SeqCst);
+        abandon_signal(active_signal);
     }
 }
 
@@ -888,7 +923,8 @@ mod abandon_tests {
         }
         let (tx, rx) = mpsc::channel();
         let joined = thread::spawn(move || {
-            TEST_THREAD_ACTIVE.set(Arc::new(AtomicBool::new(false)));
+            let active_signal = TestThreadSignal::set(Arc::new(AtomicBool::new(true)));
+            abandon_signal(&active_signal.0);
             let probe = Probe(tx);
             probe.0.send((is_test_thread_active(), test_thread_abandoned())).unwrap();
             panic!("cancelled");
