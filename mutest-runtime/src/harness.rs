@@ -26,6 +26,8 @@ use crate::test_runner;
 use crate::thread_pool::ThreadPool;
 use crate::write::{EvaluationStreamWriter, write_evaluation};
 
+mod scheduling;
+use scheduling::ScheduledMutant;
 mod timeouts;
 pub use timeouts::TimeoutReruns;
 
@@ -644,13 +646,6 @@ struct MutationAnalysis<'a, S: SubstMap + 'static> {
     meta_mutant: &'static MetaMutant<S>,
 }
 
-/// Whether a mutation may run alongside others whose substitutions are active in this process.
-/// Conflicts matter only within a process; isolated, each test runs with only its own mutation.
-fn runs_alongside<'a>(mutation: &MutationMeta, others: impl IntoIterator<Item = &'a MutationMeta>, conflicts: &metadata::MutationConflictsMeta, isolation: config::MutationIsolation) -> bool {
-    isolation == config::MutationIsolation::All
-        || others.into_iter().all(|other| !conflicts.conflicting_mutations(mutation.id, other.id))
-}
-
 fn run_mutation_analysis<S: SubstMap + Sync>(
     analysis: &MutationAnalysis<'_, S>,
     thread_pool: Option<ThreadPool>,
@@ -731,43 +726,38 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
             };
             let max_thread_count = thread_pool.max_thread_count();
 
-            let mut remaining_mutants = mutants.iter().filter(|mutant| !journal::finished_before(journal, mutant.mutation)).collect::<Vec<_>>();
+            let mut remaining_mutants = mutants.iter().filter(|mutant| !journal::finished_before(journal, mutant.mutation))
+                .map(|mutant| ScheduledMutant::new(mutant, journal, opts.mutation_isolation)).collect::<Vec<_>>();
 
             struct RunningMutant {
-                mutant: &'static StandaloneMutantMeta,
+                scheduled: ScheduledMutant,
                 join_handle: thread::JoinHandle<MutationTestResults>,
             }
 
             let mut running_mutants = HashMap::<u32, RunningMutant>::with_capacity(max_thread_count);
 
-            let mut newly_scheduled_mutants = Vec::<&'static StandaloneMutantMeta>::with_capacity(max_thread_count);
+            let mut newly_scheduled_mutants = Vec::<ScheduledMutant>::with_capacity(max_thread_count);
             while !running_mutants.is_empty() || !remaining_mutants.is_empty() {
                 // A running mutant holds a slot even while its tests run in child processes, outside the pool.
                 let active_thread_count = thread_pool.active_count().max(running_mutants.len());
 
                 while active_thread_count + newly_scheduled_mutants.len() < max_thread_count && !remaining_mutants.is_empty() {
-                    let Some(mutant) = remaining_mutants.extract_if(.., |mutant| {
-                        let others = newly_scheduled_mutants.iter().map(|scheduled| scheduled.mutation)
-                            .chain(running_mutants.values().map(|running| running.mutant.mutation));
-                        runs_alongside(mutant.mutation, others, mutation_conflicts, opts.mutation_isolation)
+                    let Some(mutant) = remaining_mutants.extract_if(.., |candidate| {
+                        let scheduled = newly_scheduled_mutants.iter().copied().chain(running_mutants.values().map(|running| running.scheduled));
+                        scheduling::runs_alongside(*candidate, scheduled, mutation_conflicts)
                     }) .next() else { break; };
 
-                    newly_scheduled_mutants.push(&mutant);
+                    newly_scheduled_mutants.push(mutant);
                 }
 
                 let scheduled = !newly_scheduled_mutants.is_empty();
                 if scheduled {
                     // Activate substitutions for running mutants, and the mutants we are about to schedule.
-                    let mut substitutions = S::empty();
-                    let mutant_substitutions = running_mutants.values()
-                        .map(|running_mutation| running_mutation.mutant.substitutions)
-                        .chain(newly_scheduled_mutants.iter().map(|mutant| mutant.substitutions));
-                    for s in mutant_substitutions {
-                        substitutions.overlay(s);
-                    }
-                    unsafe { meta_mutant.active_mutant_handle.replace(Some(substitutions)); }
+                    let scheduled = running_mutants.values().map(|running| running.scheduled).chain(newly_scheduled_mutants.iter().copied());
+                    unsafe { meta_mutant.active_mutant_handle.replace(Some(scheduling::in_process_substitutions(scheduled))); }
 
-                    for mutant in newly_scheduled_mutants.drain(..) {
+                    for scheduled_mutant in newly_scheduled_mutants.drain(..) {
+                        let mutant = scheduled_mutant.mutant;
                         println!("applying mutation:");
                         print_mutation(mutant.mutation, opts.verbosity);
                         println!();
@@ -778,7 +768,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                         }
 
                         let job_exhaustive = opts.exhaustive;
-                        let job_isolated = journal::isolates(journal, opts.mutation_isolation, &[mutant.mutation]);
+                        let job_isolated = scheduled_mutant.isolated;
                         let job_thread_pool = Some(thread_pool.clone());
                         let job_eval_stream_writer = eval_stream_writer.clone();
                         let job_lingering_test_monitoring_thread = lingering_test_monitoring_thread.clone();
@@ -800,7 +790,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                             Err(e) => panic!("failed to spawn control thread for mutation harness: {e}"),
                         };
 
-                        running_mutants.insert(mutant.mutation.id, RunningMutant { mutant, join_handle: handle });
+                        running_mutants.insert(mutant.mutation.id, RunningMutant { scheduled: scheduled_mutant, join_handle: handle });
                     }
                 }
 
@@ -808,20 +798,17 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                 for (_, completed_mutant) in running_mutants.extract_if(|_, running_mutant| running_mutant.join_handle.is_finished()) {
                     any_removed = true;
 
-                    let mutation = completed_mutant.mutant.mutation;
+                    let mutant = completed_mutant.scheduled.mutant;
 
                     let Ok(mutation_result) = completed_mutant.join_handle.join() else { unreachable!() };
-                    timeouts::finish_mutation(&mut results, &mut timed_out_mutations, journal, Mutant::Mutation(completed_mutant.mutant), mutation, mutation_result);
+                    timeouts::finish_mutation(&mut results, &mut timed_out_mutations, journal, Mutant::Mutation(mutant), mutant.mutation, mutation_result);
                 }
 
                 if any_removed {
                     // Remove active substitutions for just-completed mutations by
                     // activating substitutions only for the remaining running mutations.
-                    let mut substitutions = S::empty();
-                    for running_mutant in running_mutants.values() {
-                        substitutions.overlay(running_mutant.mutant.substitutions);
-                    }
-                    unsafe { meta_mutant.active_mutant_handle.replace(Some(substitutions)); }
+                    let scheduled = running_mutants.values().map(|running| running.scheduled);
+                    unsafe { meta_mutant.active_mutant_handle.replace(Some(scheduling::in_process_substitutions(scheduled))); }
                 } else if !scheduled {
                     // Nothing started or finished: wait rather than spin a core the tests could use.
                     thread::sleep(Duration::from_millis(1));

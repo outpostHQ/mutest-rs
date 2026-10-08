@@ -10,7 +10,7 @@
       "mutest-emit/src/codegen/hygiene.rs": 2033,
       "mutest-emit/src/codegen/mutation.rs": 1160,
       "mutest-inspector/src/server.rs": 1226,
-      "mutest-runtime/src/harness.rs": 1369
+      "mutest-runtime/src/harness.rs": 1356
     },
     "binsize": {
       "cargo-mutest": 1895552,
@@ -126,7 +126,7 @@
       "mutest-inspector/src/syntax_highlight.rs#highlight_lines_html": 40,
       "mutest-operators/src/call_ignore.rs#non_default_call": 17,
       "mutest-runtime/src/harness.rs#mutest_main": 57,
-      "mutest-runtime/src/harness.rs#run_mutation_analysis": 59,
+      "mutest-runtime/src/harness.rs#run_mutation_analysis": 51,
       "mutest-runtime/src/harness.rs#run_tests": 41,
       "mutest-runtime/src/subsumption.rs#print_mutation_subsumption_matrix": 24,
       "mutest-runtime/src/test_runner.rs#run_test": 22,
