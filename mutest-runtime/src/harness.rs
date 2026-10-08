@@ -1315,27 +1315,22 @@ fn runs_as_libtest() -> bool {
 
 pub fn mutest_main_static(test_suite: TestSuite<'_>, meta_mutant: &'static MetaMutant<impl SubstMap + Sync>) {
     test_runner::dispatch_subprocess_owner();
+    let TestSuite::Tests(tests, external_tests_extra) = test_suite;
     if let Ok(test_name) = env::var(test_runner::TEST_SUBPROCESS_INVOCATION) {
+        let runner_pid = env::var_os(test_runner::TEST_RUNNER_PID_VAR);
         // SAFETY: No other thread is running.
-        unsafe { env::remove_var(test_runner::TEST_SUBPROCESS_INVOCATION) };
-
-        let test = match test_suite {
-            TestSuite::Tests(tests, _external_tests_extra) => {
-                let test = tests.iter().find(|test| test.desc.name.as_slice() == test_name)
-                    .expect(&format!("cannot find test with name `{test_name}`"));
-                make_owned_test_def(test)
-            }
-        };
-
-        mutest_isolated_worker(test, meta_mutant)
+        unsafe {
+            env::remove_var(test_runner::TEST_SUBPROCESS_INVOCATION);
+            env::remove_var(test_runner::TEST_RUNNER_PID_VAR);
+        }
+        crate::supervisor::end_with_runner(runner_pid);
+        let test = tests.iter().find(|test| test.desc.name.as_slice() == test_name)
+            .expect(&format!("cannot find test with name `{test_name}`"));
+        mutest_isolated_worker(make_owned_test_def(test), meta_mutant)
     }
 
     let args = env::args().collect::<Vec<_>>();
     let args = args.iter().map(String::as_ref).collect::<Vec<&str>>();
-
-    let (tests, external_tests_extra) = match test_suite {
-        TestSuite::Tests(tests, external_tests_extra) => (tests, external_tests_extra),
-    };
 
     // NOTE: A worker's own environment marks this binary to run as libtest, for the tests the worker starts.
     let handoff = if cfg!(any(unix, windows)) { supervisor::take_worker_handoff() } else { Some(Default::default()) };

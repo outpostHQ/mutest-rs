@@ -13,10 +13,12 @@ pub(super) const CLEANUP_TIMEOUT: Duration = Duration::from_secs(10);
 pub(super) const REPORT_TIMEOUT: Duration = Duration::from_secs(1);
 pub(super) const POLL_INTERVAL: Duration = Duration::from_millis(2);
 pub(super) const OUTPUT_LIMIT: usize = 1024 * 1024;
+/// Set for an isolated test run without an owner, so that the test ends with the process that started it.
+pub(crate) const TEST_RUNNER_PID_VAR: &str = "__MUTEST_TEST_RUNNER_PID";
 
 pub(super) fn run(
     command: Command,
-    control: Option<mpsc::Receiver<ControlMsg>>,
+    control: Option<&mpsc::Receiver<ControlMsg>>,
     timeout: Option<Duration>,
 ) -> io::Result<(TestResult, Duration, Vec<u8>)> {
     #[cfg(target_os = "linux")]
@@ -83,20 +85,25 @@ impl Capture {
     }
 }
 
-/// Runs the test directly, without an owner. On Windows a job ends what the test leaves running;
-/// elsewhere nothing reaps those processes.
+/// Runs the test directly, without an owner. What the test leaves running ends with it: on Windows its job ends it,
+/// elsewhere its process group does, and the test ends with this process.
 #[cfg(any(not(target_os = "linux"), test))]
 mod portable {
+    use std::process::{Child, ExitStatus};
     use std::time::Instant;
 
     use super::*;
 
-    #[cfg(not(target_os = "linux"))]
     pub(super) fn run(
         mut command: Command,
-        control: Option<mpsc::Receiver<ControlMsg>>,
+        control: Option<&mpsc::Receiver<ControlMsg>>,
         timeout: Option<Duration>,
     ) -> io::Result<(TestResult, Duration, Vec<u8>)> {
+        #[cfg(unix)]
+        {
+            std::os::unix::process::CommandExt::process_group(&mut command, 0);
+            command.env(TEST_RUNNER_PID_VAR, std::process::id().to_string());
+        }
         let mut child = command.spawn()?;
         // Best effort: without a job, `drained` still stops reading what a leftover process holds.
         #[cfg(windows)]
@@ -104,10 +111,10 @@ mod portable {
         let (stdout, stderr) = (Capture::new(child.stdout.take()), Capture::new(child.stderr.take()));
         let start = Instant::now();
         let result = loop {
-            if let Some(status) = child.try_wait()? {
+            if let Some(status) = exited(&mut child)? {
                 break TestResult::from_exit_status(status, timeout, Some(start.elapsed()));
             }
-            if control.as_ref().is_some_and(|control| !matches!(control.try_recv(), Err(mpsc::TryRecvError::Empty))) {
+            if control.is_some_and(|control| !matches!(control.try_recv(), Err(mpsc::TryRecvError::Empty))) {
                 break kill(&mut child, TestResult::Ignored)?;
             }
             if timeout.is_some_and(|timeout| start.elapsed() > timeout) {
@@ -122,8 +129,32 @@ mod portable {
         Ok((result, elapsed, drained(stdout, stderr)?))
     }
 
-    #[cfg(not(target_os = "linux"))]
-    fn kill(child: &mut std::process::Child, result: TestResult) -> io::Result<TestResult> {
+    /// The exit status of the test, once it has exited and what it left in its process group is killed.
+    #[cfg(unix)]
+    fn exited(child: &mut Child) -> io::Result<Option<ExitStatus>> {
+        let pid = child.id();
+        match crate::supervisor::exited_child(libc::P_PID, pid as libc::id_t, libc::WNOHANG) {
+            Ok(0) => Ok(None),
+            // The unreaped test still holds its group id, so no other group can take it yet.
+            Ok(_) => {
+                let _ = crate::supervisor::kill_group(pid as libc::pid_t);
+                child.wait().map(Some)
+            }
+            Err(error) if error.raw_os_error() == Some(libc::EINTR) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+    #[cfg(windows)]
+    fn exited(child: &mut Child) -> io::Result<Option<ExitStatus>> {
+        child.try_wait()
+    }
+
+    fn kill(child: &mut Child, result: TestResult) -> io::Result<TestResult> {
+        #[cfg(unix)]
+        if crate::supervisor::kill_group(child.id() as libc::pid_t).is_err() {
+            child.kill()?;
+        }
+        #[cfg(windows)]
         child.kill()?;
         child.wait()?;
         Ok(result)
@@ -177,6 +208,33 @@ mod portable {
         assert!(output.ends_with("\n[mutest stopped reading: a process the test started still holds its output]\n"), "{output}");
     }
 
+    /// Runs `script` under `sh` as an isolated test runs, and how long that took.
+    #[cfg(all(test, unix))]
+    fn run_script(script: &str, timeout: Option<Duration>) -> (TestResult, String, Duration) {
+        let _turn = crate::supervisor::STARTING_PROCESSES.lock().unwrap_or_else(PoisonError::into_inner);
+        let piped = std::process::Stdio::piped;
+        let mut command = Command::new("sh");
+        command.args(["-c", script]).stdin(std::process::Stdio::null()).stdout(piped()).stderr(piped());
+        let started = Instant::now();
+        let (result, _, output) = run(command, None, timeout).unwrap();
+        (result, String::from_utf8(output).unwrap(), started.elapsed())
+    }
+
+    #[cfg(all(test, unix))]
+    #[test]
+    fn what_a_finished_test_left_in_its_process_group_ends_with_it() {
+        let (result, output, waited) = run_script(&format!("sleep 600 & echo started; exit {}", crate::test_runner::TR_OK), None);
+        assert_eq!((result, output.as_str()), (TestResult::Ok, "started\n"));
+        assert!(waited < REPORT_TIMEOUT, "waited {waited:?}");
+    }
+
+    #[cfg(all(test, unix))]
+    #[test]
+    fn a_timed_out_test_ends_with_what_it_left_running() {
+        let (result, output, _) = run_script("sleep 600 & echo started; sleep 600", Some(Duration::from_millis(200)));
+        assert_eq!((result, output.as_str()), (TestResult::TimedOut, "started\n"));
+    }
+
     /// The shell joins the job, then starts a ping that outlives it; closing the job ends that ping.
     #[cfg(all(test, windows))]
     #[test]
@@ -198,7 +256,7 @@ mod portable {
 
 /// A Windows job object: closing it ends every process still in it, as the Linux owner reaps them.
 #[cfg(windows)]
-mod job {
+pub(crate) mod job {
     use std::ffi::c_void;
     use std::io;
     use std::os::windows::io::AsRawHandle;
@@ -208,6 +266,8 @@ mod job {
     type Handle = *mut c_void;
 
     const KILL_ON_JOB_CLOSE: u32 = 0x2000;
+    /// Sets `SEM_NOGPFAULTERRORBOX` for each process in the job, so a crash shows no error dialog.
+    const DIE_ON_UNHANDLED_EXCEPTION: u32 = 0x400;
     const EXTENDED_LIMIT_INFORMATION: i32 = 9;
 
     /// `JOBOBJECT_BASIC_LIMIT_INFORMATION`.
@@ -246,18 +306,18 @@ mod job {
     }
 
     /// Ends every process still in the job when dropped.
-    pub(super) struct Job(Handle);
+    pub(crate) struct Job(Handle);
 
     impl Job {
         /// A new job that holds `child` and every process `child` starts from now on.
-        pub(super) fn holding(child: &Child) -> io::Result<Self> {
+        pub(crate) fn holding(child: &Child) -> io::Result<Self> {
             // SAFETY: both arguments may be null: no security attributes, and no name.
             let handle = unsafe { CreateJobObjectW(ptr::null(), ptr::null()) };
             if handle.is_null() {
                 return Err(io::Error::last_os_error());
             }
             let job = Job(handle);
-            let basic = BasicLimits { limit_flags: KILL_ON_JOB_CLOSE, ..BasicLimits::default() };
+            let basic = BasicLimits { limit_flags: KILL_ON_JOB_CLOSE | DIE_ON_UNHANDLED_EXCEPTION, ..BasicLimits::default() };
             let limits = ExtendedLimits { basic, ..ExtendedLimits::default() };
             let length = u32::try_from(size_of::<ExtendedLimits>()).map_err(io::Error::other)?;
             let information = ptr::from_ref(&limits).cast();
@@ -277,6 +337,53 @@ mod job {
         fn drop(&mut self) {
             // SAFETY: the handle is open, and only this drop closes it.
             unsafe { CloseHandle(self.0) };
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use std::io::{BufRead, BufReader};
+        use std::os::windows::process::CommandExt;
+        use std::process::{Command, Stdio};
+
+        use super::*;
+
+        const SEM_NOGPFAULTERRORBOX: u32 = 0x0002;
+        const CREATE_DEFAULT_ERROR_MODE: u32 = 0x0400_0000;
+        const ERROR_MODE_VAR: &str = "__MUTEST_ERROR_MODE_FIXTURE";
+
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn GetErrorMode() -> u32;
+        }
+
+        /// Prints its error mode once its stdin closes; when not started by the test below, it returns at once.
+        #[test]
+        fn error_mode_fixture() {
+            if std::env::var_os(ERROR_MODE_VAR).is_none() {
+                return;
+            }
+            let _ = std::io::stdin().read_line(&mut String::new());
+            // SAFETY: `GetErrorMode` has no preconditions.
+            println!("error mode {}", unsafe { GetErrorMode() });
+        }
+
+        /// The fixture starts with the default error mode, and gets the job's once the job holds it.
+        #[test]
+        fn a_process_in_the_job_shows_no_crash_dialog() {
+            let mut child = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "test_runner::subprocess::job::tests::error_mode_fixture", "--nocapture", "--test-threads=1"])
+                .env(ERROR_MODE_VAR, "1").creation_flags(CREATE_DEFAULT_ERROR_MODE)
+                .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null())
+                .spawn().unwrap();
+            let job = Job::holding(&child).unwrap();
+            drop(child.stdin.take());
+            let stdout = BufReader::new(child.stdout.take().unwrap());
+            let mode = stdout.lines().map_while(Result::ok)
+                .find_map(|line| line.rsplit_once("error mode ").and_then(|(_, mode)| mode.trim().parse::<u32>().ok()));
+            let _ = child.wait();
+            drop(job);
+            assert_eq!(mode.map(|mode| mode & SEM_NOGPFAULTERRORBOX), Some(SEM_NOGPFAULTERRORBOX), "error mode {mode:?}");
         }
     }
 }
@@ -438,7 +545,7 @@ mod linux {
 
     pub(super) fn run(
         command: Command,
-        control: Option<mpsc::Receiver<ControlMsg>>,
+        control: Option<&mpsc::Receiver<ControlMsg>>,
         timeout: Option<Duration>,
     ) -> io::Result<(TestResult, Duration, Vec<u8>)> {
         let mut owner = spawn_owner(command, timeout)?;
@@ -450,7 +557,7 @@ mod linux {
         loop {
             read_completion(&mut owner.channel, &mut frame)?;
             stage.read(&frame, &mut owner, timeout);
-            stage.forward_cancellation(&mut owner, control.as_ref())?;
+            stage.forward_cancellation(&mut owner, control)?;
             if let Some(status) = owner.try_wait()? {
                 if !status.success() {
                     return Err(owner_failed(status, &stdout, &stderr));
@@ -676,7 +783,7 @@ mod linux {
             return Err(io::Error::from_raw_os_error(libc::EPERM));
         }
         crate::supervisor::adopt_orphans()?;
-        crate::supervisor::skip_core_dumps()?;
+        crate::supervisor::skip_crash_reports()?;
         let result = execute(&mut channel);
         crate::supervisor::kill_descendants_until(Instant::now() + CLEANUP_TIMEOUT)?;
         #[cfg(test)]

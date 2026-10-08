@@ -19,7 +19,9 @@ use crate::thread_pool::{self, ThreadPool};
 mod subprocess;
 #[path = "progress.rs"]
 pub(crate) mod progress;
-pub(crate) use subprocess::dispatch as dispatch_subprocess_owner;
+pub(crate) use subprocess::{TEST_RUNNER_PID_VAR, dispatch as dispatch_subprocess_owner};
+#[cfg(windows)]
+pub(crate) use subprocess::job::Job;
 
 enum MonitorMessage {
     Completed(CompletedTest),
@@ -278,7 +280,7 @@ fn spawn_test_subprocess(
     id: test::TestId,
     desc: test::TestDesc,
     cmd_hook: Arc<dyn Fn(&mut process::Command) + Send + Sync>,
-    control_ch: Option<mpsc::Receiver<ControlMsg>>,
+    control_ch: Option<&mpsc::Receiver<ControlMsg>>,
     monitor_ch: mpsc::Sender<MonitorMessage>,
     test_timeout: Option<Duration>,
     no_capture: bool,
@@ -408,7 +410,7 @@ fn run_test(
                 => run_test_in_process(id, desc, test_fn, monitor_ch, test_timeout, active_signal, no_capture),
 
                 TestRunStrategy::InIsolatedChildProcess(cmd_hook)
-                => spawn_test_subprocess(id, desc, cmd_hook, control_ch, monitor_ch, test_timeout, no_capture),
+                => spawn_test_subprocess(id, desc, cmd_hook, control_ch.as_ref(), monitor_ch, test_timeout, no_capture),
             }
         };
 

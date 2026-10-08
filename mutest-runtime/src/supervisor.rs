@@ -13,9 +13,13 @@ use crate::completion::{self, Completion};
 use crate::journal::Journal;
 
 #[cfg(target_os = "linux")]
-pub(crate) use sys::{kill_descendants_until, reap_with_status, skip_core_dumps};
+pub(crate) use sys::{kill_descendants_until, reap_with_status, skip_crash_reports};
 #[cfg(target_os = "linux")]
 pub use sys::{adopt_orphans, children};
+#[cfg(all(unix, any(not(target_os = "linux"), test)))]
+pub(crate) use sys::{exited_child, kill_group};
+#[cfg(all(unix, test))]
+pub(crate) use sys::tests::STARTING_PROCESSES;
 
 const SUPERVISOR_PID_VAR: &str = "__MUTEST_SUPERVISOR_PID";
 const RUN_ELAPSED_VAR: &str = "__MUTEST_RUN_ELAPSED_NANOS";
@@ -65,6 +69,15 @@ pub(crate) fn take_worker_handoff() -> Option<Handoff> {
         .into()
 }
 
+/// In an isolated test, ends this process once its test runner `runner_pid` exits; a failure to set this up ends it now.
+pub(crate) fn end_with_runner(runner_pid: Option<OsString>) {
+    let Some(runner_pid) = runner_pid else { return };
+    if let Err(error) = sys::die_with(runner_pid.to_str().and_then(|pid| pid.parse().ok())) {
+        eprintln!("mutation analysis incomplete: isolated test: {error}");
+        process::exit(exit_code::PANIC);
+    }
+}
+
 pub fn supervise() -> ! {
     let run_start = run_start();
     sys::forward_stop_signals();
@@ -74,7 +87,7 @@ pub fn supervise() -> ! {
         let _ = exit_code::record_start(exit_code_log, process::id());
     }
 
-    after_initialization(sys::adopt_orphans(), || ())
+    after_initialization(sys::adopt_orphans().and_then(|()| sys::skip_crash_reports()), || ())
         .unwrap_or_else(|status| exit_as(status, exit_code_log.as_deref()));
 
     // Without a journal the run goes on, but a crash cannot name the unfinished mutations.
@@ -209,7 +222,7 @@ mod sys {
     }
 
     /// The id of a child that has exited, left unreaped so that its id is not reused yet; 0 if none has.
-    fn exited_child(idtype: libc::idtype_t, id: libc::id_t, flags: c_int) -> io::Result<pid_t> {
+    pub(crate) fn exited_child(idtype: libc::idtype_t, id: libc::id_t, flags: c_int) -> io::Result<pid_t> {
         // SAFETY: An all-zero `siginfo_t` is valid; `waitid` fills it in, with a zero id if no child exited.
         unsafe {
             let mut info = mem::zeroed::<libc::siginfo_t>();
@@ -234,6 +247,27 @@ mod sys {
         reap_with_status(pid, flags).map(|(reaped, _)| reaped)
     }
 
+    /// Kills every process in the group `pgid`; a group that no longer exists is not an error.
+    #[cfg(any(not(target_os = "linux"), test))]
+    pub(crate) fn kill_group(pgid: pid_t) -> io::Result<()> {
+        send_signal(-pgid, libc::SIGKILL)
+    }
+
+    /// Keeps a crashed process from dumping core: a pipe handler such as apport holds it past its timeout.
+    /// The Linux kernel writes no pipe dump at a limit of 1, and no file dump below a page.
+    pub(crate) fn skip_crash_reports() -> io::Result<()> {
+        let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        let wanted = if cfg!(target_os = "linux") { 1 } else { 0 };
+        // SAFETY: `getrlimit` writes, and `setrlimit` reads, only the given `rlimit`.
+        let result = unsafe {
+            if libc::getrlimit(libc::RLIMIT_CORE, &mut limit) != 0 { -1 } else {
+                limit.rlim_cur = limit.rlim_max.min(wanted);
+                libc::setrlimit(libc::RLIMIT_CORE, &limit)
+            }
+        };
+        if result == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+    }
+
     extern "C" fn forward_signal(signal: c_int) {
         let _ = COMPLETION_ORDER.compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst);
         STOP_SIGNAL.store(signal, Ordering::Relaxed);
@@ -256,6 +290,10 @@ mod sys {
             return Err(ExitStatus::from_raw(signal));
         }
 
+        // Without a subreaper, the worker leads a process group, so that what it leaves in the group ends with it.
+        if cfg!(not(target_os = "linux")) {
+            std::os::unix::process::CommandExt::process_group(cmd, 0);
+        }
         let worker = cmd.spawn().expect("cannot start the mutation analysis worker");
         WORKER_PID.store(worker.id() as pid_t, Ordering::Relaxed);
 
@@ -346,6 +384,9 @@ mod sys {
 
         fn finish(self) -> ExitStatus {
             let Self { worker, pid, record, witnessed, cancelled, transport_failed, .. } = self;
+            // The unreaped worker still holds its group id, so no other group can take it yet.
+            #[cfg(not(target_os = "linux"))]
+            let _ = kill_group(pid);
             let status = reap_worker(worker);
             let final_record = record.read(pid as u32).ok().flatten();
             let cancelled = cancelled || COMPLETION_ORDER.load(Ordering::SeqCst) == 1;
@@ -445,20 +486,6 @@ mod sys {
                 return Err(io::Error::other("supervisor exited before parent-death setup"));
             }
             Ok(())
-        }
-
-        /// Keeps a crashed test from dumping core: a pipe handler such as apport holds the test past its timeout.
-        /// The kernel writes no pipe dump at a limit of 1, and no file dump below a page.
-        pub(crate) fn skip_core_dumps() -> io::Result<()> {
-            let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
-            // SAFETY: `getrlimit` writes, and `setrlimit` reads, only the given `rlimit`.
-            let result = unsafe {
-                if libc::getrlimit(libc::RLIMIT_CORE, &mut limit) != 0 { -1 } else {
-                    limit.rlim_cur = limit.rlim_max.min(1);
-                    libc::setrlimit(libc::RLIMIT_CORE, &limit)
-                }
-            };
-            if result == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
         }
 
         #[cfg(test)]
@@ -660,7 +687,7 @@ mod sys {
     }
 
     #[cfg(not(target_os = "linux"))]
-    pub(super) use elsewhere::*;
+    pub(crate) use elsewhere::*;
 
     #[cfg(not(target_os = "linux"))]
     mod elsewhere {
@@ -669,7 +696,23 @@ mod sys {
         pub(crate) fn adopt_orphans() -> io::Result<()> {
             Ok(())
         }
-        pub(crate) fn die_with(_supervisor_pid: Option<u32>) -> io::Result<()> {
+        /// Ends this process, with the process group it leads if any, once the parent `supervisor_pid` exits.
+        pub(crate) fn die_with(supervisor_pid: Option<u32>) -> io::Result<()> {
+            use std::os::unix::process::parent_id;
+
+            let parent = supervisor_pid.unwrap_or_else(parent_id);
+            if parent_id() != parent {
+                return Err(io::Error::other("supervisor exited before parent-death setup"));
+            }
+            thread::Builder::new().name("mutest-die-with".to_owned()).spawn(move || {
+                // An orphan gets a new parent, so a changed parent id means the supervisor exited.
+                while parent_id() == parent {
+                    thread::sleep(Duration::from_millis(50));
+                }
+                let pid = std::process::id() as pid_t;
+                let _ = kill_group(pid);
+                let _ = send_signal(pid, libc::SIGKILL);
+            })?;
             Ok(())
         }
         #[cfg(test)]
@@ -749,46 +792,159 @@ mod sys {
                 Err(stopped) => assert_eq!(stopped.signal(), Some(libc::SIGINT)),
             }
         }
+
+        const WATCHING_VAR: &str = "__MUTEST_WATCHING_FIXTURE";
+
+        /// Arms `die_with` for its parent, then waits; when not started by the test below, it returns at once.
+        #[test]
+        fn watching_fixture() {
+            if std::env::var_os(WATCHING_VAR).is_none() {
+                return;
+            }
+            die_with(Some(std::os::unix::process::parent_id())).unwrap();
+            println!("watching");
+            thread::sleep(Duration::from_secs(60));
+        }
+
+        /// The fixture's parent is a shell, which the test kills; the fixture then ends, and closes its stdout.
+        #[test]
+        fn a_process_ends_with_the_parent_it_watches() {
+            use std::io::BufRead;
+
+            let _turn = STARTING_PROCESSES.lock().unwrap_or_else(|e| e.into_inner());
+            let script = "\"$0\" --exact supervisor::sys::tests::watching_fixture --nocapture --test-threads=1 & wait";
+            let mut shell = Command::new("sh").args(["-c", script]).arg(std::env::current_exe().unwrap())
+                .env(WATCHING_VAR, "1").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null())
+                .spawn().unwrap();
+            let mut stdout = std::io::BufReader::new(shell.stdout.take().unwrap());
+            let watching = (&mut stdout).lines().map_while(Result::ok).any(|line| line.ends_with("watching"));
+            let _ = shell.kill();
+            let _ = shell.wait();
+            assert!(watching, "the fixture never armed die_with");
+            assert!(read_to_end_within(stdout, Duration::from_secs(10)), "the fixture outlived its parent");
+        }
+
+        /// Without a subreaper, the worker's process group ends what the worker left running.
+        #[cfg(not(target_os = "linux"))]
+        #[test]
+        fn what_the_worker_left_in_its_group_ends_with_it() {
+            let _turn = STARTING_PROCESSES.lock().unwrap_or_else(|e| e.into_inner());
+            let mut command = Command::new("sh");
+            command.args(["-c", "sleep 600 & exit 0"]).stdin(Stdio::null()).stdout(Stdio::piped());
+            let mut worker = start_worker(&mut command).unwrap();
+            let stdout = worker.stdout.take().unwrap();
+            let record = Completion::create().unwrap();
+            let _ = wait_completed(worker, &record);
+            assert!(read_to_end_within(stdout, Duration::from_secs(10)), "a process the worker left still holds its stdout");
+        }
+
+        /// Whether `pipe` reaches its end within `bound`, that is, whether every process that holds it has closed it.
+        fn read_to_end_within(mut pipe: impl std::io::Read + Send + 'static, bound: Duration) -> bool {
+            let (read, closed) = std::sync::mpsc::channel();
+            thread::spawn(move || read.send(pipe.read_to_end(&mut Vec::new()).is_ok()));
+            closed.recv_timeout(bound) == Ok(true)
+        }
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
 mod sys {
+    use std::io;
+    use std::os::windows::process::ExitStatusExt as _;
     use std::process::{Child, Command, ExitStatus};
+    use std::thread;
+    use std::time::Duration;
 
-    pub(super) fn adopt_orphans() -> std::io::Result<()> {
+    use crate::test_runner::Job;
+
+    use super::{completion, exit_code};
+
+    /// The worker, in a job that ends what it leaves running once it exits.
+    pub(super) struct Worker {
+        child: Child,
+        job: Option<Job>,
+    }
+
+    pub(super) fn adopt_orphans() -> io::Result<()> {
         Ok(())
     }
-    pub(super) fn die_with(_supervisor_pid: Option<u32>) -> std::io::Result<()> {
+
+    /// Nothing to set: the worker's job keeps a crashed worker or test from waiting on an error dialog.
+    pub(super) fn skip_crash_reports() -> io::Result<()> {
         Ok(())
     }
+
+    /// Nothing to arm: the job that holds this process ends it when the process holding the job exits.
+    pub(crate) fn die_with(_supervisor_pid: Option<u32>) -> io::Result<()> {
+        Ok(())
+    }
+
+    /// Nothing to forward: Ctrl+C ends each process on the console, and the worker's job ends what is left.
     pub(super) fn forward_stop_signals() {}
+
     pub(super) fn stopped() -> bool {
         false
     }
-    pub(super) fn start_worker(cmd: &mut Command) -> Result<Child, ExitStatus> {
-        Ok(cmd.spawn().expect("cannot start the mutation analysis worker"))
+
+    pub(super) fn start_worker(cmd: &mut Command) -> Result<Worker, ExitStatus> {
+        let child = cmd.spawn().expect("cannot start the mutation analysis worker");
+        // Best effort: without a job, what the worker leaves running outlives it.
+        let job = Job::holding(&child).ok();
+        Ok(Worker { child, job })
     }
-    #[cfg(windows)]
+
     pub(super) fn exit_status(code: i32) -> ExitStatus {
-        use std::os::windows::process::ExitStatusExt;
         ExitStatus::from_raw(code as u32)
     }
-    #[cfg(not(windows))]
-    pub(super) fn exit_status(_code: i32) -> ExitStatus {
-        panic!("supervision unsupported")
+
+    pub(super) fn wait_completed(mut worker: Worker, record: &super::Completion) -> ExitStatus {
+        let pid = worker.child.id();
+        let status = loop {
+            match worker.child.try_wait() {
+                Ok(None) => {}
+                exited => break exited.ok().flatten(),
+            }
+            thread::sleep(Duration::from_millis(5));
+        };
+        // The worker has ended, so closing its job ends only what it left running.
+        drop(worker.job);
+        let Some(status) = status else {
+            let _ = worker.child.kill();
+            return exit_status(exit_code::PANIC);
+        };
+        exit_status(completion::outcome(status.code(), record.read(pid).ok().flatten(), false, false))
     }
-    pub(super) fn wait_completed(mut worker: Child, record: &super::Completion) -> ExitStatus {
-        let pid = worker.id();
-        let status = worker.wait().expect("cannot wait for mutation worker");
-        exit_status(super::completion::outcome(status.code(), record.read(pid).ok().flatten(), false, false))
-    }
+
     pub(super) fn signal(_status: ExitStatus) -> Option<i32> {
         None
     }
     pub(super) fn raise_with_default_action(_signal_number: i32) {}
-    pub(super) fn kill_descendants() -> std::io::Result<()> {
+    pub(super) fn kill_descendants() -> io::Result<()> {
         Ok(())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use std::io::Read;
+        use std::os::windows::process::CommandExt;
+        use std::process::Stdio;
+        use std::sync::mpsc;
+
+        use super::*;
+
+        /// The worker exits at once, and leaves a ping running that holds its stdout.
+        #[test]
+        fn closing_the_worker_job_ends_what_the_worker_left_running() {
+            let mut command = Command::new("cmd");
+            command.raw_arg("/c start /b ping -n 600 127.0.0.1").stdout(Stdio::piped()).stderr(Stdio::null());
+            let mut worker = start_worker(&mut command).unwrap();
+            let mut stdout = worker.child.stdout.take().unwrap();
+            let (read, closed) = mpsc::channel();
+            thread::spawn(move || read.send(stdout.read_to_end(&mut Vec::new()).is_ok()));
+            let record = super::super::Completion::create().unwrap();
+            wait_completed(worker, &record);
+            assert_eq!(closed.recv_timeout(Duration::from_secs(10)), Ok(true));
+        }
     }
 }
 
