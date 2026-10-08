@@ -1,50 +1,32 @@
 {
   "$schema": "https://raw.githubusercontent.com/minikin/cargo-crap/main/schemas/report-v1.json",
   "diagnostics": {
-    "analyzed_files": 269,
-    "lcov_files": 92,
+    "analyzed_files": 268,
+    "lcov_files": 93,
     "lcov_only": {
       "count": 1,
       "examples": [
         "build_support/dependency_dirs.rs"
       ]
     },
-    "matched_files": 91,
+    "matched_files": 92,
     "source_only": {
-      "count": 178,
+      "count": 176,
       "examples": [
-        "cargo-mutest/build.rs",
-        "mutest-driver/build.rs",
-        "mutest-driver-cli/build.rs",
         "mutest-emit/src/analysis/tests.rs",
-        "mutest-inspector/build.rs",
         "mutest-runtime-embedded-host-driver/src/lib.rs",
         "mutest-runtime-embedded-host-driver/src/main.rs",
         "mutest-runtime-embedded-target-stub/src/harness.rs",
         "mutest-runtime-embedded-target-stub/src/lib.rs",
-        "mutest-runtime-embedded-target-stub/src/metadata.rs"
+        "mutest-runtime-embedded-target-stub/src/metadata.rs",
+        "test-metadata-shim/src/lib.rs",
+        "tests/src/diff.rs",
+        "tests/src/main.rs",
+        "tests/ui/ast_lowering/async.rs"
       ]
     }
   },
   "entries": [
-    {
-      "coverage": null,
-      "crap": 2.0,
-      "crate": "cargo-mutest",
-      "cyclomatic": 1.0,
-      "file": "cargo-mutest/build.rs",
-      "function": "RustToolchainFile::from_str",
-      "line": 17
-    },
-    {
-      "coverage": null,
-      "crap": 2.0,
-      "crate": "cargo-mutest",
-      "cyclomatic": 1.0,
-      "file": "cargo-mutest/build.rs",
-      "function": "main",
-      "line": 27
-    },
     {
       "coverage": 87.5,
       "crap": 2.0078125,
@@ -441,15 +423,6 @@
       "line": 304
     },
     {
-      "coverage": null,
-      "crap": 2.0,
-      "crate": "mutest-driver-cli",
-      "cyclomatic": 1.0,
-      "file": "mutest-driver-cli/build.rs",
-      "function": "main",
-      "line": 6
-    },
-    {
       "coverage": 0.0,
       "crap": 2.0,
       "crate": "mutest-driver-cli",
@@ -549,33 +522,6 @@
       ]
     },
     {
-      "coverage": null,
-      "crap": 2.0,
-      "crate": "mutest-driver",
-      "cyclomatic": 1.0,
-      "file": "mutest-driver/build.rs",
-      "function": "fetch_rlib_deps",
-      "line": 20
-    },
-    {
-      "coverage": null,
-      "crap": 12.0,
-      "crate": "mutest-driver",
-      "cyclomatic": 3.0,
-      "file": "mutest-driver/build.rs",
-      "function": "holds_llvm_bitcode",
-      "line": 112
-    },
-    {
-      "coverage": null,
-      "crap": 110.0,
-      "crate": "mutest-driver",
-      "cyclomatic": 10.0,
-      "file": "mutest-driver/build.rs",
-      "function": "main",
-      "line": 129
-    },
-    {
       "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-driver",
@@ -651,7 +597,7 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 69.56521739130434,
       "crap": 90.0,
       "crate": "mutest-driver",
       "cyclomatic": 9.0,
@@ -660,13 +606,17 @@
       "line": 61,
       "uncovered": [
         {
-          "end": 121,
-          "start": 61
+          "end": 88,
+          "start": 80
+        },
+        {
+          "end": 101,
+          "start": 93
         }
       ]
     },
     {
-      "coverage": 28.26086956521739,
+      "coverage": 63.04347826086957,
       "crap": 110.51664337963346,
       "crate": "mutest-driver",
       "cyclomatic": 16.0,
@@ -680,15 +630,19 @@
         },
         {
           "end": 200,
-          "start": 189
+          "start": 193
         },
         {
           "end": 214,
           "start": 208
         },
         {
-          "end": 243,
-          "start": 224
+          "end": 231,
+          "start": 231
+        },
+        {
+          "end": 240,
+          "start": 238
         }
       ]
     },
@@ -702,34 +656,22 @@
       "line": 220
     },
     {
-      "coverage": 83.33333333333334,
+      "coverage": 100.0,
       "crap": 4.0740740740740735,
       "crate": "mutest-driver",
       "cyclomatic": 4.0,
       "file": "mutest-driver/src/config.rs",
       "function": "CrateKind::produces_mutations",
-      "line": 23,
-      "uncovered": [
-        {
-          "end": 26,
-          "start": 26
-        }
-      ]
+      "line": 23
     },
     {
-      "coverage": 83.33333333333334,
+      "coverage": 100.0,
       "crap": 4.0740740740740735,
       "crate": "mutest-driver",
       "cyclomatic": 4.0,
       "file": "mutest-driver/src/config.rs",
       "function": "CrateKind::provides_tests",
-      "line": 31,
-      "uncovered": [
-        {
-          "end": 34,
-          "start": 34
-        }
-      ]
+      "line": 31
     },
     {
       "coverage": 0.0,
@@ -795,7 +737,7 @@
       "line": 45
     },
     {
-      "coverage": 76.47058823529412,
+      "coverage": 86.27450980392157,
       "crap": 39.955424384286594,
       "crate": "mutest-driver",
       "cyclomatic": 29.0,
@@ -812,12 +754,8 @@
           "start": 197
         },
         {
-          "end": 215,
-          "start": 205
-        },
-        {
-          "end": 232,
-          "start": 229
+          "end": 210,
+          "start": 210
         }
       ]
     },
@@ -1165,7 +1103,7 @@
       ]
     },
     {
-      "coverage": 90.69767441860463,
+      "coverage": 95.34883720930232,
       "crap": 10.08049605695096,
       "crate": "mutest-driver",
       "cyclomatic": 10.0,
@@ -1174,11 +1112,7 @@
       "line": 53,
       "uncovered": [
         {
-          "end": 67,
-          "start": 67
-        },
-        {
-          "end": 79,
+          "end": 78,
           "start": 77
         }
       ]
@@ -1202,7 +1136,7 @@
       "line": 108
     },
     {
-      "coverage": 70.5,
+      "coverage": 79.5,
       "crap": 4.410758,
       "crate": "mutest-driver",
       "cyclomatic": 4.0,
@@ -1211,28 +1145,12 @@
       "line": 142,
       "uncovered": [
         {
-          "end": 151,
-          "start": 151
-        },
-        {
           "end": 247,
           "start": 241
         },
         {
-          "end": 262,
-          "start": 262
-        },
-        {
           "end": 290,
-          "start": 272
-        },
-        {
-          "end": 303,
-          "start": 303
-        },
-        {
-          "end": 313,
-          "start": 313
+          "start": 282
         },
         {
           "end": 318,
@@ -1263,8 +1181,8 @@
           "start": 440
         },
         {
-          "end": 519,
-          "start": 484
+          "end": 487,
+          "start": 487
         },
         {
           "end": 586,
@@ -1297,19 +1215,13 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-driver",
       "cyclomatic": 1.0,
       "file": "mutest-driver/src/passes/analysis.rs",
       "function": "transport_file_name",
-      "line": 49,
-      "uncovered": [
-        {
-          "end": 51,
-          "start": 49
-        }
-      ]
+      "line": 49
     },
     {
       "coverage": 90.9090909090909,
@@ -1327,19 +1239,13 @@
       ]
     },
     {
-      "coverage": 97.2972972972973,
+      "coverage": 100.0,
       "crap": 3.000177679505656,
       "crate": "mutest-driver",
       "cyclomatic": 3.0,
       "file": "mutest-driver/src/passes/compilation.rs",
       "function": "run",
-      "line": 24,
-      "uncovered": [
-        {
-          "end": 41,
-          "start": 41
-        }
-      ]
+      "line": 24
     },
     {
       "coverage": 100.0,
@@ -1351,19 +1257,13 @@
       "line": 11
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 6.0,
       "crate": "mutest-driver",
       "cyclomatic": 2.0,
       "file": "mutest-driver/src/passes/external_mutant/crate_const_storage.rs",
       "function": "extract_replay_record",
-      "line": 26,
-      "uncovered": [
-        {
-          "end": 30,
-          "start": 26
-        }
-      ]
+      "line": 26
     },
     {
       "coverage": 100.0,
@@ -1393,7 +1293,7 @@
       "line": 37
     },
     {
-      "coverage": 0.0,
+      "coverage": 96.96969696969695,
       "crap": 56.0,
       "crate": "mutest-driver",
       "cyclomatic": 7.0,
@@ -1402,8 +1302,8 @@
       "line": 132,
       "uncovered": [
         {
-          "end": 173,
-          "start": 132
+          "end": 138,
+          "start": 138
         }
       ]
     },
@@ -1435,7 +1335,7 @@
       "line": 101
     },
     {
-      "coverage": 0.0,
+      "coverage": 81.81818181818183,
       "crap": 2.0,
       "crate": "mutest-driver",
       "cyclomatic": 1.0,
@@ -1444,8 +1344,12 @@
       "line": 115,
       "uncovered": [
         {
-          "end": 129,
-          "start": 115
+          "end": 117,
+          "start": 117
+        },
+        {
+          "end": 125,
+          "start": 125
         }
       ]
     },
@@ -1468,37 +1372,41 @@
       "line": 81
     },
     {
-      "coverage": 0.0,
+      "coverage": 92.3076923076923,
       "crap": 2.0,
       "crate": "mutest-driver",
       "cyclomatic": 1.0,
       "file": "mutest-driver/src/passes/external_mutant/mod.rs",
       "function": "StableTarget::from_test_session",
-      "line": 24,
+      "line": 25,
       "uncovered": [
         {
-          "end": 39,
-          "start": 24
+          "end": 27,
+          "start": 27
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 90.47619047619048,
       "crap": 2.0,
       "crate": "mutest-driver",
       "cyclomatic": 1.0,
       "file": "mutest-driver/src/passes/external_mutant/mod.rs",
       "function": "StableTarget::into_target_session",
-      "line": 41,
+      "line": 43,
       "uncovered": [
         {
-          "end": 65,
-          "start": 41
+          "end": 47,
+          "start": 47
+        },
+        {
+          "end": 58,
+          "start": 58
         }
       ]
     },
     {
-      "coverage": 81.81818181818183,
+      "coverage": 90.9090909090909,
       "crap": 3.0540946656649135,
       "crate": "mutest-driver",
       "cyclomatic": 3.0,
@@ -1506,10 +1414,6 @@
       "function": "artifact_paths",
       "line": 23,
       "uncovered": [
-        {
-          "end": 26,
-          "start": 26
-        },
         {
           "end": 31,
           "start": 31
@@ -1526,64 +1430,64 @@
       "line": 37
     },
     {
-      "coverage": 0.0,
+      "coverage": 86.8421052631579,
       "crap": 6.0,
       "crate": "mutest-driver",
       "cyclomatic": 2.0,
       "file": "mutest-driver/src/passes/external_mutant/replay.rs",
       "function": "Targets::decode",
-      "line": 97,
+      "line": 99,
       "uncovered": [
         {
-          "end": 144,
-          "start": 97
+          "end": 110,
+          "start": 108
+        },
+        {
+          "end": 129,
+          "start": 129
+        },
+        {
+          "end": 133,
+          "start": 133
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 89.65517241379311,
       "crap": 2.0,
       "crate": "mutest-driver",
       "cyclomatic": 1.0,
       "file": "mutest-driver/src/passes/external_mutant/replay.rs",
       "function": "Targets::encode",
-      "line": 59,
+      "line": 60,
       "uncovered": [
         {
-          "end": 95,
-          "start": 59
+          "end": 70,
+          "start": 69
+        },
+        {
+          "end": 73,
+          "start": 73
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-driver",
       "cyclomatic": 1.0,
       "file": "mutest-driver/src/passes/external_mutant/replay.rs",
       "function": "hash",
-      "line": 34,
-      "uncovered": [
-        {
-          "end": 37,
-          "start": 34
-        }
-      ]
+      "line": 35
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 6.0,
       "crate": "mutest-driver",
       "cyclomatic": 2.0,
       "file": "mutest-driver/src/passes/external_mutant/replay.rs",
       "function": "read",
-      "line": 170,
-      "uncovered": [
-        {
-          "end": 173,
-          "start": 170
-        }
-      ]
+      "line": 173
     },
     {
       "coverage": 0.0,
@@ -1592,28 +1496,22 @@
       "cyclomatic": 3.0,
       "file": "mutest-driver/src/passes/external_mutant/replay.rs",
       "function": "source",
-      "line": 43,
+      "line": 44,
       "uncovered": [
         {
-          "end": 48,
-          "start": 43
+          "end": 49,
+          "start": 44
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-driver",
       "cyclomatic": 1.0,
       "file": "mutest-driver/src/passes/external_mutant/replay.rs",
       "function": "unhash",
-      "line": 39,
-      "uncovered": [
-        {
-          "end": 41,
-          "start": 39
-        }
-      ]
+      "line": 40
     },
     {
       "coverage": 0.0,
@@ -1622,31 +1520,25 @@
       "cyclomatic": 4.0,
       "file": "mutest-driver/src/passes/external_mutant/replay.rs",
       "function": "unsource",
-      "line": 50,
+      "line": 51,
       "uncovered": [
         {
-          "end": 56,
-          "start": 50
+          "end": 57,
+          "start": 51
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 6.0,
       "crate": "mutest-driver",
       "cyclomatic": 2.0,
       "file": "mutest-driver/src/passes/external_mutant/replay.rs",
       "function": "write",
-      "line": 165,
-      "uncovered": [
-        {
-          "end": 168,
-          "start": 165
-        }
-      ]
+      "line": 168
     },
     {
-      "coverage": 0.0,
+      "coverage": 92.5925925925926,
       "crap": 132.0,
       "crate": "mutest-driver",
       "cyclomatic": 11.0,
@@ -1655,13 +1547,13 @@
       "line": 79,
       "uncovered": [
         {
-          "end": 112,
-          "start": 79
+          "end": 107,
+          "start": 106
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 89.65517241379311,
       "crap": 12.0,
       "crate": "mutest-driver",
       "cyclomatic": 3.0,
@@ -1670,28 +1562,30 @@
       "line": 40,
       "uncovered": [
         {
-          "end": 73,
-          "start": 40
+          "end": 51,
+          "start": 51
+        },
+        {
+          "end": 53,
+          "start": 53
+        },
+        {
+          "end": 64,
+          "start": 64
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 56.0,
       "crate": "mutest-driver",
       "cyclomatic": 7.0,
       "file": "mutest-driver/src/passes/external_mutant/specialized_crate.rs",
       "function": "rebind_externs",
-      "line": 141,
-      "uncovered": [
-        {
-          "end": 155,
-          "start": 141
-        }
-      ]
+      "line": 141
     },
     {
-      "coverage": 0.0,
+      "coverage": 95.0,
       "crap": 72.0,
       "crate": "mutest-driver",
       "cyclomatic": 8.0,
@@ -1700,28 +1594,22 @@
       "line": 158,
       "uncovered": [
         {
-          "end": 184,
-          "start": 158
+          "end": 179,
+          "start": 179
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 56.0,
       "crate": "mutest-driver",
       "cyclomatic": 7.0,
       "file": "mutest-driver/src/passes/external_mutant/specialized_crate.rs",
       "function": "replay_command",
-      "line": 115,
-      "uncovered": [
-        {
-          "end": 129,
-          "start": 115
-        }
-      ]
+      "line": 115
     },
     {
-      "coverage": 0.0,
+      "coverage": 83.33333333333334,
       "crap": 12.0,
       "crate": "mutest-driver",
       "cyclomatic": 3.0,
@@ -1730,8 +1618,8 @@
       "line": 132,
       "uncovered": [
         {
-          "end": 138,
-          "start": 132
+          "end": 136,
+          "start": 136
         }
       ]
     },
@@ -4210,21 +4098,12 @@
     },
     {
       "coverage": 100.0,
-      "crap": 2.0,
-      "crate": "mutest-emit",
-      "cyclomatic": 2.0,
-      "file": "mutest-emit/src/analysis/call_graph.rs",
-      "function": "BodyUnsafetyChecker::visit_block",
-      "line": 63
-    },
-    {
-      "coverage": 100.0,
       "crap": 1.0,
       "crate": "mutest-emit",
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "CallGraph::callees_of_nested_caller",
-      "line": 512
+      "line": 439
     },
     {
       "coverage": 100.0,
@@ -4233,7 +4112,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "CallGraph::depth",
-      "line": 508
+      "line": 435
     },
     {
       "coverage": 100.0,
@@ -4242,7 +4121,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "CallGraph::total_calls_count",
-      "line": 498
+      "line": 425
     },
     {
       "coverage": 100.0,
@@ -4251,7 +4130,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "Callee::display_str",
-      "line": 477
+      "line": 402
     },
     {
       "coverage": 100.0,
@@ -4260,52 +4139,53 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "Callee::new",
-      "line": 473
+      "line": 398
     },
     {
-      "coverage": 80.0,
+      "coverage": 100.0,
       "crap": 3.072,
       "crate": "mutest-emit",
       "cyclomatic": 3.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "EntryPoint::path_str",
-      "line": 197,
-      "uncovered": [
-        {
-          "end": 200,
-          "start": 200
-        }
-      ]
+      "line": 109
     },
     {
-      "coverage": 57.14285714285714,
+      "coverage": 71.42857142857143,
       "crap": 6.96793002915452,
       "crate": "mutest-emit",
       "cyclomatic": 5.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "EntryPointAssocs::get",
-      "line": 212,
+      "line": 124,
       "uncovered": [
         {
-          "end": 217,
-          "start": 215
+          "end": 127,
+          "start": 127
+        },
+        {
+          "end": 129,
+          "start": 129
         }
       ]
     },
     {
-      "coverage": 66.66666666666666,
+      "coverage": 100.0,
       "crap": 3.333333333333334,
       "crate": "mutest-emit",
       "cyclomatic": 3.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "EntryPointAssocs::iter",
-      "line": 221,
-      "uncovered": [
-        {
-          "end": 231,
-          "start": 229
-        }
-      ]
+      "line": 133
+    },
+    {
+      "coverage": 100.0,
+      "crap": 1.0,
+      "crate": "mutest-emit",
+      "cyclomatic": 1.0,
+      "file": "mutest-emit/src/analysis/call_graph.rs",
+      "function": "EntryPointAssocs::shares_entry_point_with",
+      "line": 148
     },
     {
       "coverage": 90.9090909090909,
@@ -4314,43 +4194,31 @@
       "cyclomatic": 3.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "EntryPoints::iter",
-      "line": 365,
+      "line": 290,
       "uncovered": [
         {
-          "end": 376,
-          "start": 376
+          "end": 301,
+          "start": 301
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-emit",
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "ExternEntryPoint::eq",
-      "line": 179,
-      "uncovered": [
-        {
-          "end": 181,
-          "start": 179
-        }
-      ]
+      "line": 91
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-emit",
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "ExternEntryPoint::hash",
-      "line": 185,
-      "uncovered": [
-        {
-          "end": 187,
-          "start": 185
-        }
-      ]
+      "line": 97
     },
     {
       "coverage": 100.0,
@@ -4359,7 +4227,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "LocalEntryPoint::body_local_def_id",
-      "line": 145
+      "line": 57
     },
     {
       "coverage": 100.0,
@@ -4368,7 +4236,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "LocalEntryPoint::eq",
-      "line": 160
+      "line": 72
     },
     {
       "coverage": 100.0,
@@ -4377,7 +4245,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "LocalEntryPoint::hash",
-      "line": 166
+      "line": 78
     },
     {
       "coverage": 100.0,
@@ -4386,22 +4254,25 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "LocalEntryPoint::path_str",
-      "line": 149
+      "line": 61
     },
     {
-      "coverage": 80.0,
+      "coverage": 100.0,
+      "crap": 1.0,
+      "crate": "mutest-emit",
+      "cyclomatic": 1.0,
+      "file": "mutest-emit/src/analysis/call_graph.rs",
+      "function": "Target::complete_reachable_from",
+      "line": 181
+    },
+    {
+      "coverage": 100.0,
       "crap": 3.072,
       "crate": "mutest-emit",
       "cyclomatic": 3.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "Target::def_id",
-      "line": 246,
-      "uncovered": [
-        {
-          "end": 249,
-          "start": 249
-        }
-      ]
+      "line": 166
     },
     {
       "coverage": 100.0,
@@ -4410,70 +4281,34 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "Target::is_tainted",
-      "line": 253
+      "line": 173
     },
     {
-      "coverage": 80.0,
+      "coverage": 100.0,
       "crap": 4.128,
       "crate": "mutest-emit",
       "cyclomatic": 4.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "Targeting::counts_call_frame",
-      "line": 322,
-      "uncovered": [
-        {
-          "end": 325,
-          "start": 325
-        }
-      ]
+      "line": 247
     },
     {
-      "coverage": 69.56521739130434,
+      "coverage": 100.0,
       "crap": 23.216898167173504,
       "crate": "mutest-emit",
       "cyclomatic": 16.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "Targeting::matches",
-      "line": 268,
-      "uncovered": [
-        {
-          "end": 315,
-          "start": 303
-        }
-      ]
+      "line": 193
     },
     {
       "coverage": 100.0,
-      "crap": 1.0,
-      "crate": "mutest-emit",
-      "cyclomatic": 1.0,
-      "file": "mutest-emit/src/analysis/call_graph.rs",
-      "function": "Unsafety::any",
-      "line": 45
-    },
-    {
-      "coverage": 100.0,
-      "crap": 1.0,
-      "crate": "mutest-emit",
-      "cyclomatic": 1.0,
-      "file": "mutest-emit/src/analysis/call_graph.rs",
-      "function": "Unsafety::is_unsafe",
-      "line": 49
-    },
-    {
-      "coverage": 57.14285714285714,
       "crap": 3.708454810495627,
       "crate": "mutest-emit",
       "cyclomatic": 3.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "all_mutable_fns",
-      "line": 333,
-      "uncovered": [
-        {
-          "end": 353,
-          "start": 346
-        }
-      ]
+      "line": 258
     },
     {
       "coverage": 100.0,
@@ -4481,17 +4316,8 @@
       "crate": "mutest-emit",
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
-      "function": "check_item_unsafety",
-      "line": 73
-    },
-    {
-      "coverage": 100.0,
-      "crap": 1.0,
-      "crate": "mutest-emit",
-      "cyclomatic": 1.0,
-      "file": "mutest-emit/src/analysis/call_graph.rs",
-      "function": "collect_unsafe_blocks",
-      "line": 84
+      "function": "body_calls",
+      "line": 633
     },
     {
       "coverage": 100.0,
@@ -4500,7 +4326,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "instantiate_generic_args",
-      "line": 517
+      "line": 444
     },
     {
       "coverage": 100.0,
@@ -4509,7 +4335,16 @@
       "cyclomatic": 3.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "is_reported_foreign_item",
-      "line": 611
+      "line": 539
+    },
+    {
+      "coverage": 100.0,
+      "crap": 2.0,
+      "crate": "mutest-emit",
+      "cyclomatic": 2.0,
+      "file": "mutest-emit/src/analysis/call_graph.rs",
+      "function": "mark_targets_reached_by_truncated_entry_points",
+      "line": 714
     },
     {
       "coverage": 85.1063829787234,
@@ -4518,57 +4353,57 @@
       "cyclomatic": 3.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "mir_callees",
-      "line": 395,
+      "line": 320,
       "uncovered": [
         {
-          "end": 436,
-          "start": 431
+          "end": 361,
+          "start": 356
         },
         {
-          "end": 456,
-          "start": 456
+          "end": 381,
+          "start": 381
         },
         {
-          "end": 461,
-          "start": 461
+          "end": 386,
+          "start": 386
         }
       ]
     },
     {
-      "coverage": 86.36363636363636,
+      "coverage": 95.65217391304348,
       "crap": 7.124248685199098,
       "crate": "mutest-emit",
       "cyclomatic": 7.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "new_nested_target",
-      "line": 524,
+      "line": 451,
       "uncovered": [
         {
-          "end": 540,
-          "start": 538
+          "end": 467,
+          "start": 467
         }
       ]
     },
     {
-      "coverage": 95.53571428571428,
+      "coverage": 95.7983193277311,
       "crap": 19.03211908368258,
       "crate": "mutest-emit",
       "cyclomatic": 19.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "reachable_fns",
-      "line": 776,
+      "line": 721,
       "uncovered": [
         {
-          "end": 795,
-          "start": 795
+          "end": 741,
+          "start": 741
         },
         {
-          "end": 809,
-          "start": 806
+          "end": 755,
+          "start": 752
         },
         {
-          "end": 855,
-          "start": 855
+          "end": 799,
+          "start": 799
         }
       ]
     },
@@ -4579,7 +4414,7 @@
       "cyclomatic": 5.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "reaches_closer_or_more_unsafely",
-      "line": 593
+      "line": 521
     },
     {
       "coverage": 100.0,
@@ -4588,7 +4423,7 @@
       "cyclomatic": 2.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "record_caller_calls",
-      "line": 705
+      "line": 646
     },
     {
       "coverage": 100.0,
@@ -4597,7 +4432,7 @@
       "cyclomatic": 9.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "record_calls_at_distance",
-      "line": 733
+      "line": 672
     },
     {
       "coverage": 96.7741935483871,
@@ -4606,13 +4441,22 @@
       "cyclomatic": 4.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "record_target",
-      "line": 553,
+      "line": 481,
       "uncovered": [
         {
-          "end": 575,
-          "start": 575
+          "end": 503,
+          "start": 503
         }
       ]
+    },
+    {
+      "coverage": 100.0,
+      "crap": 2.0,
+      "crate": "mutest-emit",
+      "cyclomatic": 2.0,
+      "file": "mutest-emit/src/analysis/call_graph.rs",
+      "function": "record_truncated_caller",
+      "line": 640
     },
     {
       "coverage": 100.0,
@@ -4621,7 +4465,7 @@
       "cyclomatic": 8.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "resolve_callee",
-      "line": 642
+      "line": 570
     },
     {
       "coverage": 81.81818181818183,
@@ -4630,11 +4474,11 @@
       "cyclomatic": 6.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "shim_target",
-      "line": 624,
+      "line": 552,
       "uncovered": [
         {
-          "end": 630,
-          "start": 629
+          "end": 558,
+          "start": 557
         }
       ]
     },
@@ -4645,7 +4489,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/analysis/call_graph.rs",
       "function": "sort_callers_by_span",
-      "line": 693
+      "line": 621
     },
     {
       "coverage": 95.23809523809524,
@@ -4712,6 +4556,51 @@
           "start": 73
         }
       ]
+    },
+    {
+      "coverage": 100.0,
+      "crap": 2.0,
+      "crate": "mutest-emit",
+      "cyclomatic": 2.0,
+      "file": "mutest-emit/src/analysis/call_graph/unsafety.rs",
+      "function": "BodyUnsafetyChecker::visit_block",
+      "line": 39
+    },
+    {
+      "coverage": 100.0,
+      "crap": 1.0,
+      "crate": "mutest-emit",
+      "cyclomatic": 1.0,
+      "file": "mutest-emit/src/analysis/call_graph/unsafety.rs",
+      "function": "Unsafety::any",
+      "line": 21
+    },
+    {
+      "coverage": 100.0,
+      "crap": 1.0,
+      "crate": "mutest-emit",
+      "cyclomatic": 1.0,
+      "file": "mutest-emit/src/analysis/call_graph/unsafety.rs",
+      "function": "Unsafety::is_unsafe",
+      "line": 25
+    },
+    {
+      "coverage": 100.0,
+      "crap": 1.0,
+      "crate": "mutest-emit",
+      "cyclomatic": 1.0,
+      "file": "mutest-emit/src/analysis/call_graph/unsafety.rs",
+      "function": "check_item_unsafety",
+      "line": 49
+    },
+    {
+      "coverage": 100.0,
+      "crap": 1.0,
+      "crate": "mutest-emit",
+      "cyclomatic": 1.0,
+      "file": "mutest-emit/src/analysis/call_graph/unsafety.rs",
+      "function": "collect_unsafe_blocks",
+      "line": 60
     },
     {
       "coverage": 100.0,
@@ -7754,7 +7643,7 @@
       "line": 147
     },
     {
-      "coverage": 89.1891891891892,
+      "coverage": 91.8918918918919,
       "crap": 1.001263498706888,
       "crate": "mutest-emit",
       "cyclomatic": 1.0,
@@ -7769,10 +7658,6 @@
         {
           "end": 85,
           "start": 85
-        },
-        {
-          "end": 100,
-          "start": 100
         }
       ]
     },
@@ -7786,38 +7671,22 @@
       "line": 287
     },
     {
-      "coverage": 77.77777777777779,
+      "coverage": 100.0,
       "crap": 1.0109739368998627,
       "crate": "mutest-emit",
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/codegen/harness.rs",
       "function": "find_harness_in_extern_crate",
-      "line": 646,
-      "uncovered": [
-        {
-          "end": 653,
-          "start": 652
-        }
-      ]
+      "line": 646
     },
     {
-      "coverage": 86.36363636363636,
+      "coverage": 100.0,
       "crap": 8.162283996994741,
       "crate": "mutest-emit",
       "cyclomatic": 8.0,
       "file": "mutest-emit/src/codegen/harness.rs",
       "function": "generate_harness",
-      "line": 532,
-      "uncovered": [
-        {
-          "end": 557,
-          "start": 551
-        },
-        {
-          "end": 632,
-          "start": 628
-        }
-      ]
+      "line": 532
     },
     {
       "coverage": 100.0,
@@ -7838,41 +7707,25 @@
       "line": 27
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-emit",
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/codegen/harness.rs",
       "function": "mk_external_tests_extra_const",
-      "line": 440,
-      "uncovered": [
-        {
-          "end": 454,
-          "start": 440
-        }
-      ]
+      "line": 440
     },
     {
-      "coverage": 92.85714285714286,
+      "coverage": 100.0,
       "crap": 6.013119533527696,
       "crate": "mutest-emit",
       "cyclomatic": 6.0,
       "file": "mutest-emit/src/codegen/harness.rs",
       "function": "mk_harness_fn",
-      "line": 456,
-      "uncovered": [
-        {
-          "end": 459,
-          "start": 459
-        },
-        {
-          "end": 465,
-          "start": 464
-        }
-      ]
+      "line": 456
     },
     {
-      "coverage": 94.44444444444444,
+      "coverage": 96.29629629629628,
       "crap": 1.0001714677640603,
       "crate": "mutest-emit",
       "cyclomatic": 1.0,
@@ -7881,7 +7734,7 @@
       "line": 358,
       "uncovered": [
         {
-          "end": 378,
+          "end": 377,
           "start": 376
         }
       ]
@@ -8953,11 +8806,11 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/codegen/mutation.rs",
       "function": "MutationBatch::iter_mutations",
-      "line": 887,
+      "line": 885,
       "uncovered": [
         {
-          "end": 889,
-          "start": 887
+          "end": 887,
+          "start": 885
         }
       ]
     },
@@ -8968,11 +8821,11 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/codegen/mutation.rs",
       "function": "MutationBatch::iter_substitutions",
-      "line": 891,
+      "line": 889,
       "uncovered": [
         {
-          "end": 893,
-          "start": 891
+          "end": 891,
+          "start": 889
         }
       ]
     },
@@ -8983,7 +8836,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/codegen/mutation.rs",
       "function": "MutationBatchId::index",
-      "line": 875
+      "line": 873
     },
     {
       "coverage": 100.0,
@@ -9119,7 +8972,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/codegen/mutation.rs",
       "function": "MutationConflictGraph::compatible_mutations",
-      "line": 791
+      "line": 789
     },
     {
       "coverage": 100.0,
@@ -9128,7 +8981,7 @@
       "cyclomatic": 2.0,
       "file": "mutest-emit/src/codegen/mutation.rs",
       "function": "MutationConflictGraph::conflicting_mutations",
-      "line": 787
+      "line": 785
     },
     {
       "coverage": 100.0,
@@ -9137,7 +8990,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/codegen/mutation.rs",
       "function": "MutationConflictGraph::is_unsafe",
-      "line": 783
+      "line": 781
     },
     {
       "coverage": 100.0,
@@ -9146,7 +8999,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/codegen/mutation.rs",
       "function": "MutationConflictGraph::iter_compatibilities",
-      "line": 803
+      "line": 801
     },
     {
       "coverage": 100.0,
@@ -9155,7 +9008,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/codegen/mutation.rs",
       "function": "MutationConflictGraph::iter_conflicts",
-      "line": 795
+      "line": 793
     },
     {
       "coverage": 100.0,
@@ -9164,7 +9017,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/codegen/mutation.rs",
       "function": "MutationConflictGraph::iter_conflicts_excluding_unsafe",
-      "line": 799
+      "line": 797
     },
     {
       "coverage": 100.0,
@@ -9173,7 +9026,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/codegen/mutation.rs",
       "function": "MutationConflictGraph::total_mutations_count",
-      "line": 779
+      "line": 777
     },
     {
       "coverage": 100.0,
@@ -9182,7 +9035,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/codegen/mutation.rs",
       "function": "MutationConflictGraphCompatibilityIter::new",
-      "line": 814
+      "line": 812
     },
     {
       "coverage": 100.0,
@@ -9191,7 +9044,7 @@
       "cyclomatic": 6.0,
       "file": "mutest-emit/src/codegen/mutation.rs",
       "function": "MutationConflictGraphCompatibilityIter::next",
-      "line": 822
+      "line": 820
     },
     {
       "coverage": 100.0,
@@ -9350,11 +9203,11 @@
       "cyclomatic": 2.0,
       "file": "mutest-emit/src/codegen/mutation.rs",
       "function": "batch_mutations_dummy",
-      "line": 920,
+      "line": 918,
       "uncovered": [
         {
-          "end": 930,
-          "start": 920
+          "end": 928,
+          "start": 918
         }
       ]
     },
@@ -9365,19 +9218,19 @@
       "cyclomatic": 11.0,
       "file": "mutest-emit/src/codegen/mutation.rs",
       "function": "batch_mutations_greedy",
-      "line": 974,
+      "line": 972,
       "uncovered": [
         {
-          "end": 1008,
-          "start": 986
+          "end": 1006,
+          "start": 984
+        },
+        {
+          "end": 1029,
+          "start": 1029
         },
         {
           "end": 1031,
           "start": 1031
-        },
-        {
-          "end": 1033,
-          "start": 1033
         }
       ]
     },
@@ -9388,11 +9241,11 @@
       "cyclomatic": 4.0,
       "file": "mutest-emit/src/codegen/mutation.rs",
       "function": "batch_mutations_random",
-      "line": 1051,
+      "line": 1049,
       "uncovered": [
         {
-          "end": 1073,
-          "start": 1051
+          "end": 1071,
+          "start": 1049
         }
       ]
     },
@@ -9412,11 +9265,11 @@
       "cyclomatic": 3.0,
       "file": "mutest-emit/src/codegen/mutation.rs",
       "function": "choose_random_mutation_batch",
-      "line": 949,
+      "line": 947,
       "uncovered": [
         {
-          "end": 965,
-          "start": 949
+          "end": 963,
+          "start": 947
         }
       ]
     },
@@ -9427,7 +9280,7 @@
       "cyclomatic": 3.0,
       "file": "mutest-emit/src/codegen/mutation.rs",
       "function": "compatible_mutation_batch",
-      "line": 932
+      "line": 930
     },
     {
       "coverage": 100.0,
@@ -9445,11 +9298,11 @@
       "cyclomatic": 9.0,
       "file": "mutest-emit/src/codegen/mutation.rs",
       "function": "generate_mutation_conflict_graph",
-      "line": 840,
+      "line": 838,
       "uncovered": [
         {
-          "end": 847,
-          "start": 847
+          "end": 845,
+          "start": 845
         }
       ]
     },
@@ -9469,11 +9322,11 @@
       "cyclomatic": 3.0,
       "file": "mutest-emit/src/codegen/mutation.rs",
       "function": "optimize_batches_simulated_annealing",
-      "line": 1075,
+      "line": 1073,
       "uncovered": [
         {
-          "end": 1161,
-          "start": 1075
+          "end": 1159,
+          "start": 1073
         }
       ]
     },
@@ -9523,15 +9376,15 @@
       "cyclomatic": 6.0,
       "file": "mutest-emit/src/codegen/mutation.rs",
       "function": "validate_mutation_batches",
-      "line": 900,
+      "line": 898,
       "uncovered": [
         {
-          "end": 910,
-          "start": 910
+          "end": 908,
+          "start": 908
         },
         {
-          "end": 917,
-          "start": 917
+          "end": 915,
+          "start": 915
         }
       ]
     },
@@ -9837,15 +9690,6 @@
       "file": "mutest-exit-code/src/lib.rs",
       "function": "worst",
       "line": 22
-    },
-    {
-      "coverage": null,
-      "crap": 2.0,
-      "crate": "mutest-inspector",
-      "cyclomatic": 1.0,
-      "file": "mutest-inspector/build.rs",
-      "function": "main",
-      "line": 4
     },
     {
       "coverage": 0.0,
@@ -11893,19 +11737,13 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-json",
       "cyclomatic": 1.0,
       "file": "mutest-json/src/evaluation.rs",
       "function": "RuntimeTestId::from_index",
-      "line": 19,
-      "uncovered": [
-        {
-          "end": 21,
-          "start": 19
-        }
-      ]
+      "line": 19
     },
     {
       "coverage": 0.0,
@@ -13160,19 +12998,13 @@
       "line": 64
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/completion.rs",
       "function": "Completion::pass_to",
-      "line": 41,
-      "uncovered": [
-        {
-          "end": 43,
-          "start": 41
-        }
-      ]
+      "line": 41
     },
     {
       "coverage": 100.0,
@@ -13184,7 +13016,7 @@
       "line": 46
     },
     {
-      "coverage": 0.0,
+      "coverage": 82.35294117647058,
       "crap": 42.0,
       "crate": "mutest-runtime",
       "cyclomatic": 6.0,
@@ -13193,25 +13025,27 @@
       "line": 98,
       "uncovered": [
         {
-          "end": 114,
-          "start": 98
+          "end": 100,
+          "start": 100
+        },
+        {
+          "end": 103,
+          "start": 103
+        },
+        {
+          "end": 109,
+          "start": 109
         }
       ]
     },
     {
-      "coverage": 85.71428571428571,
+      "coverage": 100.0,
       "crap": 7.142857142857143,
       "crate": "mutest-runtime",
       "cyclomatic": 7.0,
       "file": "mutest-runtime/src/completion.rs",
       "function": "outcome",
-      "line": 17,
-      "uncovered": [
-        {
-          "end": 22,
-          "start": 22
-        }
-      ]
+      "line": 17
     },
     {
       "coverage": 100.0,
@@ -13223,7 +13057,7 @@
       "line": 70
     },
     {
-      "coverage": 0.0,
+      "coverage": 87.5,
       "crap": 20.0,
       "crate": "mutest-runtime",
       "cyclomatic": 4.0,
@@ -13232,8 +13066,8 @@
       "line": 76,
       "uncovered": [
         {
-          "end": 83,
-          "start": 76
+          "end": 78,
+          "start": 78
         }
       ]
     },
@@ -13247,7 +13081,7 @@
       "line": 86
     },
     {
-      "coverage": 0.0,
+      "coverage": 57.14285714285714,
       "crap": 30.0,
       "crate": "mutest-runtime",
       "cyclomatic": 5.0,
@@ -13256,8 +13090,12 @@
       "line": 42,
       "uncovered": [
         {
-          "end": 51,
-          "start": 42
+          "end": 47,
+          "start": 44
+        },
+        {
+          "end": 49,
+          "start": 49
         }
       ]
     },
@@ -13457,34 +13295,22 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/detections.rs",
       "function": "MutationDetectionMatrix::insert",
-      "line": 17,
-      "uncovered": [
-        {
-          "end": 23,
-          "start": 17
-        }
-      ]
+      "line": 17
     },
     {
-      "coverage": 50.0,
+      "coverage": 100.0,
       "crap": 1.125,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/detections.rs",
       "function": "MutationDetectionMatrix::iter_detections",
-      "line": 35,
-      "uncovered": [
-        {
-          "end": 39,
-          "start": 37
-        }
-      ]
+      "line": 35
     },
     {
       "coverage": 0.0,
@@ -13502,19 +13328,13 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/detections.rs",
       "function": "MutationDetectionMatrix::iter_test_detections",
-      "line": 42,
-      "uncovered": [
-        {
-          "end": 48,
-          "start": 42
-        }
-      ]
+      "line": 42
     },
     {
       "coverage": 100.0,
@@ -13556,7 +13376,7 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 22.22222222222222,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
@@ -13565,13 +13385,13 @@
       "line": 27,
       "uncovered": [
         {
-          "end": 52,
-          "start": 27
+          "end": 48,
+          "start": 29
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 50.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
@@ -13580,28 +13400,22 @@
       "line": 58,
       "uncovered": [
         {
-          "end": 63,
-          "start": 58
+          "end": 62,
+          "start": 60
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/flakiness.rs",
       "function": "MutationFlakinessMatrix::iter_mutation_ids",
-      "line": 54,
-      "uncovered": [
-        {
-          "end": 56,
-          "start": 54
-        }
-      ]
+      "line": 54
     },
     {
-      "coverage": 0.0,
+      "coverage": 42.857142857142854,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
@@ -13610,8 +13424,8 @@
       "line": 65,
       "uncovered": [
         {
-          "end": 71,
-          "start": 65
+          "end": 70,
+          "start": 67
         }
       ]
     },
@@ -13625,7 +13439,7 @@
       "line": 7
     },
     {
-      "coverage": 0.0,
+      "coverage": 69.56521739130434,
       "crap": 42.0,
       "crate": "mutest-runtime",
       "cyclomatic": 6.0,
@@ -13634,13 +13448,17 @@
       "line": 131,
       "uncovered": [
         {
-          "end": 162,
-          "start": 131
+          "end": 148,
+          "start": 141
+        },
+        {
+          "end": 155,
+          "start": 155
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 64.86486486486487,
       "crap": 182.0,
       "crate": "mutest-runtime",
       "cyclomatic": 13.0,
@@ -13649,8 +13467,20 @@
       "line": 74,
       "uncovered": [
         {
-          "end": 129,
-          "start": 74
+          "end": 88,
+          "start": 84
+        },
+        {
+          "end": 96,
+          "start": 96
+        },
+        {
+          "end": 107,
+          "start": 105
+        },
+        {
+          "end": 119,
+          "start": 116
         }
       ]
     },
@@ -13685,34 +13515,22 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/harness.rs",
       "function": "ActiveMutantHandle::replace",
-      "line": 90,
-      "uncovered": [
-        {
-          "end": 92,
-          "start": 90
-        }
-      ]
+      "line": 90
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/harness.rs",
       "function": "ActiveMutantHandle::subst_at",
-      "line": 65,
-      "uncovered": [
-        {
-          "end": 71,
-          "start": 65
-        }
-      ]
+      "line": 65
     },
     {
       "coverage": 0.0,
@@ -13754,7 +13572,7 @@
       "line": 309
     },
     {
-      "coverage": 60.526315789473685,
+      "coverage": 94.73684210526316,
       "crap": 3.5535610147251786,
       "crate": "mutest-runtime",
       "cyclomatic": 3.0,
@@ -13763,8 +13581,8 @@
       "line": 238,
       "uncovered": [
         {
-          "end": 291,
-          "start": 273
+          "end": 278,
+          "start": 278
         },
         {
           "end": 299,
@@ -13791,7 +13609,7 @@
       "line": 541
     },
     {
-      "coverage": 0.0,
+      "coverage": 80.76923076923077,
       "crap": 90.0,
       "crate": "mutest-runtime",
       "cyclomatic": 9.0,
@@ -13800,8 +13618,20 @@
       "line": 569,
       "uncovered": [
         {
-          "end": 606,
-          "start": 569
+          "end": 576,
+          "start": 576
+        },
+        {
+          "end": 587,
+          "start": 584
+        },
+        {
+          "end": 593,
+          "start": 593
+        },
+        {
+          "end": 601,
+          "start": 601
         }
       ]
     },
@@ -13842,22 +13672,16 @@
       "line": 513
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/harness.rs",
       "function": "clone_tests",
-      "line": 124,
-      "uncovered": [
-        {
-          "end": 134,
-          "start": 124
-        }
-      ]
+      "line": 124
     },
     {
-      "coverage": 0.0,
+      "coverage": 94.73684210526316,
       "crap": 20.0,
       "crate": "mutest-runtime",
       "cyclomatic": 4.0,
@@ -13866,43 +13690,31 @@
       "line": 841,
       "uncovered": [
         {
-          "end": 870,
-          "start": 841
+          "end": 861,
+          "start": 861
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/harness.rs",
       "function": "format_mutation_score",
-      "line": 521,
-      "uncovered": [
-        {
-          "end": 523,
-          "start": 521
-        }
-      ]
+      "line": 521
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/harness.rs",
       "function": "is_reachable_test",
-      "line": 136,
-      "uncovered": [
-        {
-          "end": 138,
-          "start": 136
-        }
-      ]
+      "line": 136
     },
     {
-      "coverage": 0.0,
+      "coverage": 80.0,
       "crap": 6.0,
       "crate": "mutest-runtime",
       "cyclomatic": 2.0,
@@ -13911,8 +13723,8 @@
       "line": 609,
       "uncovered": [
         {
-          "end": 613,
-          "start": 609
+          "end": 612,
+          "start": 612
         }
       ]
     },
@@ -13932,7 +13744,7 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 66.66666666666666,
       "crap": 20.0,
       "crate": "mutest-runtime",
       "cyclomatic": 4.0,
@@ -13941,13 +13753,13 @@
       "line": 109,
       "uncovered": [
         {
-          "end": 115,
-          "start": 109
+          "end": 113,
+          "start": 112
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 90.9090909090909,
       "crap": 20.0,
       "crate": "mutest-runtime",
       "cyclomatic": 4.0,
@@ -13956,13 +13768,13 @@
       "line": 210,
       "uncovered": [
         {
-          "end": 225,
-          "start": 210
+          "end": 220,
+          "start": 220
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 85.71428571428571,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
@@ -13971,13 +13783,13 @@
       "line": 1188,
       "uncovered": [
         {
-          "end": 1199,
-          "start": 1188
+          "end": 1193,
+          "start": 1193
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 70.2247191011236,
       "crap": 702.0,
       "crate": "mutest-runtime",
       "cyclomatic": 26.0,
@@ -13986,8 +13798,68 @@
       "line": 912,
       "uncovered": [
         {
-          "end": 1177,
-          "start": 912
+          "end": 917,
+          "start": 916
+        },
+        {
+          "end": 956,
+          "start": 937
+        },
+        {
+          "end": 974,
+          "start": 971
+        },
+        {
+          "end": 1012,
+          "start": 1012
+        },
+        {
+          "end": 1015,
+          "start": 1015
+        },
+        {
+          "end": 1029,
+          "start": 1029
+        },
+        {
+          "end": 1038,
+          "start": 1032
+        },
+        {
+          "end": 1049,
+          "start": 1047
+        },
+        {
+          "end": 1052,
+          "start": 1051
+        },
+        {
+          "end": 1060,
+          "start": 1060
+        },
+        {
+          "end": 1073,
+          "start": 1065
+        },
+        {
+          "end": 1111,
+          "start": 1107
+        },
+        {
+          "end": 1131,
+          "start": 1131
+        },
+        {
+          "end": 1136,
+          "start": 1135
+        },
+        {
+          "end": 1143,
+          "start": 1142
+        },
+        {
+          "end": 1157,
+          "start": 1155
         }
       ]
     },
@@ -14007,7 +13879,7 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 82.08955223880598,
       "crap": 56.0,
       "crate": "mutest-runtime",
       "cyclomatic": 7.0,
@@ -14016,13 +13888,37 @@
       "line": 1202,
       "uncovered": [
         {
-          "end": 1306,
-          "start": 1202
+          "end": 1212,
+          "start": 1210
+        },
+        {
+          "end": 1216,
+          "start": 1216
+        },
+        {
+          "end": 1244,
+          "start": 1243
+        },
+        {
+          "end": 1254,
+          "start": 1253
+        },
+        {
+          "end": 1261,
+          "start": 1261
+        },
+        {
+          "end": 1292,
+          "start": 1292
+        },
+        {
+          "end": 1301,
+          "start": 1300
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 78.57142857142857,
       "crap": 6.0,
       "crate": "mutest-runtime",
       "cyclomatic": 2.0,
@@ -14031,13 +13927,17 @@
       "line": 623,
       "uncovered": [
         {
-          "end": 638,
-          "start": 623
+          "end": 626,
+          "start": 626
+        },
+        {
+          "end": 632,
+          "start": 631
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 44.827586206896555,
       "crap": 20.0,
       "crate": "mutest-runtime",
       "cyclomatic": 4.0,
@@ -14046,8 +13946,8 @@
       "line": 872,
       "uncovered": [
         {
-          "end": 910,
-          "start": 872
+          "end": 895,
+          "start": 874
         }
       ]
     },
@@ -14067,37 +13967,25 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 6.0,
       "crate": "mutest-runtime",
       "cyclomatic": 2.0,
       "file": "mutest-runtime/src/harness.rs",
       "function": "profile_tests",
-      "line": 146,
-      "uncovered": [
-        {
-          "end": 183,
-          "start": 146
-        }
-      ]
+      "line": 146
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 12.0,
       "crate": "mutest-runtime",
       "cyclomatic": 3.0,
       "file": "mutest-runtime/src/harness.rs",
       "function": "record_finished_mutation",
-      "line": 615,
-      "uncovered": [
-        {
-          "end": 621,
-          "start": 615
-        }
-      ]
+      "line": 615
     },
     {
-      "coverage": 0.0,
+      "coverage": 42.62295081967213,
       "crap": 756.0,
       "crate": "mutest-runtime",
       "cyclomatic": 27.0,
@@ -14106,13 +13994,25 @@
       "line": 654,
       "uncovered": [
         {
-          "end": 838,
-          "start": 654
+          "end": 700,
+          "start": 700
+        },
+        {
+          "end": 703,
+          "start": 703
+        },
+        {
+          "end": 713,
+          "start": 713
+        },
+        {
+          "end": 828,
+          "start": 728
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 81.0,
       "crap": 110.0,
       "crate": "mutest-runtime",
       "cyclomatic": 10.0,
@@ -14121,8 +14021,44 @@
       "line": 331,
       "uncovered": [
         {
-          "end": 493,
-          "start": 331
+          "end": 371,
+          "start": 363
+        },
+        {
+          "end": 386,
+          "start": 386
+        },
+        {
+          "end": 401,
+          "start": 400
+        },
+        {
+          "end": 409,
+          "start": 409
+        },
+        {
+          "end": 417,
+          "start": 417
+        },
+        {
+          "end": 431,
+          "start": 431
+        },
+        {
+          "end": 440,
+          "start": 440
+        },
+        {
+          "end": 455,
+          "start": 455
+        },
+        {
+          "end": 464,
+          "start": 463
+        },
+        {
+          "end": 476,
+          "start": 472
         }
       ]
     },
@@ -14157,7 +14093,7 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 66.66666666666666,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
@@ -14166,28 +14102,22 @@
       "line": 185,
       "uncovered": [
         {
-          "end": 194,
-          "start": 185
+          "end": 191,
+          "start": 189
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/harness.rs",
       "function": "verdict_exit_code",
-      "line": 1179,
-      "uncovered": [
-        {
-          "end": 1184,
-          "start": 1179
-        }
-      ]
+      "line": 1179
     },
     {
-      "coverage": 0.0,
+      "coverage": 50.0,
       "crap": 20.0,
       "crate": "mutest-runtime",
       "cyclomatic": 4.0,
@@ -14196,13 +14126,17 @@
       "line": 176,
       "uncovered": [
         {
-          "end": 191,
-          "start": 176
+          "end": 179,
+          "start": 178
+        },
+        {
+          "end": 187,
+          "start": 182
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 66.66666666666666,
       "crap": 12.0,
       "crate": "mutest-runtime",
       "cyclomatic": 3.0,
@@ -14211,8 +14145,8 @@
       "line": 63,
       "uncovered": [
         {
-          "end": 68,
-          "start": 63
+          "end": 66,
+          "start": 65
         }
       ]
     },
@@ -14226,7 +14160,7 @@
       "line": 207
     },
     {
-      "coverage": 0.0,
+      "coverage": 76.92307692307693,
       "crap": 30.0,
       "crate": "mutest-runtime",
       "cyclomatic": 5.0,
@@ -14235,55 +14169,37 @@
       "line": 193,
       "uncovered": [
         {
-          "end": 205,
-          "start": 193
+          "end": 201,
+          "start": 199
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 30.0,
       "crate": "mutest-runtime",
       "cyclomatic": 5.0,
       "file": "mutest-runtime/src/harness/regression_fixture.rs",
       "function": "completed_mutation",
-      "line": 141,
-      "uncovered": [
-        {
-          "end": 150,
-          "start": 141
-        }
-      ]
+      "line": 141
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/harness/regression_fixture.rs",
       "function": "completion_path",
-      "line": 70,
-      "uncovered": [
-        {
-          "end": 72,
-          "start": 70
-        }
-      ]
+      "line": 70
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/harness/regression_fixture.rs",
       "function": "isolated",
-      "line": 172,
-      "uncovered": [
-        {
-          "end": 174,
-          "start": 172
-        }
-      ]
+      "line": 172
     },
     {
       "coverage": 0.0,
@@ -14301,7 +14217,7 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 60.0,
       "crap": 20.0,
       "crate": "mutest-runtime",
       "cyclomatic": 4.0,
@@ -14310,8 +14226,12 @@
       "line": 157,
       "uncovered": [
         {
+          "end": 159,
+          "start": 159
+        },
+        {
           "end": 161,
-          "start": 157
+          "start": 161
         }
       ]
     },
@@ -14331,22 +14251,16 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/harness/regression_fixture.rs",
       "function": "mark",
-      "line": 58,
-      "uncovered": [
-        {
-          "end": 61,
-          "start": 58
-        }
-      ]
+      "line": 58
     },
     {
-      "coverage": 0.0,
+      "coverage": 87.5,
       "crap": 72.0,
       "crate": "mutest-runtime",
       "cyclomatic": 8.0,
@@ -14355,8 +14269,12 @@
       "line": 121,
       "uncovered": [
         {
-          "end": 139,
-          "start": 121
+          "end": 127,
+          "start": 127
+        },
+        {
+          "end": 133,
+          "start": 133
         }
       ]
     },
@@ -14391,22 +14309,16 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 210.0,
       "crate": "mutest-runtime",
       "cyclomatic": 14.0,
       "file": "mutest-runtime/src/harness/regression_fixture.rs",
       "function": "run",
-      "line": 245,
-      "uncovered": [
-        {
-          "end": 266,
-          "start": 245
-        }
-      ]
+      "line": 245
     },
     {
-      "coverage": 0.0,
+      "coverage": 80.0,
       "crap": 6.0,
       "crate": "mutest-runtime",
       "cyclomatic": 2.0,
@@ -14415,43 +14327,31 @@
       "line": 166,
       "uncovered": [
         {
-          "end": 170,
-          "start": 166
+          "end": 169,
+          "start": 169
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 20.0,
       "crate": "mutest-runtime",
       "cyclomatic": 4.0,
       "file": "mutest-runtime/src/harness/regression_fixture.rs",
       "function": "write_malformed_completion",
-      "line": 74,
-      "uncovered": [
-        {
-          "end": 83,
-          "start": 74
-        }
-      ]
+      "line": 74
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/harness/timeouts.rs",
       "function": "TimeoutReruns::print",
-      "line": 38,
-      "uncovered": [
-        {
-          "end": 46,
-          "start": 38
-        }
-      ]
+      "line": 38
     },
     {
-      "coverage": 0.0,
+      "coverage": 75.0,
       "crap": 30.0,
       "crate": "mutest-runtime",
       "cyclomatic": 5.0,
@@ -14460,70 +14360,50 @@
       "line": 23,
       "uncovered": [
         {
-          "end": 31,
-          "start": 23
+          "end": 25,
+          "start": 25
+        },
+        {
+          "end": 27,
+          "start": 27
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/harness/timeouts.rs",
       "function": "TimeoutReruns::rerun_count",
-      "line": 33,
-      "uncovered": [
-        {
-          "end": 35,
-          "start": 33
-        }
-      ]
+      "line": 33
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 6.0,
       "crate": "mutest-runtime",
       "cyclomatic": 2.0,
       "file": "mutest-runtime/src/harness/timeouts.rs",
       "function": "confirm_timeouts",
-      "line": 62,
-      "uncovered": [
-        {
-          "end": 76,
-          "start": 62
-        }
-      ]
+      "line": 62
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/harness/timeouts.rs",
       "function": "confirmation_timeout",
-      "line": 50,
-      "uncovered": [
-        {
-          "end": 52,
-          "start": 50
-        }
-      ]
+      "line": 50
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 12.0,
       "crate": "mutest-runtime",
       "cyclomatic": 3.0,
       "file": "mutest-runtime/src/harness/timeouts.rs",
       "function": "finish_mutation",
-      "line": 55,
-      "uncovered": [
-        {
-          "end": 60,
-          "start": 55
-        }
-      ]
+      "line": 55
     },
     {
       "coverage": 88.88888888888889,
@@ -14556,7 +14436,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/journal.rs",
       "function": "Journal::create",
-      "line": 128
+      "line": 136
     },
     {
       "coverage": 90.0,
@@ -14565,28 +14445,31 @@
       "cyclomatic": 5.0,
       "file": "mutest-runtime/src/journal.rs",
       "function": "Journal::create_in",
-      "line": 140,
+      "line": 148,
       "uncovered": [
         {
-          "end": 164,
-          "start": 161
+          "end": 172,
+          "start": 169
         }
       ]
     },
     {
-      "coverage": 80.0,
+      "coverage": 100.0,
       "crap": 2.032,
       "crate": "mutest-runtime",
       "cyclomatic": 2.0,
       "file": "mutest-runtime/src/journal.rs",
       "function": "Journal::drop",
-      "line": 197,
-      "uncovered": [
-        {
-          "end": 200,
-          "start": 200
-        }
-      ]
+      "line": 210
+    },
+    {
+      "coverage": 100.0,
+      "crap": 2.0,
+      "crate": "mutest-runtime",
+      "cyclomatic": 2.0,
+      "file": "mutest-runtime/src/journal.rs",
+      "function": "Journal::is_empty",
+      "line": 200
     },
     {
       "coverage": 100.0,
@@ -14595,52 +14478,34 @@
       "cyclomatic": 5.0,
       "file": "mutest-runtime/src/journal.rs",
       "function": "Journal::isolate_unfinished",
-      "line": 176
+      "line": 184
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/journal.rs",
       "function": "Journal::pass_to",
-      "line": 167,
-      "uncovered": [
-        {
-          "end": 169,
-          "start": 167
-        }
-      ]
+      "line": 175
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/journal.rs",
       "function": "Journal::path",
-      "line": 187,
-      "uncovered": [
-        {
-          "end": 189,
-          "start": 187
-        }
-      ]
+      "line": 195
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/journal.rs",
       "function": "Journal::preserve",
-      "line": 191,
-      "uncovered": [
-        {
-          "end": 193,
-          "start": 191
-        }
-      ]
+      "line": 204
     },
     {
       "coverage": 100.0,
@@ -14649,10 +14514,10 @@
       "cyclomatic": 2.0,
       "file": "mutest-runtime/src/journal.rs",
       "function": "Journal::unfinished",
-      "line": 171
+      "line": 179
     },
     {
-      "coverage": 0.0,
+      "coverage": 57.14285714285714,
       "crap": 30.0,
       "crate": "mutest-runtime",
       "cyclomatic": 5.0,
@@ -14661,8 +14526,8 @@
       "line": 42,
       "uncovered": [
         {
-          "end": 49,
-          "start": 42
+          "end": 47,
+          "start": 45
         }
       ]
     },
@@ -14673,37 +14538,25 @@
       "cyclomatic": 2.0,
       "file": "mutest-runtime/src/journal.rs",
       "function": "WorkerJournal::append",
-      "line": 276
+      "line": 289
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/journal.rs",
       "function": "WorkerJournal::earlier_results",
-      "line": 263,
-      "uncovered": [
-        {
-          "end": 273,
-          "start": 263
-        }
-      ]
+      "line": 276
     },
     {
-      "coverage": 87.5,
+      "coverage": 100.0,
       "crap": 2.0078125,
       "crate": "mutest-runtime",
       "cyclomatic": 2.0,
       "file": "mutest-runtime/src/journal.rs",
       "function": "WorkerJournal::finished",
-      "line": 298,
-      "uncovered": [
-        {
-          "end": 302,
-          "start": 302
-        }
-      ]
+      "line": 311
     },
     {
       "coverage": 100.0,
@@ -14712,7 +14565,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/journal.rs",
       "function": "WorkerJournal::healthy",
-      "line": 290
+      "line": 303
     },
     {
       "coverage": 100.0,
@@ -14721,7 +14574,7 @@
       "cyclomatic": 3.0,
       "file": "mutest-runtime/src/journal.rs",
       "function": "WorkerJournal::open",
-      "line": 251
+      "line": 264
     },
     {
       "coverage": 100.0,
@@ -14730,7 +14583,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/journal.rs",
       "function": "WorkerJournal::resumes",
-      "line": 258
+      "line": 271
     },
     {
       "coverage": 100.0,
@@ -14739,7 +14592,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/journal.rs",
       "function": "WorkerJournal::started",
-      "line": 294
+      "line": 307
     },
     {
       "coverage": 100.0,
@@ -14751,49 +14604,31 @@
       "line": 77
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/journal.rs",
       "function": "finished_before",
-      "line": 229,
-      "uncovered": [
-        {
-          "end": 231,
-          "start": 229
-        }
-      ]
+      "line": 242
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 6.0,
       "crate": "mutest-runtime",
       "cyclomatic": 2.0,
       "file": "mutest-runtime/src/journal.rs",
       "function": "isolates",
-      "line": 234,
-      "uncovered": [
-        {
-          "end": 237,
-          "start": 234
-        }
-      ]
+      "line": 247
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 6.0,
       "crate": "mutest-runtime",
       "cyclomatic": 2.0,
       "file": "mutest-runtime/src/journal.rs",
       "function": "open_fixture_worker",
-      "line": 310,
-      "uncovered": [
-        {
-          "end": 339,
-          "start": 310
-        }
-      ]
+      "line": 323
     },
     {
       "coverage": 0.0,
@@ -14802,11 +14637,11 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/journal.rs",
       "function": "open_for_worker",
-      "line": 214,
+      "line": 227,
       "uncovered": [
         {
-          "end": 222,
-          "start": 214
+          "end": 235,
+          "start": 227
         }
       ]
     },
@@ -14820,22 +14655,22 @@
       "line": 111
     },
     {
-      "coverage": 0.0,
+      "coverage": 87.5,
       "crap": 12.0,
       "crate": "mutest-runtime",
       "cyclomatic": 3.0,
       "file": "mutest-runtime/src/journal.rs",
       "function": "record_earlier_results",
-      "line": 240,
+      "line": 253,
       "uncovered": [
         {
-          "end": 248,
-          "start": 240
+          "end": 257,
+          "start": 257
         }
       ]
     },
     {
-      "coverage": 57.14285714285714,
+      "coverage": 85.71428571428571,
       "crap": 6.96793002915452,
       "crate": "mutest-runtime",
       "cyclomatic": 5.0,
@@ -14844,25 +14679,19 @@
       "line": 22,
       "uncovered": [
         {
-          "end": 27,
+          "end": 25,
           "start": 25
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/journal.rs",
       "function": "worker",
-      "line": 224,
-      "uncovered": [
-        {
-          "end": 226,
-          "start": 224
-        }
-      ]
+      "line": 237
     },
     {
       "coverage": 100.0,
@@ -15304,19 +15133,13 @@
       "line": 183
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/json.rs",
       "function": "Writer::serialize_newtype_struct",
-      "line": 163,
-      "uncovered": [
-        {
-          "end": 165,
-          "start": 163
-        }
-      ]
+      "line": 163
     },
     {
       "coverage": 100.0,
@@ -15559,7 +15382,7 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 85.71428571428571,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
@@ -15568,13 +15391,13 @@
       "line": 227,
       "uncovered": [
         {
-          "end": 234,
-          "start": 227
+          "end": 230,
+          "start": 230
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 66.66666666666666,
       "crap": 20.0,
       "crate": "mutest-runtime",
       "cyclomatic": 4.0,
@@ -15583,25 +15406,23 @@
       "line": 219,
       "uncovered": [
         {
-          "end": 225,
-          "start": 219
+          "end": 221,
+          "start": 221
+        },
+        {
+          "end": 223,
+          "start": 223
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 12.0,
       "crate": "mutest-runtime",
       "cyclomatic": 3.0,
       "file": "mutest-runtime/src/metadata.rs",
       "function": "Mutant::substitutions",
-      "line": 183,
-      "uncovered": [
-        {
-          "end": 188,
-          "start": 183
-        }
-      ]
+      "line": 183
     },
     {
       "coverage": 0.0,
@@ -15634,49 +15455,31 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/metadata.rs",
       "function": "MutationMeta::is_unsafe",
-      "line": 136,
-      "uncovered": [
-        {
-          "end": 138,
-          "start": 136
-        }
-      ]
+      "line": 136
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/metadata.rs",
       "function": "empty",
-      "line": 83,
-      "uncovered": [
-        {
-          "end": 85,
-          "start": 83
-        }
-      ]
+      "line": 83
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 6.0,
       "crate": "mutest-runtime",
       "cyclomatic": 2.0,
       "file": "mutest-runtime/src/metadata.rs",
       "function": "overlay",
-      "line": 87,
-      "uncovered": [
-        {
-          "end": 91,
-          "start": 87
-        }
-      ]
+      "line": 87
     },
     {
       "coverage": 0.0,
@@ -15694,7 +15497,7 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 57.14285714285714,
       "crap": 30.0,
       "crate": "mutest-runtime",
       "cyclomatic": 5.0,
@@ -15703,25 +15506,19 @@
       "line": 37,
       "uncovered": [
         {
-          "end": 45,
-          "start": 37
+          "end": 43,
+          "start": 40
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/metadata.rs",
       "function": "subst_at",
-      "line": 94,
-      "uncovered": [
-        {
-          "end": 96,
-          "start": 94
-        }
-      ]
+      "line": 94
     },
     {
       "coverage": 0.0,
@@ -15739,7 +15536,7 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 57.14285714285714,
       "crap": 30.0,
       "crate": "mutest-runtime",
       "cyclomatic": 5.0,
@@ -15748,13 +15545,13 @@
       "line": 47,
       "uncovered": [
         {
-          "end": 55,
-          "start": 47
+          "end": 53,
+          "start": 50
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 80.0,
       "crap": 6.0,
       "crate": "mutest-runtime",
       "cyclomatic": 2.0,
@@ -15763,8 +15560,8 @@
       "line": 305,
       "uncovered": [
         {
-          "end": 309,
-          "start": 305
+          "end": 307,
+          "start": 307
         }
       ]
     },
@@ -15916,7 +15713,7 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 18.181818181818183,
       "crap": 12.0,
       "crate": "mutest-runtime",
       "cyclomatic": 3.0,
@@ -15925,8 +15722,8 @@
       "line": 312,
       "uncovered": [
         {
-          "end": 334,
-          "start": 312
+          "end": 333,
+          "start": 315
         }
       ]
     },
@@ -15946,19 +15743,13 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/progress.rs",
       "function": "fail",
-      "line": 249,
-      "uncovered": [
-        {
-          "end": 252,
-          "start": 249
-        }
-      ]
+      "line": 249
     },
     {
       "coverage": 100.0,
@@ -16000,19 +15791,13 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/progress.rs",
       "function": "ready",
-      "line": 285,
-      "uncovered": [
-        {
-          "end": 287,
-          "start": 285
-        }
-      ]
+      "line": 285
     },
     {
       "coverage": 0.0,
@@ -16117,7 +15902,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/subprocess.rs",
       "function": "Capture::tail",
-      "line": 425
+      "line": 433
     },
     {
       "coverage": 100.0,
@@ -16144,11 +15929,11 @@
       "cyclomatic": 3.0,
       "file": "mutest-runtime/src/subprocess.rs",
       "function": "Owner::drop",
-      "line": 467,
+      "line": 475,
       "uncovered": [
         {
-          "end": 478,
-          "start": 478
+          "end": 486,
+          "start": 486
         }
       ]
     },
@@ -16159,7 +15944,7 @@
       "cyclomatic": 3.0,
       "file": "mutest-runtime/src/subprocess.rs",
       "function": "Owner::try_wait",
-      "line": 440
+      "line": 448
     },
     {
       "coverage": 100.0,
@@ -16168,7 +15953,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/subprocess.rs",
       "function": "Stage::allow",
-      "line": 511
+      "line": 519
     },
     {
       "coverage": 100.0,
@@ -16177,7 +15962,7 @@
       "cyclomatic": 6.0,
       "file": "mutest-runtime/src/subprocess.rs",
       "function": "Stage::forward_cancellation",
-      "line": 527
+      "line": 535
     },
     {
       "coverage": 100.0,
@@ -16186,7 +15971,7 @@
       "cyclomatic": 5.0,
       "file": "mutest-runtime/src/subprocess.rs",
       "function": "Stage::read",
-      "line": 516
+      "line": 524
     },
     {
       "coverage": 83.33333333333334,
@@ -16195,11 +15980,11 @@
       "cyclomatic": 2.0,
       "file": "mutest-runtime/src/subprocess.rs",
       "function": "Stage::start_executing",
-      "line": 504,
+      "line": 512,
       "uncovered": [
         {
-          "end": 508,
-          "start": 508
+          "end": 516,
+          "start": 516
         }
       ]
     },
@@ -16210,11 +15995,11 @@
       "cyclomatic": 4.0,
       "file": "mutest-runtime/src/subprocess.rs",
       "function": "cancel",
-      "line": 664,
+      "line": 672,
       "uncovered": [
         {
-          "end": 675,
-          "start": 675
+          "end": 683,
+          "start": 683
         }
       ]
     },
@@ -16225,7 +16010,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/subprocess.rs",
       "function": "cancel_requested",
-      "line": 538
+      "line": 546
     },
     {
       "coverage": 92.3076923076923,
@@ -16234,11 +16019,11 @@
       "cyclomatic": 5.0,
       "file": "mutest-runtime/src/subprocess.rs",
       "function": "decode",
-      "line": 583,
+      "line": 591,
       "uncovered": [
         {
-          "end": 593,
-          "start": 593
+          "end": 601,
+          "start": 601
         }
       ]
     },
@@ -16249,7 +16034,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/subprocess.rs",
       "function": "dispatch",
-      "line": 391
+      "line": 399
     },
     {
       "coverage": 100.0,
@@ -16258,7 +16043,7 @@
       "cyclomatic": 4.0,
       "file": "mutest-runtime/src/subprocess.rs",
       "function": "dispatch",
-      "line": 767
+      "line": 775
     },
     {
       "coverage": 100.0,
@@ -16276,19 +16061,11 @@
       "cyclomatic": 17.0,
       "file": "mutest-runtime/src/subprocess.rs",
       "function": "execute",
-      "line": 703,
+      "line": 711,
       "uncovered": [
         {
-          "end": 707,
-          "start": 707
-        },
-        {
-          "end": 714,
-          "start": 714
-        },
-        {
-          "end": 720,
-          "start": 720
+          "end": 715,
+          "start": 715
         },
         {
           "end": 722,
@@ -16299,8 +16076,16 @@
           "start": 728
         },
         {
-          "end": 732,
-          "start": 732
+          "end": 730,
+          "start": 730
+        },
+        {
+          "end": 736,
+          "start": 736
+        },
+        {
+          "end": 740,
+          "start": 740
         }
       ]
     },
@@ -16335,7 +16120,7 @@
       "cyclomatic": 4.0,
       "file": "mutest-runtime/src/subprocess.rs",
       "function": "exits_within",
-      "line": 452
+      "line": 460
     },
     {
       "coverage": 100.0,
@@ -16368,11 +16153,11 @@
       "cyclomatic": 13.0,
       "file": "mutest-runtime/src/subprocess.rs",
       "function": "own",
-      "line": 778,
+      "line": 786,
       "uncovered": [
         {
-          "end": 806,
-          "start": 806
+          "end": 814,
+          "start": 814
         }
       ]
     },
@@ -16383,7 +16168,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/subprocess.rs",
       "function": "owner_failed",
-      "line": 542
+      "line": 550
     },
     {
       "coverage": 100.0,
@@ -16392,7 +16177,7 @@
       "cyclomatic": 8.0,
       "file": "mutest-runtime/src/subprocess.rs",
       "function": "read_completion",
-      "line": 598
+      "line": 606
     },
     {
       "coverage": 100.0,
@@ -16425,7 +16210,7 @@
       "cyclomatic": 16.0,
       "file": "mutest-runtime/src/subprocess.rs",
       "function": "run",
-      "line": 546
+      "line": 554
     },
     {
       "coverage": 100.0,
@@ -16443,7 +16228,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/subprocess.rs",
       "function": "scenario_is",
-      "line": 419
+      "line": 427
     },
     {
       "coverage": 100.0,
@@ -16452,7 +16237,7 @@
       "cyclomatic": 6.0,
       "file": "mutest-runtime/src/subprocess.rs",
       "function": "spawn_owner",
-      "line": 482
+      "line": 490
     },
     {
       "coverage": 0.0,
@@ -16599,49 +16384,31 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 6.0,
       "crate": "mutest-runtime",
       "cyclomatic": 2.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "Attempt::escalate",
-      "line": 379,
-      "uncovered": [
-        {
-          "end": 383,
-          "start": 379
-        }
-      ]
+      "line": 395
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 42.0,
       "crate": "mutest-runtime",
       "cyclomatic": 6.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "Attempt::finish",
-      "line": 385,
-      "uncovered": [
-        {
-          "end": 400,
-          "start": 385
-        }
-      ]
+      "line": 401
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 90.0,
       "crate": "mutest-runtime",
       "cyclomatic": 9.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "Attempt::observe",
-      "line": 352,
-      "uncovered": [
-        {
-          "end": 376,
-          "start": 352
-        }
-      ]
+      "line": 368
     },
     {
       "coverage": 100.0,
@@ -16650,7 +16417,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "adopt_orphans",
-      "line": 478
+      "line": 494
     },
     {
       "coverage": 100.0,
@@ -16659,7 +16426,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "adopt_orphans",
-      "line": 696
+      "line": 712
     },
     {
       "coverage": 100.0,
@@ -16668,7 +16435,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "adopt_orphans",
-      "line": 868
+      "line": 884
     },
     {
       "coverage": 100.0,
@@ -16677,7 +16444,7 @@
       "cyclomatic": 3.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "after_cleanup",
-      "line": 142
+      "line": 162
     },
     {
       "coverage": 100.0,
@@ -16686,7 +16453,7 @@
       "cyclomatic": 2.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "after_initialization",
-      "line": 134
+      "line": 154
     },
     {
       "coverage": 100.0,
@@ -16695,7 +16462,7 @@
       "cyclomatic": 2.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "checked_prctl",
-      "line": 469
+      "line": 485
     },
     {
       "coverage": 100.0,
@@ -16704,7 +16471,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "children",
-      "line": 517
+      "line": 533
     },
     {
       "coverage": 100.0,
@@ -16713,35 +16480,20 @@
       "cyclomatic": 5.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "cleanup_until",
-      "line": 622
+      "line": 638
     },
     {
-      "coverage": 0.0,
-      "crap": 12.0,
-      "crate": "mutest-runtime",
-      "cyclomatic": 3.0,
-      "file": "mutest-runtime/src/supervisor.rs",
-      "function": "crashed_mutations",
-      "line": 129,
-      "uncovered": [
-        {
-          "end": 132,
-          "start": 129
-        }
-      ]
-    },
-    {
-      "coverage": 0.0,
+      "coverage": 85.71428571428571,
       "crap": 12.0,
       "crate": "mutest-runtime",
       "cyclomatic": 3.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "die_with",
-      "line": 482,
+      "line": 498,
       "uncovered": [
         {
-          "end": 489,
-          "start": 482
+          "end": 502,
+          "start": 502
         }
       ]
     },
@@ -16752,7 +16504,7 @@
       "cyclomatic": 3.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "die_with",
-      "line": 700
+      "line": 716
     },
     {
       "coverage": 100.0,
@@ -16761,7 +16513,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "die_with",
-      "line": 878
+      "line": 894
     },
     {
       "coverage": 0.0,
@@ -16779,17 +16531,25 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 75.0,
       "crap": 30.0,
       "crate": "mutest-runtime",
       "cyclomatic": 5.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "exit_as",
-      "line": 178,
+      "line": 198,
       "uncovered": [
         {
-          "end": 190,
-          "start": 178
+          "end": 201,
+          "start": 201
+        },
+        {
+          "end": 205,
+          "start": 205
+        },
+        {
+          "end": 208,
+          "start": 208
         }
       ]
     },
@@ -16800,7 +16560,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "exit_status",
-      "line": 335
+      "line": 351
     },
     {
       "coverage": 100.0,
@@ -16809,7 +16569,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "exit_status",
-      "line": 896
+      "line": 912
     },
     {
       "coverage": 85.71428571428571,
@@ -16818,43 +16578,31 @@
       "cyclomatic": 2.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "exited_child",
-      "line": 225,
+      "line": 245,
       "uncovered": [
         {
-          "end": 230,
-          "start": 230
+          "end": 250,
+          "start": 250
         }
       ]
     },
     {
-      "coverage": 87.5,
+      "coverage": 100.0,
       "crap": 2.0078125,
       "crate": "mutest-runtime",
       "cyclomatic": 2.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "forward_signal",
-      "line": 271,
-      "uncovered": [
-        {
-          "end": 277,
-          "start": 277
-        }
-      ]
+      "line": 291
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 6.0,
       "crate": "mutest-runtime",
       "cyclomatic": 2.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "forward_stop_signals",
-      "line": 281,
-      "uncovered": [
-        {
-          "end": 286,
-          "start": 281
-        }
-      ]
+      "line": 301
     },
     {
       "coverage": 100.0,
@@ -16863,7 +16611,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "forward_stop_signals",
-      "line": 883
+      "line": 899
     },
     {
       "coverage": 81.81818181818183,
@@ -16872,28 +16620,22 @@
       "cyclomatic": 11.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "kill_and_reap_children",
-      "line": 652,
+      "line": 668,
       "uncovered": [
         {
-          "end": 663,
-          "start": 662
+          "end": 679,
+          "start": 678
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "kill_descendants",
-      "line": 639,
-      "uncovered": [
-        {
-          "end": 641,
-          "start": 639
-        }
-      ]
+      "line": 655
     },
     {
       "coverage": 100.0,
@@ -16902,7 +16644,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "kill_descendants",
-      "line": 723
+      "line": 739
     },
     {
       "coverage": 100.0,
@@ -16911,7 +16653,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "kill_descendants",
-      "line": 922
+      "line": 938
     },
     {
       "coverage": 100.0,
@@ -16920,7 +16662,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "kill_descendants_until",
-      "line": 643
+      "line": 659
     },
     {
       "coverage": 100.0,
@@ -16929,7 +16671,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "kill_group",
-      "line": 252
+      "line": 272
     },
     {
       "coverage": 100.0,
@@ -16938,7 +16680,7 @@
       "cyclomatic": 7.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "listed_children",
-      "line": 527
+      "line": 543
     },
     {
       "coverage": 100.0,
@@ -16947,7 +16689,7 @@
       "cyclomatic": 2.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "observed_children",
-      "line": 521
+      "line": 537
     },
     {
       "coverage": 0.0,
@@ -16956,11 +16698,11 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "raise_with_default_action",
-      "line": 445,
+      "line": 461,
       "uncovered": [
         {
-          "end": 451,
-          "start": 445
+          "end": 467,
+          "start": 461
         }
       ]
     },
@@ -16971,7 +16713,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "raise_with_default_action",
-      "line": 921
+      "line": 937
     },
     {
       "coverage": 100.0,
@@ -16980,7 +16722,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "reap",
-      "line": 246
+      "line": 266
     },
     {
       "coverage": 100.0,
@@ -16989,7 +16731,7 @@
       "cyclomatic": 3.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "reap_with_status",
-      "line": 237
+      "line": 257
     },
     {
       "coverage": 100.0,
@@ -16998,22 +16740,31 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "reap_worker",
-      "line": 330
+      "line": 346
     },
     {
-      "coverage": 0.0,
+      "coverage": 90.0,
+      "crap": 9.081,
+      "crate": "mutest-runtime",
+      "cyclomatic": 9.0,
+      "file": "mutest-runtime/src/supervisor.rs",
+      "function": "restarts_after_crash",
+      "line": 129,
+      "uncovered": [
+        {
+          "end": 139,
+          "start": 138
+        }
+      ]
+    },
+    {
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "run_start",
-      "line": 29,
-      "uncovered": [
-        {
-          "end": 31,
-          "start": 29
-        }
-      ]
+      "line": 29
     },
     {
       "coverage": 100.0,
@@ -17025,32 +16776,44 @@
       "line": 33
     },
     {
-      "coverage": 0.0,
+      "coverage": 80.0,
       "crap": 42.0,
       "crate": "mutest-runtime",
       "cyclomatic": 6.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "run_worker",
-      "line": 152,
+      "line": 172,
       "uncovered": [
         {
-          "end": 176,
-          "start": 152
+          "end": 182,
+          "start": 182
+        },
+        {
+          "end": 188,
+          "start": 187
+        },
+        {
+          "end": 194,
+          "start": 194
         }
       ]
     },
     {
-      "coverage": 94.73684210526316,
+      "coverage": 89.47368421052632,
       "crap": 8.074646449919813,
       "crate": "mutest-runtime",
       "cyclomatic": 8.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "scanned_children",
-      "line": 540,
+      "line": 556,
       "uncovered": [
         {
-          "end": 555,
-          "start": 555
+          "end": 564,
+          "start": 564
+        },
+        {
+          "end": 571,
+          "start": 571
         }
       ]
     },
@@ -17061,11 +16824,11 @@
       "cyclomatic": 3.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "send_signal",
-      "line": 215,
+      "line": 235,
       "uncovered": [
         {
-          "end": 221,
-          "start": 219
+          "end": 241,
+          "start": 239
         }
       ]
     },
@@ -17076,22 +16839,16 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "set_process_flag",
-      "line": 473
+      "line": 489
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "signal",
-      "line": 441,
-      "uncovered": [
-        {
-          "end": 443,
-          "start": 441
-        }
-      ]
+      "line": 457
     },
     {
       "coverage": 100.0,
@@ -17100,7 +16857,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "signal",
-      "line": 918
+      "line": 934
     },
     {
       "coverage": 100.0,
@@ -17109,7 +16866,7 @@
       "cyclomatic": 4.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "skip_crash_reports",
-      "line": 258
+      "line": 278
     },
     {
       "coverage": 100.0,
@@ -17118,7 +16875,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "skip_crash_reports",
-      "line": 873
+      "line": 889
     },
     {
       "coverage": 85.71428571428571,
@@ -17127,15 +16884,15 @@
       "cyclomatic": 4.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "start_worker",
-      "line": 288,
+      "line": 308,
       "uncovered": [
         {
-          "end": 295,
-          "start": 295
+          "end": 315,
+          "start": 315
         },
         {
-          "end": 302,
-          "start": 302
+          "end": 322,
+          "start": 322
         }
       ]
     },
@@ -17146,7 +16903,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "start_worker",
-      "line": 889
+      "line": 905
     },
     {
       "coverage": 100.0,
@@ -17155,22 +16912,7 @@
       "cyclomatic": 3.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "stop_signal",
-      "line": 307
-    },
-    {
-      "coverage": 0.0,
-      "crap": 2.0,
-      "crate": "mutest-runtime",
-      "cyclomatic": 1.0,
-      "file": "mutest-runtime/src/supervisor.rs",
-      "function": "stopped",
-      "line": 314,
-      "uncovered": [
-        {
-          "end": 316,
-          "start": 314
-        }
-      ]
+      "line": 327
     },
     {
       "coverage": 100.0,
@@ -17178,21 +16920,33 @@
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
-      "function": "stopped",
-      "line": 885
+      "function": "stop_signal",
+      "line": 901
     },
     {
-      "coverage": 0.0,
+      "coverage": 84.84848484848484,
       "crap": 110.0,
       "crate": "mutest-runtime",
-      "cyclomatic": 10.0,
+      "cyclomatic": 11.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "supervise",
       "line": 81,
       "uncovered": [
         {
-          "end": 124,
-          "start": 81
+          "end": 87,
+          "start": 87
+        },
+        {
+          "end": 91,
+          "start": 91
+        },
+        {
+          "end": 116,
+          "start": 115
+        },
+        {
+          "end": 123,
+          "start": 123
         }
       ]
     },
@@ -17218,20 +16972,24 @@
       "cyclomatic": 5.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "unless_vanished",
-      "line": 564
+      "line": 580
     },
     {
-      "coverage": 0.0,
+      "coverage": 81.48148148148148,
       "crap": 72.0,
       "crate": "mutest-runtime",
       "cyclomatic": 8.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "wait_completed",
-      "line": 403,
+      "line": 419,
       "uncovered": [
         {
-          "end": 439,
-          "start": 403
+          "end": 437,
+          "start": 437
+        },
+        {
+          "end": 450,
+          "start": 446
         }
       ]
     },
@@ -17242,7 +17000,7 @@
       "cyclomatic": 4.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "wait_completed",
-      "line": 900
+      "line": 916
     },
     {
       "coverage": 66.66666666666666,
@@ -17251,11 +17009,11 @@
       "cyclomatic": 5.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "wait_for_exit",
-      "line": 320,
+      "line": 336,
       "uncovered": [
         {
-          "end": 325,
-          "start": 324
+          "end": 341,
+          "start": 340
         }
       ]
     },
@@ -17266,11 +17024,11 @@
       "cyclomatic": 3.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "wait_reaping_orphans",
-      "line": 504,
+      "line": 520,
       "uncovered": [
         {
-          "end": 512,
-          "start": 510
+          "end": 528,
+          "start": 526
         }
       ]
     },
@@ -17281,7 +17039,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "wait_reaping_orphans",
-      "line": 719
+      "line": 735
     },
     {
       "coverage": 100.0,
@@ -17290,7 +17048,7 @@
       "cyclomatic": 3.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "ScenarioRun::cancel",
-      "line": 1031
+      "line": 1096
     },
     {
       "coverage": 100.0,
@@ -17299,7 +17057,7 @@
       "cyclomatic": 5.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "ScenarioRun::expected",
-      "line": 1043
+      "line": 1108
     },
     {
       "coverage": 100.0,
@@ -17308,7 +17066,7 @@
       "cyclomatic": 6.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "ScenarioRun::observe",
-      "line": 1018
+      "line": 1083
     },
     {
       "coverage": 100.0,
@@ -17317,22 +17075,16 @@
       "cyclomatic": 2.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "ScenarioRun::record",
-      "line": 1036
+      "line": 1101
     },
     {
-      "coverage": 45.45454545454545,
+      "coverage": 100.0,
       "crap": 6.5965439519158515,
       "crate": "mutest-runtime",
       "cyclomatic": 4.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "Scheduler::abandon_timed_out_tests",
-      "line": 793,
-      "uncovered": [
-        {
-          "end": 802,
-          "start": 796
-        }
-      ]
+      "line": 806
     },
     {
       "coverage": 100.0,
@@ -17341,7 +17093,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "Scheduler::emit",
-      "line": 707
+      "line": 719
     },
     {
       "coverage": 100.0,
@@ -17350,7 +17102,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "Scheduler::emit_queue",
-      "line": 711
+      "line": 723
     },
     {
       "coverage": 100.0,
@@ -17359,7 +17111,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "Scheduler::finish",
-      "line": 716
+      "line": 728
     },
     {
       "coverage": 86.66666666666667,
@@ -17368,30 +17120,30 @@
       "cyclomatic": 8.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "Scheduler::finish_next_test",
-      "line": 807,
+      "line": 820,
       "uncovered": [
         {
-          "end": 817,
-          "start": 817
+          "end": 830,
+          "start": 830
         },
         {
-          "end": 825,
-          "start": 825
+          "end": 838,
+          "start": 838
         }
       ]
     },
     {
-      "coverage": 90.0,
+      "coverage": 90.9090909090909,
       "crap": 4.016,
       "crate": "mutest-runtime",
       "cyclomatic": 4.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "Scheduler::run_concurrently",
-      "line": 749,
+      "line": 761,
       "uncovered": [
         {
-          "end": 754,
-          "start": 754
+          "end": 766,
+          "start": 766
         }
       ]
     },
@@ -17402,11 +17154,11 @@
       "cyclomatic": 6.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "Scheduler::run_each_to_its_end",
-      "line": 728,
+      "line": 740,
       "uncovered": [
         {
-          "end": 745,
-          "start": 728
+          "end": 757,
+          "start": 740
         }
       ]
     },
@@ -17417,11 +17169,11 @@
       "cyclomatic": 4.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "Scheduler::run_serially",
-      "line": 721,
+      "line": 733,
       "uncovered": [
         {
-          "end": 726,
-          "start": 721
+          "end": 738,
+          "start": 733
         }
       ]
     },
@@ -17432,7 +17184,7 @@
       "cyclomatic": 8.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "Scheduler::run_until_all_finish",
-      "line": 761
+      "line": 774
     },
     {
       "coverage": 100.0,
@@ -17441,7 +17193,7 @@
       "cyclomatic": 7.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "Scheduler::start_queued_tests",
-      "line": 772
+      "line": 785
     },
     {
       "coverage": 100.0,
@@ -17450,7 +17202,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "Scratch::drop",
-      "line": 845
+      "line": 910
     },
     {
       "coverage": 80.95238095238095,
@@ -17476,7 +17228,7 @@
       ]
     },
     {
-      "coverage": 40.0,
+      "coverage": 45.714285714285715,
       "crap": 37.136,
       "crate": "mutest-runtime",
       "cyclomatic": 11.0,
@@ -17487,14 +17239,6 @@
         {
           "end": 143,
           "start": 114
-        },
-        {
-          "end": 150,
-          "start": 150
-        },
-        {
-          "end": 152,
-          "start": 152
         }
       ]
     },
@@ -17565,22 +17309,31 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "__rust_begin_short_backtrace",
-      "line": 311
+      "line": 318
     },
     {
-      "coverage": 0.0,
-      "crap": 6.0,
+      "coverage": 80.0,
+      "crap": 2.032,
       "crate": "mutest-runtime",
       "cyclomatic": 2.0,
       "file": "mutest-runtime/src/test_runner.rs",
-      "function": "abandon_timed_out_test",
-      "line": 618,
+      "function": "abandon",
+      "line": 625,
       "uncovered": [
         {
-          "end": 630,
-          "start": 618
+          "end": 628,
+          "start": 628
         }
       ]
+    },
+    {
+      "coverage": 100.0,
+      "crap": 6.0,
+      "crate": "mutest-runtime",
+      "cyclomatic": 1.0,
+      "file": "mutest-runtime/src/test_runner.rs",
+      "function": "abandon_timed_out_test",
+      "line": 632
     },
     {
       "coverage": 100.0,
@@ -17589,7 +17342,7 @@
       "cyclomatic": 2.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "abort_isolated_tests",
-      "line": 534
+      "line": 541
     },
     {
       "coverage": 100.0,
@@ -17598,7 +17351,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "assert_flood_captured_whole",
-      "line": 1002
+      "line": 1067
     },
     {
       "coverage": 100.0,
@@ -17607,7 +17360,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "assert_reaped",
-      "line": 952
+      "line": 1017
     },
     {
       "coverage": 93.33333333333331,
@@ -17616,26 +17369,26 @@
       "cyclomatic": 8.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "cleanup_isolated_tests",
-      "line": 578,
+      "line": 585,
       "uncovered": [
         {
-          "end": 591,
-          "start": 591
+          "end": 598,
+          "start": 598
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 83.33333333333334,
       "crap": 12.0,
       "crate": "mutest-runtime",
       "cyclomatic": 3.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "concurrency",
-      "line": 468,
+      "line": 475,
       "uncovered": [
         {
-          "end": 476,
-          "start": 468
+          "end": 481,
+          "start": 481
         }
       ]
     },
@@ -17646,7 +17399,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "descriptor",
-      "line": 848
+      "line": 913
     },
     {
       "coverage": 66.66666666666666,
@@ -17655,15 +17408,15 @@
       "cyclomatic": 6.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "fixture_cleanup",
-      "line": 972,
+      "line": 1037,
       "uncovered": [
         {
-          "end": 977,
-          "start": 977
+          "end": 1042,
+          "start": 1042
         },
         {
-          "end": 983,
-          "start": 982
+          "end": 1048,
+          "start": 1047
         }
       ]
     },
@@ -17674,7 +17427,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "fixture_command",
-      "line": 943
+      "line": 1008
     },
     {
       "coverage": 100.0,
@@ -17683,7 +17436,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "fixture_marker",
-      "line": 957
+      "line": 1022
     },
     {
       "coverage": 100.0,
@@ -17692,7 +17445,7 @@
       "cyclomatic": 2.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "fixture_wait",
-      "line": 963
+      "line": 1028
     },
     {
       "coverage": 100.0,
@@ -17701,7 +17454,7 @@
       "cyclomatic": 2.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "flood_output",
-      "line": 1169
+      "line": 1234
     },
     {
       "coverage": 100.0,
@@ -17710,22 +17463,16 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "incomplete_isolation",
-      "line": 527
+      "line": 534
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
-      "cyclomatic": 1.0,
+      "cyclomatic": 2.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "is_test_thread_active",
-      "line": 216,
-      "uncovered": [
-        {
-          "end": 222,
-          "start": 216
-        }
-      ]
+      "line": 227
     },
     {
       "coverage": 80.0,
@@ -17734,11 +17481,11 @@
       "cyclomatic": 3.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "join_in_process",
-      "line": 597,
+      "line": 604,
       "uncovered": [
         {
-          "end": 599,
-          "start": 599
+          "end": 606,
+          "start": 606
         }
       ]
     },
@@ -17749,7 +17496,7 @@
       "cyclomatic": 3.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "join_isolated",
-      "line": 539
+      "line": 546
     },
     {
       "coverage": 100.0,
@@ -17758,7 +17505,7 @@
       "cyclomatic": 3.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "keep_loader_environment",
-      "line": 937
+      "line": 1002
     },
     {
       "coverage": 100.0,
@@ -17767,7 +17514,7 @@
       "cyclomatic": 9.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "lifecycle_child",
-      "line": 1137
+      "line": 1202
     },
     {
       "coverage": 93.33333333333331,
@@ -17776,11 +17523,11 @@
       "cyclomatic": 6.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "lifecycle_container",
-      "line": 1105,
+      "line": 1170,
       "uncovered": [
         {
-          "end": 1113,
-          "start": 1113
+          "end": 1178,
+          "start": 1178
         }
       ]
     },
@@ -17791,11 +17538,11 @@
       "cyclomatic": 2.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "lifecycle_holder",
-      "line": 1124,
+      "line": 1189,
       "uncovered": [
         {
-          "end": 1128,
-          "start": 1127
+          "end": 1193,
+          "start": 1192
         }
       ]
     },
@@ -17806,7 +17553,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "lifecycle_orphan_parent",
-      "line": 1131
+      "line": 1196
     },
     {
       "coverage": 100.0,
@@ -17815,7 +17562,7 @@
       "cyclomatic": 8.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "lifecycle_scheduler",
-      "line": 1053
+      "line": 1118
     },
     {
       "coverage": 100.0,
@@ -17824,7 +17571,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "lifecycle_strategy",
-      "line": 988
+      "line": 1053
     },
     {
       "coverage": 100.0,
@@ -17833,7 +17580,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "monitor_overdue",
-      "line": 549
+      "line": 556
     },
     {
       "coverage": 82.35294117647058,
@@ -17842,34 +17589,30 @@
       "cyclomatic": 9.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "receive_isolated",
-      "line": 555,
+      "line": 562,
       "uncovered": [
         {
-          "end": 565,
-          "start": 564
+          "end": 572,
+          "start": 571
         },
         {
-          "end": 573,
-          "start": 573
+          "end": 580,
+          "start": 580
         }
       ]
     },
     {
-      "coverage": 76.92307692307693,
+      "coverage": 92.3076923076923,
       "crap": 7.602184797451068,
       "crate": "mutest-runtime",
       "cyclomatic": 7.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "receive_monitor_message",
-      "line": 633,
+      "line": 645,
       "uncovered": [
         {
-          "end": 640,
-          "start": 640
-        },
-        {
-          "end": 645,
-          "start": 644
+          "end": 657,
+          "start": 657
         }
       ]
     },
@@ -17880,92 +17623,104 @@
       "cyclomatic": 9.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "run_test",
-      "line": 364,
+      "line": 371,
       "uncovered": [
         {
-          "end": 379,
-          "start": 379
+          "end": 386,
+          "start": 386
         },
         {
-          "end": 387,
-          "start": 385
+          "end": 394,
+          "start": 392
         },
         {
-          "end": 427,
-          "start": 426
-        },
-        {
-          "end": 445,
+          "end": 434,
           "start": 433
         },
         {
-          "end": 463,
-          "start": 456
+          "end": 452,
+          "start": 440
+        },
+        {
+          "end": 470,
+          "start": 463
         }
       ]
     },
     {
-      "coverage": 83.78378378378379,
+      "coverage": 86.48648648648648,
       "crap": 7.208951098651609,
       "crate": "mutest-runtime",
       "cyclomatic": 7.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "run_test_in_process",
-      "line": 224,
+      "line": 231,
       "uncovered": [
         {
-          "end": 237,
-          "start": 237
-        },
-        {
-          "end": 241,
-          "start": 241
+          "end": 244,
+          "start": 244
         },
         {
           "end": 248,
           "start": 248
         },
         {
-          "end": 250,
-          "start": 250
+          "end": 255,
+          "start": 255
         },
         {
-          "end": 262,
-          "start": 262
+          "end": 257,
+          "start": 257
         },
         {
-          "end": 273,
-          "start": 273
+          "end": 269,
+          "start": 269
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 76.0,
       "crap": 20.0,
       "crate": "mutest-runtime",
       "cyclomatic": 4.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "run_test_in_spawned_subprocess",
-      "line": 318,
+      "line": 325,
       "uncovered": [
         {
-          "end": 361,
-          "start": 318
+          "end": 330,
+          "start": 330
+        },
+        {
+          "end": 336,
+          "start": 336
+        },
+        {
+          "end": 339,
+          "start": 339
+        },
+        {
+          "end": 345,
+          "start": 344
+        },
+        {
+          "end": 363,
+          "start": 363
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 92.3076923076923,
       "crap": 12.0,
       "crate": "mutest-runtime",
       "cyclomatic": 3.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "run_tests",
-      "line": 501,
+      "line": 508,
       "uncovered": [
         {
-          "end": 515,
-          "start": 501
+          "end": 518,
+          "start": 518
         }
       ]
     },
@@ -17976,32 +17731,26 @@
       "cyclomatic": 8.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "run_tests_with_concurrency",
-      "line": 649,
+      "line": 661,
       "uncovered": [
         {
-          "end": 671,
-          "start": 671
+          "end": 683,
+          "start": 683
         },
         {
-          "end": 686,
-          "start": 686
+          "end": 698,
+          "start": 698
         }
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 12.0,
       "crate": "mutest-runtime",
       "cyclomatic": 3.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "run_tests_with_progress",
-      "line": 518,
-      "uncovered": [
-        {
-          "end": 525,
-          "start": 518
-        }
-      ]
+      "line": 525
     },
     {
       "coverage": 96.0,
@@ -18010,26 +17759,35 @@
       "cyclomatic": 4.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "spawn_test_subprocess",
-      "line": 279,
+      "line": 286,
       "uncovered": [
         {
-          "end": 295,
-          "start": 295
+          "end": 302,
+          "start": 302
         }
       ]
     },
     {
-      "coverage": 44.44444444444444,
+      "coverage": 100.0,
+      "crap": 1.0,
+      "crate": "mutest-runtime",
+      "cyclomatic": 1.0,
+      "file": "mutest-runtime/src/test_runner.rs",
+      "function": "test_thread_abandoned",
+      "line": 217
+    },
+    {
+      "coverage": 77.77777777777779,
       "crap": 1.1714677640603566,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/test_runner.rs",
       "function": "timed_out_in_process_tests",
-      "line": 604,
+      "line": 611,
       "uncovered": [
         {
-          "end": 613,
-          "start": 607
+          "end": 618,
+          "start": 617
         }
       ]
     },
@@ -18346,7 +18104,7 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 90.0,
       "crap": 6.0,
       "crate": "mutest-runtime",
       "cyclomatic": 2.0,
@@ -18355,8 +18113,8 @@
       "line": 25,
       "uncovered": [
         {
-          "end": 36,
-          "start": 25
+          "end": 33,
+          "start": 33
         }
       ]
     },
@@ -18376,19 +18134,13 @@
       ]
     },
     {
-      "coverage": 0.0,
+      "coverage": 100.0,
       "crap": 2.0,
       "crate": "mutest-runtime",
       "cyclomatic": 1.0,
       "file": "mutest-runtime/src/write.rs",
       "function": "EvaluationStreamWriter::write_event",
-      "line": 44,
-      "uncovered": [
-        {
-          "end": 49,
-          "start": 44
-        }
-      ]
+      "line": 44
     },
     {
       "coverage": 0.0,
@@ -18430,7 +18182,7 @@
       "line": 81
     },
     {
-      "coverage": 47.05882352941176,
+      "coverage": 64.70588235294117,
       "crap": 2.5935273763484634,
       "crate": "mutest-runtime",
       "cyclomatic": 2.0,
@@ -18439,20 +18191,16 @@
       "line": 102,
       "uncovered": [
         {
-          "end": 122,
-          "start": 116
-        },
-        {
           "end": 133,
-          "start": 129
+          "start": 131
         },
         {
-          "end": 150,
-          "start": 139
+          "end": 142,
+          "start": 142
         },
         {
-          "end": 163,
-          "start": 163
+          "end": 146,
+          "start": 144
         },
         {
           "end": 203,
@@ -18620,7 +18368,7 @@
       "cyclomatic": 1.0,
       "file": "tests/src/main.rs",
       "function": "log_test",
-      "line": 253
+      "line": 276
     },
     {
       "coverage": null,
@@ -18629,7 +18377,7 @@
       "cyclomatic": 5.0,
       "file": "tests/src/main.rs",
       "function": "main",
-      "line": 1016
+      "line": 1039
     },
     {
       "coverage": null,
@@ -18651,12 +18399,21 @@
     },
     {
       "coverage": null,
+      "crap": 6.0,
+      "crate": "mutest-tests",
+      "cyclomatic": 2.0,
+      "file": "tests/src/main.rs",
+      "function": "normalize_std_source_paths",
+      "line": 219
+    },
+    {
+      "coverage": null,
       "crap": 156.0,
       "crate": "mutest-tests",
       "cyclomatic": 12.0,
       "file": "tests/src/main.rs",
       "function": "parse_args",
-      "line": 282
+      "line": 305
     },
     {
       "coverage": null,
@@ -18665,7 +18422,7 @@
       "cyclomatic": 3.0,
       "file": "tests/src/main.rs",
       "function": "parse_directives",
-      "line": 266
+      "line": 289
     },
     {
       "coverage": null,
@@ -18674,7 +18431,7 @@
       "cyclomatic": 3.0,
       "file": "tests/src/main.rs",
       "function": "read_mutations_count",
-      "line": 365
+      "line": 388
     },
     {
       "coverage": null,
@@ -18683,7 +18440,7 @@
       "cyclomatic": 142.0,
       "file": "tests/src/main.rs",
       "function": "run_test",
-      "line": 372
+      "line": 395
     },
     {
       "coverage": null,
@@ -20295,6 +20052,69 @@
       "file": "tests/ui/evaluation/batched_run.rs",
       "function": "other_mutable_fn",
       "line": 17
+    },
+    {
+      "coverage": null,
+      "crap": 2.0,
+      "crate": "mutest-tests",
+      "cyclomatic": 1.0,
+      "file": "tests/ui/evaluation/batched_run_with_depth_limit.rs",
+      "function": "add_one",
+      "line": 8
+    },
+    {
+      "coverage": null,
+      "crap": 6.0,
+      "crate": "mutest-tests",
+      "cyclomatic": 2.0,
+      "file": "tests/ui/evaluation/batched_run_with_depth_limit.rs",
+      "function": "add_one_if_small",
+      "line": 16
+    },
+    {
+      "coverage": null,
+      "crap": 6.0,
+      "crate": "mutest-tests",
+      "cyclomatic": 2.0,
+      "file": "tests/ui/evaluation/batched_run_with_depth_limit.rs",
+      "function": "add_one_if_small_and_even",
+      "line": 21
+    },
+    {
+      "coverage": null,
+      "crap": 2.0,
+      "crate": "mutest-tests",
+      "cyclomatic": 1.0,
+      "file": "tests/ui/evaluation/batched_run_with_depth_limit.rs",
+      "function": "add_two",
+      "line": 12
+    },
+    {
+      "coverage": null,
+      "crap": 2.0,
+      "crate": "mutest-tests",
+      "cyclomatic": 1.0,
+      "file": "tests/ui/evaluation/cancel_test_once_if_it_unwinds_through_subst.rs",
+      "function": "ReachesSubstWhileUnwinding::drop",
+      "line": 14
+    },
+    {
+      "coverage": null,
+      "crap": 12.0,
+      "crate": "mutest-tests",
+      "cyclomatic": 3.0,
+      "file": "tests/ui/evaluation/cancel_test_once_if_it_unwinds_through_subst.rs",
+      "function": "loops_until_cancelled",
+      "line": 25
+    },
+    {
+      "coverage": null,
+      "crap": 6.0,
+      "crate": "mutest-tests",
+      "cyclomatic": 2.0,
+      "file": "tests/ui/evaluation/cancel_test_once_if_it_unwinds_through_subst.rs",
+      "function": "reaches_subst",
+      "line": 19
     },
     {
       "coverage": null,

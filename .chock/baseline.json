@@ -1,14 +1,14 @@
 {
   "$schema": "https://raw.githubusercontent.com/outpostHQ/chock/main/schema/baseline-v1.json",
   "version": 1,
-  "chock": "0.2.0",
+  "chock": "0.2.1",
   "gates": {
     "assertions": {},
     "bigfiles": {
       "mutest-emit/src/analysis/ast_lowering.rs": 2842,
       "mutest-emit/src/codegen/ast.rs": 1205,
       "mutest-emit/src/codegen/hygiene.rs": 2033,
-      "mutest-emit/src/codegen/mutation.rs": 1162,
+      "mutest-emit/src/codegen/mutation.rs": 1160,
       "mutest-inspector/src/server.rs": 1226,
       "mutest-runtime/src/harness.rs": 1369
     },
