@@ -117,6 +117,14 @@ fn read(mut file: &File) -> io::Result<Entries> {
     Ok(entries)
 }
 
+/// What the journal holds after a worker crashed.
+pub struct Crash {
+    /// The unfinished mutations that no worker ran in isolation before, now marked for isolation.
+    pub isolated: Vec<u32>,
+    pub unfinished: usize,
+    pub finished: usize,
+}
+
 pub struct Journal {
     path: PathBuf,
     file: File,
@@ -172,16 +180,16 @@ impl Journal {
         Ok(read(&self.file)?.unfinished().collect())
     }
 
-    /// Records the unfinished mutations that are not isolated yet as isolated, for the next worker, and returns them.
-    pub fn isolate_unfinished(&self) -> io::Result<Vec<u32>> {
+    /// Records the unfinished mutations that are not isolated yet as isolated, for the next worker.
+    pub fn isolate_unfinished(&self) -> io::Result<Crash> {
         let entries = read(&self.file)?;
-        let crashed = entries.unfinished().filter(|id| !entries.isolated.contains(id)).collect::<Vec<_>>();
-        if !crashed.is_empty() {
+        let isolated = entries.unfinished().filter(|id| !entries.isolated.contains(id)).collect::<Vec<_>>();
+        if !isolated.is_empty() {
             let mut file = &self.file;
             file.seek(SeekFrom::End(0))?;
-            append(file, json::Object::new().field("isolate", &crashed))?;
+            append(file, json::Object::new().field("isolate", &isolated))?;
         }
-        Ok(crashed)
+        Ok(Crash { isolated, unfinished: entries.unfinished().count(), finished: entries.finished.len() })
     }
 
     pub(crate) fn path(&self) -> &Path {
@@ -367,15 +375,17 @@ mod tests {
         worker_journal.started(&[1, 2, 4]);
         worker_journal.finished(1, &Default::default(), false);
         worker_journal.finished(4, &Default::default(), true);
-        assert_eq!(journal.isolate_unfinished().unwrap(), [2]);
-        assert_eq!(journal.isolate_unfinished().unwrap(), [] as [u32; 0]);
+        let crash = journal.isolate_unfinished().unwrap();
+        assert_eq!((crash.isolated, crash.unfinished, crash.finished), (vec![2], 1, 2));
+        assert_eq!(journal.isolate_unfinished().unwrap().isolated, [] as [u32; 0]);
 
         let restarted = WorkerJournal::open(journal.path.clone()).unwrap();
         assert!(restarted.resumes());
         assert!(restarted.earlier.finished.contains_key(&1) && restarted.earlier.isolated.contains(&2));
         assert!(restarted.earlier.finished[&4].timeout_rerun && !restarted.earlier.finished[&1].timeout_rerun);
         restarted.started(&[2, 3]);
-        assert_eq!(journal.isolate_unfinished().unwrap(), [3]);
+        let crash = journal.isolate_unfinished().unwrap();
+        assert_eq!((crash.isolated, crash.unfinished, crash.finished), (vec![3], 2, 2));
     }
 
     #[test]

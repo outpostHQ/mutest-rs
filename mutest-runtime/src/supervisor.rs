@@ -93,10 +93,10 @@ pub fn supervise() -> ! {
     // Without a journal the run goes on, but a crash cannot name the unfinished mutations.
     let journal = Journal::create().ok();
 
+    let mut finished = 0;
     let mut worker_status = run_worker(run_start, journal.as_ref());
     let mut cleanup = sys::kill_descendants();
-    while cleanup.is_ok() && let Some(crashed) = journal.as_ref().and_then(|journal| crashed_mutations(journal, worker_status)) {
-        eprintln!("mutation analysis worker crashed during mutations {crashed:?}; restarting it to run their tests each in a process of its own");
+    while cleanup.is_ok() && journal.as_ref().is_some_and(|journal| restarts_after_crash(journal, worker_status, &mut finished)) {
         worker_status = run_worker(run_start, journal.as_ref());
         cleanup = sys::kill_descendants();
     }
@@ -124,11 +124,31 @@ pub fn supervise() -> ! {
     exit_as(status, exit_code_log.as_deref())
 }
 
-/// The mutations a crashed worker left unfinished that no worker ran in isolation yet, now marked for isolation;
-/// `None` when the worker completed, was stopped, or crashed again in mutations already isolated.
-fn crashed_mutations(journal: &Journal, worker_status: ExitStatus) -> Option<Vec<u32>> {
-    if worker_status.code().is_some_and(exit_code::analysis_completed) || sys::stopped() { return None; }
-    journal.isolate_unfinished().ok().filter(|crashed| !crashed.is_empty())
+/// Whether to restart a worker that neither completed nor was stopped: when it left unfinished mutations that no worker
+/// ran isolated yet, now marked for isolation, or when the workers finished more mutations since the last restart.
+fn restarts_after_crash(journal: &Journal, worker_status: ExitStatus, finished: &mut usize) -> bool {
+    if worker_status.code().is_some_and(exit_code::analysis_completed) { return false; }
+    if let Some(signal) = sys::stop_signal() {
+        eprintln!("mutation analysis worker not restarted: this run received the stop signal {signal}");
+        return false;
+    }
+    let crash = match journal.isolate_unfinished() {
+        Ok(crash) => crash,
+        Err(error) => {
+            eprintln!("mutation analysis worker not restarted: cannot isolate its unfinished mutations: {error}");
+            return false;
+        }
+    };
+    // A test left running by a finished mutation can crash the worker after that mutation's result is in the journal.
+    let progressed = crash.finished > std::mem::replace(finished, crash.finished);
+    if !crash.isolated.is_empty() {
+        eprintln!("mutation analysis worker crashed during mutations {:?}; restarting it to run their tests each in a process of its own", crash.isolated);
+    } else if progressed {
+        eprintln!("mutation analysis worker crashed after it finished more mutations; restarting it to go on with the rest");
+    } else if crash.unfinished > 0 {
+        eprintln!("mutation analysis worker not restarted: it finished no mutation, and its unfinished mutations ran isolated already");
+    }
+    !crash.isolated.is_empty() || progressed
 }
 
 fn after_initialization<T>(initialized: std::io::Result<()>, proceed: impl FnOnce() -> T) -> Result<T, ExitStatus> {
@@ -304,15 +324,11 @@ mod sys {
         Ok(worker)
     }
 
-    fn stop_signal() -> Option<c_int> {
+    pub(super) fn stop_signal() -> Option<c_int> {
         match STOP_SIGNAL.load(Ordering::Relaxed) {
             0 => None,
             signal => Some(signal),
         }
-    }
-
-    pub(super) fn stopped() -> bool {
-        stop_signal().is_some()
     }
 
     /// Leaves the child unreaped, so that its id cannot go to another process yet.
@@ -882,8 +898,8 @@ mod sys {
     /// Nothing to forward: Ctrl+C ends each process on the console, and the worker's job ends what is left.
     pub(super) fn forward_stop_signals() {}
 
-    pub(super) fn stopped() -> bool {
-        false
+    pub(super) fn stop_signal() -> Option<i32> {
+        None
     }
 
     pub(super) fn start_worker(cmd: &mut Command) -> Result<Worker, ExitStatus> {
@@ -1134,6 +1150,15 @@ mod tests {
             journal::open_fixture_worker();
             if scenario == "restart-hold" {
                 journal::worker().unwrap().started(&[99]);
+                std::process::abort();
+            }
+            if scenario == "restart-progress" {
+                // Only the first worker finishes its mutation before it crashes.
+                let journal = journal::worker().unwrap();
+                if !journal.resumes() {
+                    journal.started(&[98]);
+                    journal.finished(98, &Default::default(), false);
+                }
                 std::process::abort();
             }
             harness::regression_fixture::run(scenario);
@@ -1407,6 +1432,16 @@ mod tests {
             assert!(fixture.root.join("retry-pid").exists(), "the crashed worker was not restarted");
             assert!(!fixture.root.join("third-pid").exists(), "the restarted worker was restarted again");
             assert!(fixture.output().contains("unfinished mutations [99]"), "{}", fixture.output());
+        }
+
+        #[test]
+        fn a_worker_that_crashes_after_its_mutations_finished_is_restarted_until_it_finishes_no_more() {
+            let mut fixture = Fixture::start("restart-progress");
+            fixture.admit_worker();
+            assert_eq!(fixture.wait().code(), Some(101));
+            assert!(fixture.root.join("retry-pid").exists(), "the crashed worker was not restarted: {}", fixture.output());
+            assert!(!fixture.root.join("third-pid").exists(), "a worker that finished nothing was restarted");
+            assert!(fixture.output().contains("crashed after it finished more mutations"), "{}", fixture.output());
         }
 
         #[test]
