@@ -266,7 +266,7 @@ pub(crate) mod job {
     type Handle = *mut c_void;
 
     const KILL_ON_JOB_CLOSE: u32 = 0x2000;
-    /// Sets `SEM_NOGPFAULTERRORBOX` for each process in the job, so a crash shows no error dialog.
+    /// Ends a process in the job at its first unhandled exception, so a crash shows no error dialog.
     const DIE_ON_UNHANDLED_EXCEPTION: u32 = 0x400;
     const EXTENDED_LIMIT_INFORMATION: i32 = 9;
 
@@ -348,42 +348,50 @@ pub(crate) mod job {
 
         use super::*;
 
-        const SEM_NOGPFAULTERRORBOX: u32 = 0x0002;
         const CREATE_DEFAULT_ERROR_MODE: u32 = 0x0400_0000;
-        const ERROR_MODE_VAR: &str = "__MUTEST_ERROR_MODE_FIXTURE";
+        const STATUS_ACCESS_VIOLATION: u32 = 0xC000_0005;
+        const CRASH_VAR: &str = "__MUTEST_CRASH_FIXTURE";
 
         #[link(name = "kernel32")]
         unsafe extern "system" {
-            fn GetErrorMode() -> u32;
+            fn QueryInformationJobObject(job: Handle, class: i32, information: *mut c_void, length: u32, returned: *mut u32) -> i32;
+            fn RaiseException(code: u32, flags: u32, argument_count: u32, arguments: *const usize);
         }
 
-        /// Prints its error mode once its stdin closes; when not started by the test below, it returns at once.
+        /// Prints the limits of its job once its stdin closes, then crashes; when not started by the test below, it returns at once.
         #[test]
-        fn error_mode_fixture() {
-            if std::env::var_os(ERROR_MODE_VAR).is_none() {
+        fn crash_fixture() {
+            if std::env::var_os(CRASH_VAR).is_none() {
                 return;
             }
             let _ = std::io::stdin().read_line(&mut String::new());
-            // SAFETY: `GetErrorMode` has no preconditions.
-            println!("error mode {}", unsafe { GetErrorMode() });
+            let mut limits = ExtendedLimits::default();
+            let length = u32::try_from(size_of::<ExtendedLimits>()).unwrap();
+            // SAFETY: a null job names the job of this process, and `limits` is the structure the class names.
+            let queried = unsafe { QueryInformationJobObject(ptr::null_mut(), EXTENDED_LIMIT_INFORMATION, ptr::from_mut(&mut limits).cast(), length, ptr::null_mut()) };
+            assert_ne!(queried, 0, "{}", io::Error::last_os_error());
+            println!("job limits {}", limits.basic.limit_flags);
+            // SAFETY: the exception has no arguments, and no handler in this process catches it.
+            unsafe { RaiseException(STATUS_ACCESS_VIOLATION, 0, 0, ptr::null()) };
         }
 
-        /// The fixture starts with the default error mode, and gets the job's once the job holds it.
+        /// The fixture starts with the default error mode, under which a crash can show an error dialog.
         #[test]
         fn a_process_in_the_job_shows_no_crash_dialog() {
             let mut child = Command::new(std::env::current_exe().unwrap())
-                .args(["--exact", "test_runner::subprocess::job::tests::error_mode_fixture", "--nocapture", "--test-threads=1"])
-                .env(ERROR_MODE_VAR, "1").creation_flags(CREATE_DEFAULT_ERROR_MODE)
+                .args(["--exact", "test_runner::subprocess::job::tests::crash_fixture", "--nocapture", "--test-threads=1"])
+                .env(CRASH_VAR, "1").creation_flags(CREATE_DEFAULT_ERROR_MODE)
                 .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null())
                 .spawn().unwrap();
             let job = Job::holding(&child).unwrap();
             drop(child.stdin.take());
             let stdout = BufReader::new(child.stdout.take().unwrap());
-            let mode = stdout.lines().map_while(Result::ok)
-                .find_map(|line| line.rsplit_once("error mode ").and_then(|(_, mode)| mode.trim().parse::<u32>().ok()));
-            let _ = child.wait();
+            let limits = stdout.lines().map_while(Result::ok)
+                .find_map(|line| line.rsplit_once("job limits ").and_then(|(_, limits)| limits.trim().parse::<u32>().ok()));
+            let status = child.wait().unwrap();
             drop(job);
-            assert_eq!(mode.map(|mode| mode & SEM_NOGPFAULTERRORBOX), Some(SEM_NOGPFAULTERRORBOX), "error mode {mode:?}");
+            assert_eq!(limits.map(|limits| limits & DIE_ON_UNHANDLED_EXCEPTION), Some(DIE_ON_UNHANDLED_EXCEPTION), "job limits {limits:?}");
+            assert_eq!(status.code().map(i32::cast_unsigned), Some(STATUS_ACCESS_VIOLATION));
         }
     }
 }
