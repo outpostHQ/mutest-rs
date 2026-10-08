@@ -60,7 +60,7 @@ jobs:
           # 1.0.18, tested only by an integration test
           - { crate: "itoa", repo: "dtolnay/itoa", rev: "af77385d0daf4d0e949e81f2588be2e44f69f086", args: "--test test", analyze: "--test test" }
           # v0.23.1
-          - { crate: "base64", repo: "marshallpierce/rust-base64", rev: "069bf7067b949f5c0a92b6ceb82492920502f2c2", args: "--lib", analyze: "--lib" }
+          - { crate: "base64", repo: "marshallpierce/rust-base64", rev: "069bf7067b949f5c0a92b6ceb82492920502f2c2", args: "--lib", analyze: "--lib", analyze_minutes: 60 }
           # 1.0.104
           - { crate: "anyhow", repo: "dtolnay/anyhow", rev: "1dbe1862aae650423e3361fbd20b7d17c5109cc3", args: "--test test_context --test test_fmt", analyze: "--test test_context --test test_fmt" }
 
@@ -120,7 +120,7 @@ jobs:
         if: matrix.analyze
         shell: bash
         working-directory: ${{ runner.temp }}/crate
-        timeout-minutes: 30
+        timeout-minutes: ${{ matrix.analyze_minutes || 30 }}
         env:
           ARGS: ${{ matrix.analyze }}
         run: |
