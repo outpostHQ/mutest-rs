@@ -49,7 +49,7 @@ batch of 1 mutation
     <-(1)- test_add_one_if_small_and_even
 
 batch of 1 mutation
-  - [relational_op_invert] invert relational operator `>` for `<=` in add_one_if_small at tests/ui/evaluation/batched_run_with_depth_limit.rs:17:8: 17:15
+  - [relational_op_invert] invert relational operator `>` to `<=` in add_one_if_small at tests/ui/evaluation/batched_run_with_depth_limit.rs:17:8: 17:15
     <-(1)- test_add_one_if_small_and_even
 
 batch of 1 mutation
@@ -171,7 +171,7 @@ warning: [relational_op_eq_swap] mutation was not detected
    = note: expression replaced with: `a >= 100`
 
 applying batch of 1 mutation:
-- [relational_op_invert] invert relational operator `>` for `<=` at tests/ui/evaluation/batched_run_with_depth_limit.rs:17:8: 17:15
+- [relational_op_invert] invert relational operator `>` to `<=` at tests/ui/evaluation/batched_run_with_depth_limit.rs:17:8: 17:15
 
 ran 1 out of 1 test
 

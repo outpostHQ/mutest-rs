@@ -432,8 +432,6 @@ impl<'tcx> DefPath<'tcx> {
     }
 
     pub fn unhygienic_ast_path(&self, crate_res: &CrateResolutions<'tcx>, ast_ty_printer: &mut ty::print::AstTyPrinter<'tcx, '_>) -> (Option<Box<ast::QSelf>>, ast::Path) {
-        use ty::print::Printer;
-
         let mut segments = self.segments.iter().map(|segment| {
             let ident = segment.ident;
             ast::PathSegment { id: ast::DUMMY_NODE_ID, ident, args: None }
@@ -900,7 +898,7 @@ pub fn visible_def_path<'tcx>(
                 match request {
                     DefPathRequestKind::Def(_) => {
                         if let Ok(mut visible_path) = lexical_def_path(tcx, def_id, containing_mod) {
-                            // Construct path to containing parent module, which are
+                            // Construct path to containing parent module, which is
                             // always accessible through consecutive `super` path segments.
                             visible_path.root = DefPathRootKind::Parent { supers: super_mods.len() };
                             return Ok(visible_path);

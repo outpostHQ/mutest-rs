@@ -100,7 +100,7 @@ pub struct Callee {
 pub struct CallInstance {
     /// Span of the call's location.
     pub span: Option<Span>,
-    /// Safety of the scope in which the call is in.
+    /// Safety of the scope in which the call is.
     pub safety: Safety,
 }
 

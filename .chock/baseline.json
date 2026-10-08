@@ -429,11 +429,7 @@
       "typeid#build-script": 1,
       "zmij#build-script": 1
     },
-    "typos": {
-      "mutest-driver/src/main.rs#simlar": 1,
-      "tests/ui/hygiene/flatten_multizip.rs#clousre": 5,
-      "tests/ui/hygiene/generic_args/rustc_res/infer_args_not_allowed_outside_bodies.rs#Funtion": 1
-    },
+    "typos": {},
     "unsafety": {
       "mutest-emit/src/analysis/call_graph.rs#block": 1,
       "mutest-emit/src/analysis/diagnostic.rs#block": 1,

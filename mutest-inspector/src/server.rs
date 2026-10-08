@@ -147,13 +147,13 @@ async fn handle_source_request(State(state): State<Arc<ServerState>>, Path(path_
         match tree_entry {
             TreeEntry::Dir(entry_path) => {
                 let Some(dir_name) = entry_path.file_name() else {
-                    return (StatusCode::INTERNAL_SERVER_ERROR, Html(format!("encountered invalid path amongst file tree entries: `{}`", entry_path.display())));
+                    return (StatusCode::INTERNAL_SERVER_ERROR, Html(format!("encountered invalid path among file tree entries: `{}`", entry_path.display())));
                 };
                 write!(body, "<li><a class=\"item\"><span class=\"name\">{}/</span></a><ol>", dir_name.display()).unwrap();
             }
             TreeEntry::File(entry_path) => {
                 let Some(file_name) = entry_path.file_name() else {
-                    return (StatusCode::INTERNAL_SERVER_ERROR, Html(format!("encountered invalid path amongst file tree entries: `{}`", entry_path.display())));
+                    return (StatusCode::INTERNAL_SERVER_ERROR, Html(format!("encountered invalid path among file tree entries: `{}`", entry_path.display())));
                 };
                 let file_mutations = tcx.file_mutations(entry_path);
 
@@ -697,7 +697,7 @@ async fn handle_mutation_request(State(state): State<Arc<ServerState>>, Path((pa
 
             let [in_between_callees @ .., _] = &call_trace.nested_calls[..] else {
                 // NOTE: Not a valid case: there should always be at least one callee, the target, and we never mutate entry points.
-                return (StatusCode::INTERNAL_SERVER_ERROR, Html(format!("invalid call trace `{}`: no calllees", trace_spec.to_string())));
+                return (StatusCode::INTERNAL_SERVER_ERROR, Html(format!("invalid call trace `{}`: no callees", trace_spec.to_string())));
             };
 
             for &def_id in in_between_callees {
@@ -1178,7 +1178,7 @@ async fn handle_test_request(State(state): State<Arc<ServerState>>, Path((packag
         let Some(def) = tcx.definition(target.def_id) else { continue; };
         let Some(def_span) = &def.span else { continue; };
 
-        // NOTE: Skip targets for which no mutations were generated for.
+        // NOTE: Skip targets for which no mutations were generated.
         if tcx.target_mutations(target_id).is_empty() { continue; }
 
         let file_entry = reachable_targets_per_file.entry(def_span.path.to_owned()).or_default();

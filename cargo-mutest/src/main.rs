@@ -148,7 +148,7 @@ fn cargo_command_base() -> Command {
 fn main() {
     let mut args = env::args().collect::<Vec<_>>();
     // NOTE: We determine whether we are
-    //       invoked through Cargo as a subcommand ('cargo mutest`) or as a standalone command (`cargo-mutest`)
+    //       invoked through Cargo as a subcommand (`cargo mutest`) or as a standalone command (`cargo-mutest`)
     //       based on Cargo's behavior of inserting the subcommand name after the binary path for external subcommands,
     //       see https://doc.rust-lang.org/cargo/reference/external-tools.html#custom-subcommands.
     let bin_name = match args.get(1).map(String::as_str) == Some("mutest") {

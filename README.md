@@ -12,7 +12,7 @@ Generate and analyze runtime-swappable code mutants of Rust programs using a dyn
 
 ## Mutation Operators
 
-Currently, the following list of mutation operators are implemented:
+Currently, the following list of mutation operators is implemented:
 
 | Mutation Operator           | Short Description                                                      |
 | --------------------------- | ---------------------------------------------------------------------- |
@@ -36,7 +36,7 @@ Currently, the following list of mutation operators are implemented:
 | `math_op_mul_div_swap`      | Swap multiplication for division and vice versa.                       |
 | `range_limit_swap`          | Swap limit (inclusivity) of range expression.                          |
 | `relational_op_eq_swap`     | Include or remove the boundary (equality) of relational operator.      |
-| `relational_op_invert`      | Invert relation operator.                                              |
+| `relational_op_invert`      | Invert relational operator.                                              |
 | `struct_field_delete`       | Take field from the base of struct expression instead.                 |
 | `unary_op_delete`           | Delete `!` or `-` unary operator.                                      |
 
@@ -134,7 +134,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(mutest)"] }
 
 ### Annotating code with tool attributes
 
-mutest-rs provides [tool attributes](https://doc.rust-lang.org/reference/attributes.html#tool-attributes) that can be used to optionally annotate your code for use with the tool. Note, that these attributes are only available when running `cargo mutest`, so they need to be wrapped in `#[cfg_attr(mutest, <MUTEST_ATTRIBUTE>)]` for regular Cargo commands to run.
+mutest-rs provides [tool attributes](https://doc.rust-lang.org/reference/attributes.html#tool-attributes) that can be used to optionally annotate your code for use with the tool. Note that these attributes are only available when running `cargo mutest`, so they need to be wrapped in `#[cfg_attr(mutest, <MUTEST_ATTRIBUTE>)]` for regular Cargo commands to run.
 
 #### `#[mutest::skip]` (use `#[cfg_attr(mutest, mutest::skip)]`)
 
