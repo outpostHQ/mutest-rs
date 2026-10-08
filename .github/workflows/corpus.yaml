@@ -16,6 +16,11 @@ on:
     - cron: "0 4 * * 1"
   workflow_dispatch:
 
+# A new push ends the run of the push before it, so two runs do not compete for runners.
+concurrency:
+  group: corpus-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -125,13 +130,14 @@ jobs:
           ARGS: ${{ matrix.analyze }}
         run: |
           status=0
-          cargo mutest run $ARGS > "$RUNNER_TEMP/analysis.log" 2>&1 || status=$?
+          # Each line of the log starts with the seconds since the analysis began.
+          cargo mutest run $ARGS 2>&1 | while IFS= read -r line; do printf '%5d %s\n' "$SECONDS" "$line"; done > "$RUNNER_TEMP/analysis.log" || status=${PIPESTATUS[0]}
           case "$status" in
             0|2|3) ;;
             *) echo "::error::${{ matrix.crate }} analysis did not complete (exit $status)"; exit 1 ;;
           esac
           # Each test target prints its own summary, and each must detect mutations.
-          summaries=$(grep '^ *mutations: ' "$RUNNER_TEMP/analysis.log" || true)
+          summaries=$(grep -E '^ *[0-9]+ +mutations: ' "$RUNNER_TEMP/analysis.log" | sed -E 's/^ *[0-9]+ +//' || true)
           if [ -z "$summaries" ]; then
             echo "::error::${{ matrix.crate }} analysis printed no summary"
             exit 1
@@ -149,3 +155,12 @@ jobs:
         if: always() && matrix.analyze
         shell: bash
         run: tail -n 60 "$RUNNER_TEMP/analysis.log" || true
+
+      - name: Upload the analysis log
+        if: always() && matrix.analyze
+        uses: actions/upload-artifact@v7
+        with:
+          name: analysis-${{ matrix.crate }}-${{ matrix.os }}
+          path: ${{ runner.temp }}/analysis.log
+          if-no-files-found: ignore
+          retention-days: 7
