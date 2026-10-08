@@ -26,6 +26,7 @@ use crate::test_runner;
 use crate::thread_pool::ThreadPool;
 use crate::write::{EvaluationStreamWriter, write_evaluation};
 
+mod profiling;
 mod scheduling;
 use scheduling::ScheduledMutant;
 mod timeouts;
@@ -974,19 +975,9 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
         _ => None,
     };
 
-    println!("profiling reference test run");
     let t_test_profiling_start = Instant::now();
-    let Ok(mut profiled_tests) = profile_tests(tests);
+    let mut profiled_tests = profiling::reference_run(tests, journal::worker());
     let test_profiling_duration = t_test_profiling_start.elapsed();
-
-    let failed_profiled_tests = profiled_tests.iter().filter(|test| !matches!(test.result, test_runner::TestResult::Ignored | test_runner::TestResult::Ok)).collect::<Vec<_>>();
-    if !failed_profiled_tests.is_empty() {
-        for failed_profiled_test in failed_profiled_tests {
-            println!("  test {} ... fail", failed_profiled_test.test.desc.name.as_slice());
-        }
-        println!("not all tests passed, cannot continue");
-        test_runner::progress::exit_incomplete(exit_code::BASELINE_FAILED);
-    }
 
     sort_profiled_tests_by_exec_time(&mut profiled_tests);
 

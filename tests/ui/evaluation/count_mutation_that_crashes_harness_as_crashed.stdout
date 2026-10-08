@@ -3,7 +3,7 @@ profiling reference test run
 applying mutation:
 - [fn_return_default] return `0` without evaluating the function body at tests/ui/evaluation/count_mutation_that_crashes_harness_as_crashed.rs:9:1: 11:2
 
-profiling reference test run
+reusing the reference test run of the crashed worker
 
 applying mutation:
 - [fn_return_default] return `0` without evaluating the function body at tests/ui/evaluation/count_mutation_that_crashes_harness_as_crashed.rs:9:1: 11:2
@@ -13,7 +13,7 @@ ran 1 out of 1 test
 applying mutation:
 - [fn_return_default] return `1` without evaluating the function body at tests/ui/evaluation/count_mutation_that_crashes_harness_as_crashed.rs:9:1: 11:2
 
-profiling reference test run
+reusing the reference test run of the crashed worker
 
 applying mutation:
 - [fn_return_default] return `1` without evaluating the function body at tests/ui/evaluation/count_mutation_that_crashes_harness_as_crashed.rs:9:1: 11:2

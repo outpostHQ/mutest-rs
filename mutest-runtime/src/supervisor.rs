@@ -1398,6 +1398,15 @@ mod tests {
         }
 
         #[test]
+        fn failing_reference_run_stops_before_mutations() {
+            let mut fixture = Fixture::start("baseline-fails");
+            fixture.admit_worker();
+            assert_eq!(fixture.wait().code(), Some(mutest_exit_code::BASELINE_FAILED), "{}", fixture.output());
+            assert!(fixture.output().contains("  test reference ... fail\nnot all tests passed, cannot continue\n"), "{}", fixture.output());
+            assert!(!fixture.output().contains("journal retained"), "{}", fixture.output());
+        }
+
+        #[test]
         fn malformed_completion_record_is_incomplete() {
             for scenario in ["completion-partial", "completion-duplicate", "completion-wrong-worker"] {
                 let mut fixture = Fixture::start(scenario);

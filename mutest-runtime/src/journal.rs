@@ -1,5 +1,5 @@
-//! The mutations a worker started and finished, so that a crash can name those left unfinished,
-//! and a restarted worker can skip those finished and isolate those that crashed the worker before.
+//! The mutations a worker started and finished, so that a crash can name those left unfinished, and a restarted
+//! worker can skip those finished, isolate those that crashed the worker before, and reuse the reference test run.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::env;
@@ -10,6 +10,7 @@ use std::io::{self, BufRead, BufReader, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 use crate::config::MutationIsolation;
 use crate::harness::{MutationAnalysisResults, MutationTestResult, MutationTestResults};
@@ -49,7 +50,7 @@ impl From<RecordedResult> for MutationTestResult {
     }
 }
 
-/// The worker writes the `started` and `finished` rows; the supervisor writes `isolate` before it restarts a crashed worker.
+/// The worker writes the `profiled`, `started` and `finished` rows; the supervisor writes `isolate` before it restarts a crashed worker.
 #[derive(serde::Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
 enum Record {
@@ -65,6 +66,10 @@ enum Record {
     },
     Isolate {
         isolate: Vec<u32>,
+    },
+    /// The name, the duration in nanoseconds, and whether it is ignored, of each test of the reference run.
+    Profiled {
+        profiled: Vec<(String, Option<u64>, bool)>,
     },
 }
 
@@ -86,20 +91,27 @@ struct Entries {
     started: BTreeSet<u32>,
     finished: BTreeMap<u32, Finished>,
     isolated: BTreeSet<u32>,
+    profile: Option<Vec<(String, Option<u64>, bool)>>,
 }
 
 impl Entries {
     fn add(&mut self, record: Record) -> io::Result<()> {
         match record {
             Record::Started { started } => self.started.extend(started),
-            Record::Finished { finished, result, tests, timeout_rerun } => {
-                if self.finished.insert(finished, Finished { result, tests, timeout_rerun }).is_some() {
-                    return Err(io::Error::other("duplicate finished journal result"));
-                }
-            }
+            Record::Finished { finished, result, tests, timeout_rerun } => return self.finish(finished, Finished { result, tests, timeout_rerun }),
             Record::Isolate { isolate } => self.isolated.extend(isolate),
+            Record::Profiled { profiled } => {
+                self.profile.get_or_insert(profiled);
+            }
         }
         Ok(())
+    }
+
+    fn finish(&mut self, mutation_id: u32, finished: Finished) -> io::Result<()> {
+        match self.finished.insert(mutation_id, finished) {
+            Some(_) => Err(io::Error::other("duplicate finished journal result")),
+            None => Ok(()),
+        }
     }
 
     fn unfinished(&self) -> impl Iterator<Item = u32> {
@@ -196,9 +208,9 @@ impl Journal {
         &self.path
     }
 
-    /// Whether no worker wrote a row, so that the journal holds nothing to examine.
+    /// Whether no worker started a mutation, so that the journal holds nothing to examine.
     pub fn is_empty(&self) -> io::Result<bool> {
-        Ok(self.file.metadata()?.len() == 0)
+        Ok(read(&self.file)?.started.is_empty())
     }
 
     pub(crate) fn preserve(mut self) {
@@ -304,6 +316,22 @@ impl WorkerJournal {
         self.file.lock().map(|file| file.is_some()).unwrap_or(false)
     }
 
+    /// The duration, and whether it is ignored, of each test in `names`, as the reference run of an earlier worker recorded
+    /// them; `None` if that run did not have one of the tests.
+    pub(crate) fn earlier_profile<'a>(&self, names: impl IntoIterator<Item = &'a str>) -> Option<Vec<(Option<Duration>, bool)>> {
+        let profile = self.earlier.profile.as_ref()?.iter()
+            .map(|(name, nanos, ignored)| (name.as_str(), (nanos.map(Duration::from_nanos), *ignored)))
+            .collect::<HashMap<_, _>>();
+        names.into_iter().map(|name| profile.get(name).copied()).collect()
+    }
+
+    pub(crate) fn profiled<'a>(&self, tests: impl IntoIterator<Item = (&'a str, Option<Duration>, bool)>) {
+        let profiled = tests.into_iter()
+            .map(|(name, exec_time, ignored)| (name, exec_time.map(|exec_time| u64::try_from(exec_time.as_nanos()).unwrap_or(u64::MAX)), ignored))
+            .collect::<Vec<_>>();
+        self.append(json::Object::new().field("profiled", &profiled));
+    }
+
     pub fn started(&self, mutation_ids: &[u32]) {
         self.append(json::Object::new().field("started", mutation_ids));
     }
@@ -354,6 +382,7 @@ pub(crate) fn open_fixture_worker() {
 #[cfg(test)]
 mod tests {
     use std::fs::File;
+    use std::time::Duration;
 
     use super::{Journal, WorkerJournal};
 
@@ -393,6 +422,20 @@ mod tests {
         restarted.started(&[2, 3]);
         let crash = journal.isolate_unfinished().unwrap();
         assert_eq!((crash.isolated, crash.unfinished, crash.finished), (vec![3], 2, 2));
+    }
+
+    #[test]
+    fn a_restart_reuses_the_profile_of_the_reference_run() {
+        let journal = Journal::create().unwrap();
+        let worker_journal = WorkerJournal::open(journal.path.clone()).unwrap();
+        worker_journal.profiled([("fast", Some(Duration::from_nanos(7)), false), ("skipped", None, true)]);
+        assert!(journal.unfinished().unwrap().is_empty());
+        assert!(journal.is_empty().unwrap());
+
+        let restarted = WorkerJournal::open(journal.path.clone()).unwrap();
+        assert!(!restarted.resumes());
+        assert_eq!(restarted.earlier_profile(["skipped", "fast"]), Some(vec![(None, true), (Some(Duration::from_nanos(7)), false)]));
+        assert_eq!(restarted.earlier_profile(["fast", "added"]), None);
     }
 
     #[test]
