@@ -67,9 +67,11 @@ enum Record {
     Isolate {
         isolate: Vec<u32>,
     },
-    /// The name, the duration in nanoseconds, and whether it is ignored, of each test of the reference run.
+    /// The name, the duration in nanoseconds, and whether it is ignored, of each test of the reference run,
+    /// and the names of the tests that fail when they run again in one process.
     Profiled {
         profiled: Vec<(String, Option<u64>, bool)>,
+        unrepeatable: Vec<String>,
     },
 }
 
@@ -86,12 +88,15 @@ fn append(mut file: impl Write, line: json::Object) -> io::Result<()> {
     file.flush()
 }
 
+/// The name, the duration in nanoseconds, and whether it is ignored, of each test of the reference run.
+type ProfiledTests = Vec<(String, Option<u64>, bool)>;
+
 #[derive(Default)]
 struct Entries {
     started: BTreeSet<u32>,
     finished: BTreeMap<u32, Finished>,
     isolated: BTreeSet<u32>,
-    profile: Option<Vec<(String, Option<u64>, bool)>>,
+    profile: Option<(ProfiledTests, Vec<String>)>,
 }
 
 impl Entries {
@@ -100,8 +105,8 @@ impl Entries {
             Record::Started { started } => self.started.extend(started),
             Record::Finished { finished, result, tests, timeout_rerun } => return self.finish(finished, Finished { result, tests, timeout_rerun }),
             Record::Isolate { isolate } => self.isolated.extend(isolate),
-            Record::Profiled { profiled } => {
-                self.profile.get_or_insert(profiled);
+            Record::Profiled { profiled, unrepeatable } => {
+                self.profile.get_or_insert((profiled, unrepeatable));
             }
         }
         Ok(())
@@ -316,20 +321,23 @@ impl WorkerJournal {
         self.file.lock().map(|file| file.is_some()).unwrap_or(false)
     }
 
-    /// The duration, and whether it is ignored, of each test in `names`, as the reference run of an earlier worker recorded
-    /// them; `None` if that run did not have one of the tests.
-    pub(crate) fn earlier_profile<'a>(&self, names: impl IntoIterator<Item = &'a str>) -> Option<Vec<(Option<Duration>, bool)>> {
-        let profile = self.earlier.profile.as_ref()?.iter()
-            .map(|(name, nanos, ignored)| (name.as_str(), (nanos.map(Duration::from_nanos), *ignored)))
+    /// The duration, whether it is ignored, and whether it fails when run again, of each test in `names`, as the reference
+    /// run of an earlier worker recorded them; `None` if that run did not have one of the tests.
+    pub(crate) fn earlier_profile<'a>(&self, names: impl IntoIterator<Item = &'a str>) -> Option<Vec<(Option<Duration>, bool, bool)>> {
+        let (tests, unrepeatable) = self.earlier.profile.as_ref()?;
+        let profile = tests.iter()
+            .map(|(name, nanos, ignored)| (name.as_str(), (nanos.map(Duration::from_nanos), *ignored, unrepeatable.contains(name))))
             .collect::<HashMap<_, _>>();
         names.into_iter().map(|name| profile.get(name).copied()).collect()
     }
 
-    pub(crate) fn profiled<'a>(&self, tests: impl IntoIterator<Item = (&'a str, Option<Duration>, bool)>) {
+    pub(crate) fn profiled<'a>(&self, tests: impl IntoIterator<Item = (&'a str, Option<Duration>, bool, bool)>) {
+        let mut unrepeatable = Vec::new();
         let profiled = tests.into_iter()
-            .map(|(name, exec_time, ignored)| (name, exec_time.map(|exec_time| u64::try_from(exec_time.as_nanos()).unwrap_or(u64::MAX)), ignored))
+            .inspect(|&(name, _, _, fails_again)| if fails_again { unrepeatable.push(name) })
+            .map(|(name, exec_time, ignored, _)| (name, exec_time.map(|exec_time| u64::try_from(exec_time.as_nanos()).unwrap_or(u64::MAX)), ignored))
             .collect::<Vec<_>>();
-        self.append(json::Object::new().field("profiled", &profiled));
+        self.append(json::Object::new().field("profiled", &profiled).field("unrepeatable", &unrepeatable));
     }
 
     pub fn started(&self, mutation_ids: &[u32]) {
@@ -428,13 +436,13 @@ mod tests {
     fn a_restart_reuses_the_profile_of_the_reference_run() {
         let journal = Journal::create().unwrap();
         let worker_journal = WorkerJournal::open(journal.path.clone()).unwrap();
-        worker_journal.profiled([("fast", Some(Duration::from_nanos(7)), false), ("skipped", None, true)]);
+        worker_journal.profiled([("fast", Some(Duration::from_nanos(7)), false, false), ("skipped", None, true, false), ("once", None, false, true)]);
         assert!(journal.unfinished().unwrap().is_empty());
         assert!(journal.is_empty().unwrap());
 
         let restarted = WorkerJournal::open(journal.path.clone()).unwrap();
         assert!(!restarted.resumes());
-        assert_eq!(restarted.earlier_profile(["skipped", "fast"]), Some(vec![(None, true), (Some(Duration::from_nanos(7)), false)]));
+        assert_eq!(restarted.earlier_profile(["skipped", "fast", "once"]), Some(vec![(None, true, false), (Some(Duration::from_nanos(7)), false, false), (None, false, true)]));
         assert_eq!(restarted.earlier_profile(["fast", "added"]), None);
     }
 

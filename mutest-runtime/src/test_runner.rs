@@ -193,6 +193,8 @@ pub struct Test {
     pub desc: test::TestDesc,
     pub test_fn: test::TestFn,
     pub timeout: Option<Duration>,
+    /// The test fails when it runs again in one process, so the harness runs it in a child process for each mutation.
+    pub unrepeatable: bool,
 }
 
 #[derive(Debug)]
@@ -378,7 +380,7 @@ fn run_test(
     no_capture: bool,
 ) -> Option<ThreadHandle> {
     progress::start(id, &test, matches!(&test_run_strategy, TestRunStrategy::InIsolatedChildProcess(_)));
-    let Test { desc, test_fn, timeout } = test;
+    let Test { desc, test_fn, timeout, .. } = test;
 
     let ignore_because_no_process_support = match desc.should_panic {
         test::ShouldPanic::Yes | test::ShouldPanic::YesWithMessage(_) => {
@@ -858,7 +860,7 @@ mod abandon_tests {
                 should_panic: test::ShouldPanic::No, compile_fail: false, no_run: false,
                 test_type: test::TestType::UnitTest,
             },
-            test_fn: test::TestFn::StaticTestFn(test_fn), timeout: None,
+            test_fn: test::TestFn::StaticTestFn(test_fn), timeout: None, unrepeatable: false,
         }
     }
 
@@ -918,7 +920,7 @@ mod tests {
                 should_panic: test::ShouldPanic::No, compile_fail: false, no_run: false,
                 test_type: test::TestType::UnitTest,
             },
-            test_fn: test::TestFn::StaticTestFn(|| Ok(())), timeout,
+            test_fn: test::TestFn::StaticTestFn(|| Ok(())), timeout, unrepeatable: false,
         }
     }
 

@@ -1407,6 +1407,15 @@ mod tests {
         }
 
         #[test]
+        fn test_that_fails_when_run_again_runs_in_a_child_process() {
+            let mut fixture = Fixture::start("evaluate-unrepeatable");
+            fixture.admit_worker();
+            assert_eq!(fixture.wait().code(), Some(2), "{}", fixture.output());
+            assert!(fixture.output().contains("profiling reference test run\ntests that fail when they run again in one process, which each mutation runs in child processes:\n  test abort\n"), "{}", fixture.output());
+            assert!(fixture.root.join("unrepeatable-isolated").exists(), "{}", fixture.output());
+        }
+
+        #[test]
         fn malformed_completion_record_is_incomplete() {
             for scenario in ["completion-partial", "completion-duplicate", "completion-wrong-worker"] {
                 let mut fixture = Fixture::start(scenario);

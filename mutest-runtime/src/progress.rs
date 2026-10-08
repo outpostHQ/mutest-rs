@@ -289,6 +289,7 @@ pub(crate) fn terminal(complete: bool, code: i32) -> io::Result<()> {
     with_writer(|writer| writer.finish(complete, code)).map(drop)
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct Context<'a> {
     pub phase: &'static str,
     pub mutation_ids: &'a dyn Fn(&test::TestDesc) -> Vec<u32>,

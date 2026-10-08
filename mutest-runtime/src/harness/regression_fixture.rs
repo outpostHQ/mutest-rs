@@ -1,5 +1,6 @@
 use std::fs;
 use std::sync::{Barrier, OnceLock};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::*;
 use crate::metadata::{BatchedMutantMeta, EntryPoints};
@@ -160,6 +161,7 @@ fn isolated_abort() -> Result<(), String> {
 }
 
 pub(crate) fn isolated_entry() {
+    if env::var("MUTEST_REGRESSION_SCENARIO").unwrap() == "evaluate-unrepeatable" { mutest_isolated_worker(case("abort", run_once), &SINGLE) }
     match env::var(test_runner::TEST_SUBPROCESS_INVOCATION).unwrap().as_str() {
         "abort" => mutest_isolated_worker(case("abort", aborting), &BATCH),
         "collateral" => mutest_isolated_worker(case("collateral", collateral), &BATCH),
@@ -172,6 +174,13 @@ pub(crate) fn run_fixture_entry_only(cmd: &mut process::Command) {
     if env::var_os("MUTEST_REGRESSION_SCENARIO").is_some() {
         cmd.args(["--exact", "supervisor::tests::regressions::runtime_fixture_entry", "--test-threads=1", "--nocapture"]);
     }
+}
+
+/// Passes only on its first run in a process, like a test that sets a `OnceLock` and unwraps the result.
+fn run_once() -> Result<(), String> {
+    static RAN: AtomicBool = AtomicBool::new(false);
+    if isolated() { mark("unrepeatable-isolated"); }
+    if RAN.swap(true, Ordering::SeqCst) { Err(String::from("ran before in this process")) } else { Ok(()) }
 }
 
 fn isolated() -> bool {
@@ -251,6 +260,7 @@ pub(crate) fn run(scenario: &str) {
     let (tests, meta_mutant): (_, &'static MetaMutant<Map>) = match scenario {
         "collateral" => (vec![case("abort", aborting), case("collateral", collateral)], &BATCH),
         "unsafe-simulate" => (vec![case("isolated", isolated_abort)], &EMPTY),
+        "evaluate-unrepeatable" => (vec![case("abort", run_once)], &SINGLE),
         "evaluate-missed" | "evaluate-slow" | "evaluate-timeout" | "finished-output-failure" | "finished-cancel" => (vec![case("abort", completed_mutation)], &SINGLE),
         _ => (vec![case("reference", reference)], &EMPTY),
     };

@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -30,6 +30,7 @@ mod profiling;
 mod scheduling;
 use scheduling::ScheduledMutant;
 mod timeouts;
+mod unrepeatable;
 pub use timeouts::TimeoutReruns;
 
 mod test {
@@ -131,6 +132,7 @@ fn clone_tests<'a>(tests: impl IntoIterator<Item = &'a test_runner::Test>) -> Ve
                 desc: test.desc.clone(),
                 test_fn: make_owned_test_fn(&test.test_fn),
                 timeout: test.timeout,
+                unrepeatable: test.unrepeatable,
             }
         })
         .collect()
@@ -144,6 +146,7 @@ struct ProfiledTest {
     pub test: test::TestDescAndFn,
     pub result: test_runner::TestResult,
     pub exec_time: Option<Duration>,
+    pub unrepeatable: bool,
 }
 
 fn profile_tests(tests: Vec<test::TestDescAndFn>) -> Result<Vec<ProfiledTest>, Infallible> {
@@ -153,6 +156,7 @@ fn profile_tests(tests: Vec<test::TestDescAndFn>) -> Result<Vec<ProfiledTest>, I
                 desc: test.desc.clone(),
                 test_fn: make_owned_test_fn(&test.testfn),
                 timeout: None,
+                unrepeatable: false,
             }
         })
         .collect::<Vec<_>>();
@@ -171,6 +175,7 @@ fn profile_tests(tests: Vec<test::TestDescAndFn>) -> Result<Vec<ProfiledTest>, I
                     test: test_desc_and_fn,
                     result: test.result,
                     exec_time: test.exec_time,
+                    unrepeatable: false,
                 });
             }
             _ => {}
@@ -356,10 +361,11 @@ fn run_tests(
         });
     }
 
+    let results = RefCell::new(results);
     let total_tests_count = tests.len();
     let mut completed_tests_count = 0;
 
-    let on_test_event = |event, remaining_tests: &mut Vec<(test::TestId, test_runner::Test)>| -> Result<_, Infallible> {
+    let mut on_test_event = |event, remaining_tests: &mut Vec<(test::TestId, test_runner::Test)>| -> Result<_, Infallible> {
         match event {
             test_runner::TestEvent::Wait(test_desc, thread_id) => {
                 if let Some(eval_stream_writer) = &eval_stream_writer {
@@ -389,6 +395,7 @@ fn run_tests(
                     eval_stream_writer.write_test_result(mutation, &test);
                 }
 
+                let mut results = results.borrow_mut();
                 let mutation_results = results.get_mut(&mutation.id).expect("mutation result slot not allocated");
 
                 match test.result {
@@ -439,26 +446,18 @@ fn run_tests(
         Ok(test_runner::Flow::Continue)
     };
 
-    let test_run_strategy = match mutations {
-        [] => { return Default::default(); }
-        _ if !isolated => test_runner::TestRunStrategy::InProcess(thread_pool),
-        // NOTE: The child process of a test activates the substitutions of the whole mutant that holds the mutation.
-        [mutation, ..] => test_runner::TestRunStrategy::InIsolatedChildProcess({
-            let mutation_id = mutation.id;
-            Arc::new(move |cmd| {
-                cmd.env(MUTEST_ISOLATED_WORKER_MUTATION_ID, mutation_id.to_string());
-                #[cfg(all(test, target_os = "linux"))]
-                regression_fixture::run_fixture_entry_only(cmd);
-            })
-        })
-    };
+    let [mutation, ..] = mutations else { return Default::default(); };
+    let context = test_runner::progress::Context { phase: "evaluation", mutation_ids: &|desc| mutations.iter()
+        .filter(|mutation| is_reachable_test(mutation, desc, external_tests_extra)).map(|mutation| mutation.id).collect() };
 
-    let Ok((_, lingering_tests)) = test_runner::run_tests_with_progress(tests, on_test_event, test_run_strategy, false,
-        test_runner::progress::Context { phase: "evaluation", mutation_ids: &|desc| mutations.iter()
-            .filter(|mutation| is_reachable_test(mutation, desc, external_tests_extra)).map(|mutation| mutation.id).collect() },
-        test_concurrency);
+    let (in_process_tests, child_tests) = unrepeatable::split(tests, isolated);
+    let Ok((_, lingering_tests)) = test_runner::run_tests_with_progress(in_process_tests, &mut on_test_event,
+        test_runner::TestRunStrategy::InProcess(thread_pool), false, context, test_concurrency);
+    let child_tests = unrepeatable::not_yet_detected(child_tests, &results.borrow(), exhaustive, mutations, external_tests_extra);
+    let Ok((_, child_lingering_tests)) = test_runner::run_tests_with_progress(child_tests, &mut on_test_event,
+        unrepeatable::in_child_processes(mutation.id), false, context, test_concurrency);
 
-    let lingering_tests = lingering_tests.into_iter()
+    let lingering_tests = lingering_tests.into_iter().chain(child_lingering_tests)
         .map(|test| {
             let mutation = match mutant {
                 Mutant::Mutation(mutant) => mutant.mutation,
@@ -492,7 +491,7 @@ fn run_tests(
     );
     println!();
 
-    (results, lingering_tests)
+    (results.into_inner(), lingering_tests)
 }
 
 #[derive(Clone, Copy, Default)]
@@ -976,7 +975,7 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
     };
 
     let t_test_profiling_start = Instant::now();
-    let mut profiled_tests = profiling::reference_run(tests, journal::worker());
+    let mut profiled_tests = profiling::reference_run(tests, journal::worker(), opts.mutation_isolation);
     let test_profiling_duration = t_test_profiling_start.elapsed();
 
     sort_profiled_tests_by_exec_time(&mut profiled_tests);
@@ -1000,8 +999,7 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
         .map(|profiled_test| {
             let test::TestDescAndFn { desc, testfn: test_fn } = profiled_test.test;
 
-            let auto_test_timeout = profiled_test.exec_time
-                .map(|d| d + Ord::max(d.mul_f32(0.1), Duration::from_secs(1)));
+            let auto_test_timeout = profiled_test.exec_time.map(profiling::auto_test_timeout);
 
             let timeout = match opts.test_timeout {
                 config::TestTimeout::None => None,
@@ -1017,7 +1015,7 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
                 }
             };
 
-            test_runner::Test { desc, test_fn, timeout }
+            test_runner::Test { desc, test_fn, timeout, unrepeatable: profiled_test.unrepeatable }
         })
         .collect::<Vec<_>>();
 
@@ -1209,6 +1207,7 @@ fn mutest_simulate_main<S: SubstMap>(args: &[&str], tests: Vec<test::TestDescAnd
                 desc: test.desc.clone(),
                 test_fn: make_owned_test_fn(&test.testfn),
                 timeout: None,
+                unrepeatable: false,
             }
         })
         .collect::<Vec<_>>();
