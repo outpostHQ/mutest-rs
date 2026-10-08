@@ -101,6 +101,10 @@ pub fn bake_mutation<'tcx, 'ent>(sp: Span, tcx: TyCtxt<'tcx>, entry_points: Entr
             }
         }),
 
+        ast::mk::expr_struct_field(sp, Ident::new(sym::reached_by_truncated_entry_point, sp), {
+            ast::mk::expr_bool(sp, mutation.target.reached_by_truncated_entry_point)
+        }),
+
         ast::mk::expr_struct_field(sp, Ident::new(sym::undetected_diagnostic, sp), {
             ast::mk::expr_str(sp, &mutation.undetected_diagnostic(tcx.sess))
         }),
@@ -291,7 +295,7 @@ pub fn bake_mutation_conflicts(sp: Span, mutation_conflict_graph: &MutationConfl
     let words_per_row = n.div_ceil(WORD_BITS);
 
     let mut words = vec![0_u64; n * words_per_row];
-    for (a, b) in mutation_conflict_graph.iter_conflicts_excluding_unsafe() {
+    for (a, b) in mutation_conflict_graph.iter_in_process_conflicts() {
         let a = a.index() as usize;
         let b = b.index() as usize;
 

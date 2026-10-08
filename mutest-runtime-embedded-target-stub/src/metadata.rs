@@ -111,6 +111,8 @@ pub struct MutationMeta {
     pub display_name: &'static str,
     pub display_location: &'static str,
     pub reachable_from: EntryPoints,
+    /// Whether a test that reaches the mutation may also reach any other mutation past call graph limits.
+    pub reached_by_truncated_entry_point: bool,
     pub undetected_diagnostic: &'static str,
 }
 

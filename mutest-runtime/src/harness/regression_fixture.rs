@@ -9,12 +9,12 @@ static ACTIVE: ActiveMutantHandle<Map> = ActiveMutantHandle::empty();
 static ABORT: MutationMeta = MutationMeta {
     id: 1, safety: MutationSafety::Safe, op_name: "fixture", display_name: "abort",
     display_location: "fixture:1", undetected_diagnostic: "abort survived",
-    reachable_from: EntryPoints::InternalTests(phf::phf_map! { "abort" => 0usize }),
+    reachable_from: EntryPoints::InternalTests(phf::phf_map! { "abort" => 0usize }), reached_by_truncated_entry_point: false,
 };
 static COLLATERAL: MutationMeta = MutationMeta {
     id: 2, safety: MutationSafety::Safe, op_name: "fixture", display_name: "collateral",
     display_location: "fixture:2", undetected_diagnostic: "collateral survived",
-    reachable_from: EntryPoints::InternalTests(phf::phf_map! { "collateral" => 0usize }),
+    reachable_from: EntryPoints::InternalTests(phf::phf_map! { "collateral" => 0usize }), reached_by_truncated_entry_point: false,
 };
 static SOLO: StandaloneMutantMeta = StandaloneMutantMeta {
     mutation: &ABORT, substitutions: &[(0, SubstMeta { mutation: &ABORT })],
@@ -41,7 +41,7 @@ static SINGLE: MetaMutant<Map> = MetaMutant {
 static UNSAFE: MutationMeta = MutationMeta {
     id: 1, safety: MutationSafety::Unsafe, op_name: "fixture", display_name: "isolated abort",
     display_location: "fixture:1", undetected_diagnostic: "abort survived",
-    reachable_from: EntryPoints::InternalTests(phf::phf_map! { "isolated" => 0usize }),
+    reachable_from: EntryPoints::InternalTests(phf::phf_map! { "isolated" => 0usize }), reached_by_truncated_entry_point: false,
 };
 static UNSAFE_SOLO: StandaloneMutantMeta = StandaloneMutantMeta {
     mutation: &UNSAFE, substitutions: &[(0, SubstMeta { mutation: &UNSAFE })],

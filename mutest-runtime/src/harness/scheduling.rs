@@ -12,8 +12,10 @@ pub(super) struct ScheduledMutant {
 }
 
 impl ScheduledMutant {
+    /// A test that reaches the mutation past call graph limits may reach any other mutant of the process, so it runs isolated.
     pub(super) fn new(mutant: &'static StandaloneMutantMeta, journal: Option<&WorkerJournal>, isolation: MutationIsolation) -> Self {
-        Self { mutant, isolated: journal::isolates(journal, isolation, &[mutant.mutation]) }
+        let isolated = mutant.mutation.reached_by_truncated_entry_point || journal::isolates(journal, isolation, &[mutant.mutation]);
+        Self { mutant, isolated }
     }
 }
 
@@ -39,17 +41,19 @@ mod tests {
     use crate::StaticBitMatrix;
     use crate::metadata::{EntryPoints, MutationMeta, MutationSafety, SubstMeta};
 
-    macro fixture($name:ident, $mutant:ident, $id:literal, $safety:ident) {
+    macro fixture($name:ident, $mutant:ident, $id:literal, $safety:ident, $truncated:literal) {
         static $name: MutationMeta = MutationMeta {
             id: $id, safety: MutationSafety::$safety, op_name: "fixture", display_name: stringify!($name), display_location: "fixture",
-            reachable_from: EntryPoints::InternalTests(phf::phf_map! { "shared" => 0usize }), undetected_diagnostic: "survived",
+            reachable_from: EntryPoints::InternalTests(phf::phf_map! { "shared" => 0usize }), reached_by_truncated_entry_point: $truncated,
+            undetected_diagnostic: "survived",
         };
         static $mutant: StandaloneMutantMeta = StandaloneMutantMeta { mutation: &$name, substitutions: &[($id - 1, SubstMeta { mutation: &$name })] };
     }
-    fixture!(SAFE, SAFE_MUTANT, 1, Safe);
-    fixture!(UNSAFE, UNSAFE_MUTANT, 2, Unsafe);
+    fixture!(SAFE, SAFE_MUTANT, 1, Safe, false);
+    fixture!(UNSAFE, UNSAFE_MUTANT, 2, Unsafe, false);
+    fixture!(TRUNCATED, TRUNCATED_MUTANT, 3, Safe, true);
     // Every pair shares the test "shared", so every pair conflicts.
-    static CONFLICT_MATRIX: StaticBitMatrix<3> = StaticBitMatrix::from_symmetric_pairs(&[(1, 2)]);
+    static CONFLICT_MATRIX: StaticBitMatrix<4> = StaticBitMatrix::from_symmetric_pairs(&[(1, 2), (1, 3), (2, 3)]);
     static CONFLICTS: MutationConflictsMeta = MutationConflictsMeta::from_static(&CONFLICT_MATRIX);
 
     fn schedule(mutant: &'static StandaloneMutantMeta) -> ScheduledMutant {
@@ -68,8 +72,15 @@ mod tests {
 
     #[test]
     fn process_activates_substitutions_of_its_own_mutants_only() {
-        let substitutions = in_process_substitutions::<[Option<SubstMeta>; 2]>([schedule(&SAFE_MUTANT), schedule(&UNSAFE_MUTANT)]);
+        let substitutions = in_process_substitutions::<[Option<SubstMeta>; 3]>([schedule(&SAFE_MUTANT), schedule(&UNSAFE_MUTANT)]);
         assert!(substitutions.subst_at(0).is_some_and(|subst| subst.mutation.id == 1));
         assert!(substitutions.subst_at(1).is_none());
+    }
+
+    #[test]
+    fn mutation_reached_past_call_graph_limits_runs_isolated() {
+        let (safe, truncated) = (schedule(&SAFE_MUTANT), schedule(&TRUNCATED_MUTANT));
+        assert!(truncated.isolated);
+        assert!(runs_alongside(safe, [truncated], &CONFLICTS));
     }
 }

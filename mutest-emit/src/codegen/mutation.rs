@@ -769,6 +769,9 @@ pub fn conflicting_targets(a: &Target, b: &Target) -> bool {
 pub struct MutationConflictGraph<'m> {
     n_mutations: u32,
     unsafes: FxHashSet<MutId>,
+    /// Mutations that conflict with every other: unsafe ones, and those that truncated entry points reach.
+    isolated: FxHashSet<MutId>,
+    /// Conflicts between the other mutations, whose tests may run in one process.
     conflicts: FxHashSet<(MutId, MutId)>,
     phantom: PhantomData<&'m MutId>,
 }
@@ -783,6 +786,14 @@ impl<'m> MutationConflictGraph<'m> {
     }
 
     pub fn conflicting_mutations(&self, a: MutId, b: MutId) -> bool {
+        self.isolates_either(a, b) || self.conflicts_in_process(a, b)
+    }
+
+    fn isolates_either(&self, a: MutId, b: MutId) -> bool {
+        self.isolated.contains(&a) || self.isolated.contains(&b)
+    }
+
+    fn conflicts_in_process(&self, a: MutId, b: MutId) -> bool {
         self.conflicts.contains(&(a, b)) || self.conflicts.contains(&(b, a))
     }
 
@@ -790,66 +801,40 @@ impl<'m> MutationConflictGraph<'m> {
         !self.conflicting_mutations(a, b)
     }
 
+    fn iter_pairs(&self) -> impl Iterator<Item = (MutId, MutId)> + use<> {
+        let n = self.n_mutations;
+        (1..=n).flat_map(move |i| (i + 1..=n).map(move |j| (MutId(i), MutId(j))))
+    }
+
     pub fn iter_conflicts(&self) -> impl Iterator<Item = (MutId, MutId)> + '_ {
-        self.conflicts.iter().map(|&(a, b)| (a, b))
+        self.iter_pairs().filter(|&(a, b)| self.conflicting_mutations(a, b))
     }
 
     pub fn iter_conflicts_excluding_unsafe(&self) -> impl Iterator<Item = (MutId, MutId)> + '_{
         self.iter_conflicts().filter(|&(a, b)| !self.is_unsafe(a) && !self.is_unsafe(b))
     }
 
-    pub fn iter_compatibilities(&self) -> MutationConflictGraphCompatibilityIter<'m, '_> {
-        MutationConflictGraphCompatibilityIter::new(self)
+    /// The conflicts between mutations whose tests run in one process, alongside each other.
+    pub fn iter_in_process_conflicts(&self) -> impl Iterator<Item = (MutId, MutId)> + '_ {
+        self.conflicts.iter().copied()
     }
-}
 
-pub struct MutationConflictGraphCompatibilityIter<'m, 'op> {
-    graph: &'op MutationConflictGraph<'m>,
-    cursor: (u32, u32),
-}
-
-impl<'m, 'op> MutationConflictGraphCompatibilityIter<'m, 'op> {
-    fn new(graph: &'op MutationConflictGraph<'m>) -> Self {
-        Self { graph, cursor: (1, 2) }
-    }
-}
-
-impl<'m, 'op> Iterator for MutationConflictGraphCompatibilityIter<'m, 'op> {
-    type Item = (MutId, MutId);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        while let (i, _) = self.cursor && i <= self.graph.n_mutations {
-            while let (_, j) = self.cursor && j <= self.graph.n_mutations {
-                self.cursor.1 += 1;
-
-                if self.graph.compatible_mutations(MutId(i), MutId(j)) {
-                    return Some((MutId(i), MutId(j)));
-                }
-            }
-
-            self.cursor.0 += 1;
-            self.cursor.1 = self.cursor.0 + 1;
-        }
-
-        None
+    pub fn iter_compatibilities(&self) -> impl Iterator<Item = (MutId, MutId)> + '_ {
+        self.iter_pairs().filter(|&(a, b)| self.compatible_mutations(a, b))
     }
 }
 
 pub fn generate_mutation_conflict_graph<'trg, 'm>(mutations: &[Mut<'trg, 'm>], unsafe_targeting: UnsafeTargeting) -> MutationConflictGraph<'m> {
-    let mut unsafes: FxHashSet<MutId> = Default::default();
+    let unsafes = mutations.iter().filter(|m| m.is_unsafe(unsafe_targeting)).map(|m| m.id).collect::<FxHashSet<_>>();
+    // Unsafe mutations cannot be batched with any other mutation, nor can those that tests may reach past call graph limits.
+    let isolated = mutations.iter().filter(|m| unsafes.contains(&m.id) || m.target.reached_by_truncated_entry_point).map(|m| m.id).collect::<FxHashSet<_>>();
     let mut conflicts: FxHashSet<(MutId, MutId)> = Default::default();
 
-    let mut iterator = mutations.iter();
+    let in_process = mutations.iter().filter(|m| !isolated.contains(&m.id)).collect::<Vec<_>>();
+    let mut iterator = in_process.iter();
     while let Some(mutation) = iterator.next() {
-        if mutation.is_unsafe(unsafe_targeting) {
-            unsafes.insert(mutation.id);
-        }
-
         for other in iterator.clone() {
             let is_conflicting = false
-                // Unsafe mutations cannot be batched with any other mutation.
-                || mutation.is_unsafe(unsafe_targeting)
-                || other.is_unsafe(unsafe_targeting)
                 // To discern results related to the various concurrent mutations, they have to have distinct entry points.
                 || conflicting_targets(&mutation.target, &other.target)
                 // The substitutions that make up each mutation cannot conflict with each other.
@@ -863,7 +848,7 @@ pub fn generate_mutation_conflict_graph<'trg, 'm>(mutations: &[Mut<'trg, 'm>], u
 
     let n_mutations = mutations.iter().map(|m| m.id.index()).max().unwrap_or(0);
 
-    MutationConflictGraph { n_mutations, unsafes, conflicts, phantom: PhantomData }
+    MutationConflictGraph { n_mutations, unsafes, isolated, conflicts, phantom: PhantomData }
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
