@@ -61,7 +61,12 @@ pub type SubstLocIdx = usize;
 pub type Substs = &'static [(SubstLocIdx, SubstMeta)];
 
 pub trait SubstMap: Sized + Clone {
-    fn empty() -> Self;
+    /// The map of no mutant, which a substitution point reads with one load while no mutant is active.
+    const EMPTY: Self;
+
+    fn empty() -> Self {
+        Self::EMPTY
+    }
 
     fn overlay(&mut self, substs: Substs);
 
@@ -80,9 +85,7 @@ pub trait SubstMap: Sized + Clone {
 }
 
 impl<const N: usize> SubstMap for [Option<SubstMeta>; N] {
-    fn empty() -> Self {
-        [None; N]
-    }
+    const EMPTY: Self = [None; N];
 
     fn overlay(&mut self, substs: Substs) {
         for &(subst_loc_idx, subst) in substs {

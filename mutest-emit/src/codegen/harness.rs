@@ -9,7 +9,8 @@ use crate::analysis::call_graph::{EntryPoints, TargetReachability, Unsafety};
 use crate::analysis::hir;
 use crate::codegen::ast;
 use crate::codegen::expansion::TcxExpansionExt;
-use crate::codegen::mutation::{Mut, MutationBatch, MutationConflictGraph, MutationParallelism, SubstLoc, UnsafeTargeting};
+use crate::codegen::mutation::{Mut, MutationBatch, MutationConflictGraph, MutationParallelism, UnsafeTargeting};
+use crate::codegen::substitution::SubstSlot;
 use crate::codegen::symbols::{DUMMY_SP, Ident, Span, Symbol, kw, path, sym};
 use crate::codegen::symbols::hygiene::AstPass;
 
@@ -148,34 +149,46 @@ pub enum Mutant<'trg, 'm> {
     Batch(&'m MutationBatch<'trg, 'm>),
 }
 
-pub fn bake_mutant<'trg, 'm>(sp: Span, mutant: Mutant<'trg, 'm>, subst_locs: &[SubstLoc]) -> Box<ast::Expr> {
+/// The mutation of the mutant that sets each slot of its substitution map, if any.
+fn slot_mutations<'a, 'trg, 'm>(mutations: &'a [&'m Mut<'trg, 'm>], subst_slots: &[SubstSlot]) -> Vec<Option<&'a &'m Mut<'trg, 'm>>> {
+    let mut slot_mutations: Vec<Option<&&Mut>> = Vec::with_capacity(subst_slots.len());
+    for subst_slot in subst_slots {
+        let mutation = match subst_slot {
+            SubstSlot::Loc(subst_loc) => mutations.iter().find(|m| m.substs.iter().any(|s| s.location == *subst_loc)),
+            SubstSlot::Guard(first_slot) => slot_mutations[*first_slot..].iter().flatten().next().copied(),
+        };
+        slot_mutations.push(mutation);
+    }
+    slot_mutations
+}
+
+/// `SubstMeta { mutation: &crate::mutest_generated::mutations::$mut_id }`
+fn mk_subst_meta_expr(sp: Span, mutation: &Mut) -> Box<ast::Expr> {
+    ast::mk::expr_struct(sp, ast::mk::path_local(path::SubstMeta(sp)), thin_vec![
+        ast::mk::expr_struct_field(sp, Ident::new(sym::mutation, sp), {
+            // &mutations::$mut_id
+            ast::mk::expr_ref(sp, ast::mk::expr_path(ast::mk::pathx(sp,
+                path::mutations(sp),
+                vec![Ident::new(mutation.id.into_symbol(), sp)],
+            )))
+        }),
+    ])
+}
+
+pub fn bake_mutant<'trg, 'm>(sp: Span, mutant: Mutant<'trg, 'm>, subst_slots: &[SubstSlot]) -> Box<ast::Expr> {
     let mutations = match mutant {
         Mutant::Mutation(mutation) => &[mutation],
         Mutant::Batch(mutation_batch) => &mutation_batch.mutations[..],
     };
 
     let subst_map_expr = {
-        let subst_map_entries = subst_locs.iter().enumerate()
-            .filter_map(|(subst_loc_idx, subst_loc)| {
-                let mutation = mutations.iter().find(|m| m.substs.iter().any(|s| s.location == *subst_loc))?;
-                Some((subst_loc_idx, subst_loc, mutation))
-            })
-            .map(|(subst_loc_idx, _subst_loc, mutation)| {
+        let subst_map_entries = slot_mutations(mutations, subst_slots).into_iter().enumerate()
+            .filter_map(|(subst_loc_idx, mutation)| Some((subst_loc_idx, mutation?)))
+            .map(|(subst_loc_idx, mutation)| {
                 let subst_loc_idx_expr = ast::mk::expr_lit(sp, ast::token::LitKind::Integer, Symbol::intern(&subst_loc_idx.to_string()), None);
 
-                // SubstMeta { mutation: &crate::mutest_generated::mutations::$mut_id }
-                let subst_meta_struct_expr = ast::mk::expr_struct(sp, ast::mk::path_local(path::SubstMeta(sp)), thin_vec![
-                    ast::mk::expr_struct_field(sp, Ident::new(sym::mutation, sp), {
-                        // &mutations::$mut_id
-                        ast::mk::expr_ref(sp, ast::mk::expr_path(ast::mk::pathx(sp,
-                            path::mutations(sp),
-                            vec![Ident::new(mutation.id.into_symbol(), sp)],
-                        )))
-                    }),
-                ]);
-
                 // ($subst_loc_idx, SubstMeta { mutation: &crate::mutest_generated::mutations::$mut_id })
-                ast::mk::expr_tuple(sp, thin_vec![subst_loc_idx_expr, subst_meta_struct_expr])
+                ast::mk::expr_tuple(sp, thin_vec![subst_loc_idx_expr, mk_subst_meta_expr(sp, mutation)])
             })
             .collect::<ThinVec<_>>();
 
@@ -220,14 +233,14 @@ pub fn bake_mutant<'trg, 'm>(sp: Span, mutant: Mutant<'trg, 'm>, subst_locs: &[S
     }
 }
 
-fn mk_mutants_slice_const<'trg, 'm>(sp: Span, mutations: &'m [Mut<'trg, 'm>], mutation_parallelism: Option<MutationParallelism<'trg, 'm>>, subst_locs: &[SubstLoc]) -> Box<ast::Item> {
+fn mk_mutants_slice_const<'trg, 'm>(sp: Span, mutations: &'m [Mut<'trg, 'm>], mutation_parallelism: Option<MutationParallelism<'trg, 'm>>, subst_slots: &[SubstSlot]) -> Box<ast::Item> {
     let (mutant_meta_ty, mutants) = match mutation_parallelism {
         None | Some(MutationParallelism::DynamicallyScheduled(_)) => {
             // mutest_runtime::StandaloneMutantMeta
             let mutant_meta_ty = ast::mk::ty_path(None, ast::mk::path_local(path::StandaloneMutantMeta(sp)));
 
             let mutants = mutations.iter()
-                .map(|mutation| bake_mutant(sp, Mutant::Mutation(mutation), subst_locs))
+                .map(|mutation| bake_mutant(sp, Mutant::Mutation(mutation), subst_slots))
                 .collect::<ThinVec<_>>();
 
             (mutant_meta_ty, mutants)
@@ -238,7 +251,7 @@ fn mk_mutants_slice_const<'trg, 'm>(sp: Span, mutations: &'m [Mut<'trg, 'm>], mu
             let mutant_meta_ty = ast::mk::ty_path(None, ast::mk::path_local(path::BatchedMutantMeta(sp)));
 
             let mutants = mutation_batches.iter()
-                .map(|mutation_batch| bake_mutant(sp, Mutant::Batch(mutation_batch), subst_locs))
+                .map(|mutation_batch| bake_mutant(sp, Mutant::Batch(mutation_batch), subst_slots))
                 .collect::<ThinVec<_>>();
 
             (mutant_meta_ty, mutants)
@@ -253,14 +266,14 @@ fn mk_mutants_slice_const<'trg, 'm>(sp: Span, mutations: &'m [Mut<'trg, 'm>], mu
     ast::mk::item_const(sp, vis, ident, ty, expr)
 }
 
-fn mk_subst_map_ty_alias(sp: Span, subst_locs: &[SubstLoc]) -> Box<ast::Item> {
+fn mk_subst_map_ty_alias(sp: Span, subst_slots: &[SubstSlot]) -> Box<ast::Item> {
     let option_subst_meta_ty = ast::mk::ty_path(None, ast::mk::pathx_args(sp, path::Option(sp), vec![], vec![
         ast::GenericArg::Type(ast::mk::ty_path(None, ast::mk::path_local(path::SubstMeta(sp)))),
     ]));
 
-    let subst_locs_count_anon_const = ast::mk::anon_const(sp, ast::mk::expr_lit(sp, ast::token::LitKind::Integer, Symbol::intern(&subst_locs.len().to_string()), None).kind);
+    let subst_slots_count_anon_const = ast::mk::anon_const(sp, ast::mk::expr_lit(sp, ast::token::LitKind::Integer, Symbol::intern(&subst_slots.len().to_string()), None).kind);
 
-    // pub type SubstMap = [Option<mutest_runtime::SubstMeta>; $subst_locs_count];
+    // pub type SubstMap = [Option<mutest_runtime::SubstMeta>; $subst_slots_count];
     let vis = ast::mk::vis_pub(sp);
     let ident = Ident::new(sym::SubstMap, sp);
     ast::mk::item(sp, thin_vec![], vis, ast::ItemKind::TyAlias(Box::new(ast::TyAlias {
@@ -269,13 +282,23 @@ fn mk_subst_map_ty_alias(sp: Span, subst_locs: &[SubstLoc]) -> Box<ast::Item> {
         generics: Default::default(),
         after_where_clause: Default::default(),
         bounds: thin_vec![],
-        // [Option<mutest_runtime::SubstMeta>; $subst_locs_count]
-        ty: Some(ast::mk::ty_array(sp, option_subst_meta_ty, subst_locs_count_anon_const)),
+        // [Option<mutest_runtime::SubstMeta>; $subst_slots_count]
+        ty: Some(ast::mk::ty_array(sp, option_subst_meta_ty, subst_slots_count_anon_const)),
     })))
 }
 
-fn mk_active_mutant_handle_static(sp: Span) -> Box<ast::Item> {
-    // pub(crate) static ACTIVE_MUTANT_HANDLE: ActiveMutantHandle<Mutant> = ActiveMutantHandle::empty();
+/// The handle starts with the guard of each body with mutations set, and no substitution location: with no
+/// mutation active, such a body runs the code that holds its mutations, as the tests of a mutation make it.
+fn mk_active_mutant_handle_static<'trg, 'm>(sp: Span, mutations: &'m [Mut<'trg, 'm>], subst_slots: &[SubstSlot]) -> Box<ast::Item> {
+    let mutations = mutations.iter().collect::<Vec<_>>();
+    let subst_map_elements = iter::zip(subst_slots, slot_mutations(&mutations, subst_slots))
+        .map(|(subst_slot, mutation)| match (subst_slot, mutation) {
+            (SubstSlot::Guard(_), Some(mutation)) => ast::mk::expr_call_path(sp, path::Some(sp), thin_vec![mk_subst_meta_expr(sp, mutation)]),
+            _ => ast::mk::expr_path(path::None(sp)),
+        })
+        .collect::<ThinVec<_>>();
+
+    // pub(crate) static ACTIVE_MUTANT_HANDLE: ActiveMutantHandle<SubstMap> = ActiveMutantHandle::with([None, Some(SubstMeta { .. }), ..]);
     let vis = ast::mk::vis_pub_crate(sp);
     let mutbl = ast::Mutability::Not;
     let ident = Ident::new(sym::ACTIVE_MUTANT_HANDLE, sp);
@@ -284,7 +307,7 @@ fn mk_active_mutant_handle_static(sp: Span) -> Box<ast::Item> {
         vec![],
         vec![ast::GenericArg::Type(ast::mk::ty_path(None, ast::mk::path_local(path::SubstMap(sp))))],
     ));
-    let expr = ast::mk::expr_call(sp, ast::mk::expr_path(ast::mk::path_local(path::active_mutant_handle_init_empty(sp))), ThinVec::new());
+    let expr = ast::mk::expr_call(sp, ast::mk::expr_path(ast::mk::path_local(path::active_mutant_handle_init_with(sp))), thin_vec![ast::mk::expr_array(sp, subst_map_elements)]);
     ast::mk::item_static(sp, vis, mutbl, ident, ty, expr)
 }
 
@@ -524,7 +547,7 @@ fn mk_harness_fn(sp: Span, embedded: bool, external_meta_mutant: Option<Symbol>)
 pub enum MetaMutant<'trg, 'm> {
     Internal {
         mutations: &'m [Mut<'trg, 'm>],
-        subst_locs: &'m [SubstLoc],
+        subst_slots: &'m [SubstSlot],
         mutation_parallelism: Option<MutationParallelism<'trg, 'm>>,
         unsafe_targeting: UnsafeTargeting,
     },
@@ -607,13 +630,13 @@ pub fn generate_harness<'tcx, 'ent, 'trg, 'm>(
 
 
     match meta_mutant {
-        MetaMutant::Internal { mutations, subst_locs, mutation_parallelism, unsafe_targeting } => {
+        MetaMutant::Internal { mutations, subst_slots, mutation_parallelism, unsafe_targeting } => {
             mutest_generated_mod_items.extend([
                 mk_crate_kind_const(def_site, "meta_mutant"),
-                mk_subst_map_ty_alias(def_site, subst_locs),
-                mk_active_mutant_handle_static(def_site),
+                mk_subst_map_ty_alias(def_site, subst_slots),
+                mk_active_mutant_handle_static(def_site, mutations, subst_slots),
                 mk_mutations_mod(def_site, tcx, entry_points, mutations, unsafe_targeting),
-                mk_mutants_slice_const(def_site, mutations, mutation_parallelism, subst_locs),
+                mk_mutants_slice_const(def_site, mutations, mutation_parallelism, subst_slots),
             ]);
 
             if let Some(MutationParallelism::DynamicallyScheduled(mutation_conflict_graph)) = mutation_parallelism {

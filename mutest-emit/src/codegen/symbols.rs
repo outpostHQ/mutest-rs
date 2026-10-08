@@ -133,7 +133,7 @@ pub mod path {
 
         ACTIVE_MUTANT_HANDLE (crate::mutest_generated::ACTIVE_MUTANT_HANDLE),
         ActiveMutantHandle (::mutest_runtime::ActiveMutantHandle),
-        active_mutant_handle_init_empty (::mutest_runtime::ActiveMutantHandle::empty),
+        active_mutant_handle_init_with (::mutest_runtime::ActiveMutantHandle::with),
         BatchedMutantMeta (::mutest_runtime::BatchedMutantMeta),
         CargoTargetKindLib (::mutest_runtime::CargoTargetKind::Lib),
         CargoTargetKindMainBin (::mutest_runtime::CargoTargetKind::MainBin),

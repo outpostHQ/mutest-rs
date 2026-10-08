@@ -1,0 +1,122 @@
+[math_op_add_sub_swap] swap operator `+` for `-` in plain at tests/ui/evaluation/detect_mutations_beside_original_code.rs:16:5: 16:10
+  <-(0)- test_plain
+
+[math_op_add_sub_swap] swap operator `+` for `-` in early_return at tests/ui/evaluation/detect_mutations_beside_original_code.rs:21:41: 21:50
+  <-(0)- test_early_return
+
+[math_op_add_sub_swap] swap operator `+` for `-` in loops at tests/ui/evaluation/detect_mutations_beside_original_code.rs:30:15: 30:26
+  <-(0)- test_loops
+
+[math_op_add_sub_swap] swap operator `+` for `-` in loops at tests/ui/evaluation/detect_mutations_beside_original_code.rs:33:15: 33:26
+  <-(0)- test_loops
+
+[math_op_add_sub_swap] swap operator `+` for `-` in loops at tests/ui/evaluation/detect_mutations_beside_original_code.rs:36:15: 36:22
+  <-(0)- test_loops
+
+[math_op_add_sub_swap] swap operator `+` for `-` in const_block at tests/ui/evaluation/detect_mutations_beside_original_code.rs:43:5: 43:79
+  <-(0)- test_const_block
+
+[math_op_add_sub_swap] swap operator `+` for `-` in Pair::sum at tests/ui/evaluation/detect_mutations_beside_original_code.rs:50:9: 50:24
+  <-(0)- test_method
+
+[math_op_add_sub_swap] swap operator `+` for `-` in Step::next at tests/ui/evaluation/detect_mutations_beside_original_code.rs:58:9: 58:24
+  <-(0)- test_trait_method
+
+[math_op_add_sub_swap] swap operator `+` for `-` in holds_closure at tests/ui/evaluation/detect_mutations_beside_original_code.rs:68:16: 68:24
+  <-(0)- test_holds_closure
+
+[math_op_add_sub_swap] swap operator `+` for `-` in opaque_return at tests/ui/evaluation/detect_mutations_beside_original_code.rs:74:16: 74:24
+  <-(0)- test_opaque_return
+
+[math_op_add_sub_swap] swap operator `+` for `-` in inner_item at tests/ui/evaluation/detect_mutations_beside_original_code.rs:81:5: 81:21
+  <-(0)- test_inner_item
+
+[math_op_add_sub_swap] swap operator `+` for `-` in inner_item::inner at tests/ui/evaluation/detect_mutations_beside_original_code.rs:80:35: 80:44
+  <-(1)- test_inner_item
+
+[math_op_add_sub_swap] swap operator `+` for `-` in coroutine at tests/ui/evaluation/detect_mutations_beside_original_code.rs:85:5: 85:14
+  <-(0)- test_coroutine
+
+[math_op_add_sub_swap] swap operator `+` for `-` in coroutine_block at tests/ui/evaluation/detect_mutations_beside_original_code.rs:89:17: 89:26
+  <-(0)- test_coroutine_block
+
+14 mutations; 14 safe; 0 unsafe (0 tainted)
+
+---
+
+profiling reference test run
+
+applying mutation:
+- [math_op_add_sub_swap] swap operator `+` for `-` at tests/ui/evaluation/detect_mutations_beside_original_code.rs:16:5: 16:10
+
+ran 1 out of 1 test
+
+applying mutation:
+- [math_op_add_sub_swap] swap operator `+` for `-` at tests/ui/evaluation/detect_mutations_beside_original_code.rs:21:41: 21:50
+
+ran 1 out of 1 test
+
+applying mutation:
+- [math_op_add_sub_swap] swap operator `+` for `-` at tests/ui/evaluation/detect_mutations_beside_original_code.rs:30:15: 30:26
+
+ran 1 out of 1 test
+
+applying mutation:
+- [math_op_add_sub_swap] swap operator `+` for `-` at tests/ui/evaluation/detect_mutations_beside_original_code.rs:33:15: 33:26
+
+ran 1 out of 1 test
+
+applying mutation:
+- [math_op_add_sub_swap] swap operator `+` for `-` at tests/ui/evaluation/detect_mutations_beside_original_code.rs:36:15: 36:22
+
+ran 1 out of 1 test
+
+applying mutation:
+- [math_op_add_sub_swap] swap operator `+` for `-` at tests/ui/evaluation/detect_mutations_beside_original_code.rs:43:5: 43:79
+
+ran 1 out of 1 test
+
+applying mutation:
+- [math_op_add_sub_swap] swap operator `+` for `-` at tests/ui/evaluation/detect_mutations_beside_original_code.rs:50:9: 50:24
+
+ran 1 out of 1 test
+
+applying mutation:
+- [math_op_add_sub_swap] swap operator `+` for `-` at tests/ui/evaluation/detect_mutations_beside_original_code.rs:58:9: 58:24
+
+ran 1 out of 1 test
+
+applying mutation:
+- [math_op_add_sub_swap] swap operator `+` for `-` at tests/ui/evaluation/detect_mutations_beside_original_code.rs:68:16: 68:24
+
+ran 1 out of 1 test
+
+applying mutation:
+- [math_op_add_sub_swap] swap operator `+` for `-` at tests/ui/evaluation/detect_mutations_beside_original_code.rs:74:16: 74:24
+
+ran 1 out of 1 test
+
+applying mutation:
+- [math_op_add_sub_swap] swap operator `+` for `-` at tests/ui/evaluation/detect_mutations_beside_original_code.rs:81:5: 81:21
+
+ran 1 out of 1 test
+
+applying mutation:
+- [math_op_add_sub_swap] swap operator `+` for `-` at tests/ui/evaluation/detect_mutations_beside_original_code.rs:80:35: 80:44
+
+ran 1 out of 1 test
+
+applying mutation:
+- [math_op_add_sub_swap] swap operator `+` for `-` at tests/ui/evaluation/detect_mutations_beside_original_code.rs:85:5: 85:14
+
+ran 1 out of 1 test
+
+applying mutation:
+- [math_op_add_sub_swap] swap operator `+` for `-` at tests/ui/evaluation/detect_mutations_beside_original_code.rs:89:17: 89:26
+
+ran 1 out of 1 test
+
+mutations: 100.00%. 14 detected (0 timed out; 0 crashed); 0 undetected; 14 total
+     safe: 100.00%. 14 detected (0 timed out; 0 crashed); 0 undetected; 14 total
+   unsafe: none. 0 detected (0 timed out; 0 crashed); 0 undetected; 0 total
+timeouts confirmed: 0 re-run alone; 0 detected, 0 undetected, 0 crashed, 0 timed out again

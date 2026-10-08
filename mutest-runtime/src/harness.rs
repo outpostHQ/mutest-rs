@@ -55,15 +55,15 @@ mod test {
 /// For example, it is considered valid for a read from the handle to
 /// return substitution metadata from either the new or the possibly stale substitution maps
 /// if the handle is simultaneously modified from another thread.
-pub struct ActiveMutantHandle<S: SubstMap>(Cell<Option<S>>);
+pub struct ActiveMutantHandle<S: SubstMap>(Cell<S>);
 
 impl<S: SubstMap> ActiveMutantHandle<S> {
     pub const fn empty() -> Self {
-        Self(Cell::new(None))
+        Self(Cell::new(S::EMPTY))
     }
 
     pub const fn with(v: S) -> Self {
-        Self(Cell::new(Some(v)))
+        Self(Cell::new(v))
     }
 
     /// Inlined even in unoptimized builds, as every substitution point calls it.
@@ -87,7 +87,7 @@ impl<S: SubstMap> ActiveMutantHandle<S> {
     ///
     /// The caller must ensure that no other thread is reading from the handle.
     pub(crate) unsafe fn replace(&self, v: Option<S>) {
-        self.0.replace(v);
+        self.0.set(v.unwrap_or(S::EMPTY));
     }
 }
 

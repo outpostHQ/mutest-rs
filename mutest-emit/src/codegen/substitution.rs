@@ -5,8 +5,8 @@ use rustc_session::Session;
 
 use crate::codegen::ast;
 use crate::codegen::ast::mut_visit::MutVisitor;
-use crate::codegen::cancellation;
 use crate::codegen::expansion::TcxExpansionExt;
+use crate::codegen::guard;
 use crate::codegen::mutation::{Mut, MutId, Subst, SubstDef, SubstLoc};
 use crate::codegen::symbols::{DUMMY_SP, Ident, Span, Symbol, path, sym};
 use crate::codegen::symbols::hygiene::AstPass;
@@ -34,13 +34,7 @@ fn mk_subst_match_expr(sp: Span, subst_loc_idx: usize, default: Option<Box<ast::
         })
         .collect::<ThinVec<_>>();
 
-    // NOTE: Before we evaluate any substitution arms, we must check if the test thread is active, and
-    //       if not, cancel the test thread from within to ensure that it does not start executing
-    //       the code of other mutations, leading to undefined behavior.
-    //       See `tests/ui/evaluation/cancel_timed_out_test_if_reenters_subst`.
-    // _ if !$test_thread_active_active_expr => $test_thread_cancel_expr,
-    let test_thread_active_guard_expr = ast::mk::expr_not(sp, cancellation::mk_is_test_thread_active_expr(sp));
-    arms.insert(0, ast::mk::arm(sp, ast::mk::pat_wild(sp), Some(test_thread_active_guard_expr), Some(cancellation::mk_test_thread_cancel_expr(sp))));
+    arms.insert(0, guard::mk_cancel_arm(sp));
 
     // _ => $default
     arms.push(ast::mk::arm(sp, ast::mk::pat_wild(sp), None, match default {
@@ -48,15 +42,8 @@ fn mk_subst_match_expr(sp: Span, subst_loc_idx: usize, default: Option<Box<ast::
         None => Some(ast::mk::expr_noop(sp)),
     }));
 
-    // unsafe { crate::mutest_generated::ACTIVE_MUTANT_HANDLE.subst_at_unchecked($subst_loc_idx) }
-    let subst_lookup_expr = ast::mk::expr_block(ast::mk::block_unsafe(sp, ast::UnsafeSource::CompilerGenerated, thin_vec![
-        ast::mk::stmt_expr(ast::mk::expr_method_call_path_ident(sp, path::ACTIVE_MUTANT_HANDLE(sp), Ident::new(sym::subst_at_unchecked, sp), thin_vec![
-            ast::mk::expr_lit(sp, ast::token::LitKind::Integer, Symbol::intern(&subst_loc_idx.to_string()), None),
-        ])),
-    ]));
-
     // match unsafe { crate::mutest_generated::ACTIVE_MUTANT_HANDLE.subst_at_unchecked($subst_loc_idx) } { ... }
-    ast::mk::expr_paren(sp, ast::mk::expr_match(sp, subst_lookup_expr, arms))
+    ast::mk::expr_paren(sp, ast::mk::expr_match(sp, guard::mk_subst_lookup_expr(sp, subst_loc_idx), arms))
 }
 
 /// Extend borrowed temporaries beyond the match arm with `super let`.
@@ -123,14 +110,56 @@ pub fn expand_subst_match_stmt(sp: Span, subst_loc_idx: usize, original: Option<
     stmts
 }
 
+/// What sets a slot of the substitution map of a mutant.
+pub enum SubstSlot {
+    /// A mutation with a substitution at the location.
+    Loc(SubstLoc),
+    /// A mutation that sets a slot from the given one up to this one: the slots of one function body.
+    Guard(usize),
+}
+
 struct SubstWriter<'tcx, 'op> {
     sess: &'tcx Session,
     substitutions: FxHashMap<SubstLoc, Vec<(MutId, &'op Subst)>>,
     def_site: Span,
-    indexed_subst_locs: Vec<SubstLoc>,
+    slots: Vec<SubstSlot>,
+}
+
+impl<'tcx, 'op> SubstWriter<'tcx, 'op> {
+    fn loc_slot(&mut self, subst_loc: SubstLoc) -> usize {
+        self.slots.push(SubstSlot::Loc(subst_loc));
+        self.slots.len() - 1
+    }
+
+    /// `match $lookup { None => $original, _ => $substituted }` with a new slot for the slots from the given one on.
+    fn mk_guarded_body_expr(&mut self, first_slot: usize, mut original: Box<ast::Expr>, substituted: Box<ast::Expr>) -> Box<ast::Expr> {
+        guard::OriginalBody { sp: self.def_site }.visit_expr(&mut original);
+        self.slots.push(SubstSlot::Guard(first_slot));
+        guard::mk_guarded_body_expr(self.def_site, self.slots.len() - 1, original, substituted)
+    }
+
+    fn visit_fn_item(&mut self, ctxt: ast::visit::FnCtxt, vis: &mut ast::Visibility, func: &mut ast::Fn) {
+        let original = guard::original_fn_body(func);
+        let first_slot = self.slots.len();
+        ast::mut_visit::walk_fn(self, ast::mut_visit::FnKind::Fn(ctxt, vis, &mut *func));
+
+        let (Some(original), Some(body)) = (original, &mut func.body) else { return; };
+        if self.slots.len() == first_slot { return; }
+
+        let substituted = ast::mk::expr_block(body.clone());
+        let guarded_body = self.mk_guarded_body_expr(first_slot, ast::mk::expr_block(original), substituted);
+        *body = ast::mk::block(self.def_site, thin_vec![ast::mk::stmt_expr(guarded_body)]);
+    }
 }
 
 impl<'tcx, 'op> ast::mut_visit::MutVisitor for SubstWriter<'tcx, 'op> {
+    fn visit_fn(&mut self, kind: ast::mut_visit::FnKind<'_>, _attrs: &ast::AttrVec, _sp: Span, _id: ast::NodeId) {
+        match kind {
+            ast::mut_visit::FnKind::Fn(ctxt, vis, func) => self.visit_fn_item(ctxt, vis, func),
+            kind => ast::mut_visit::walk_fn(self, kind),
+        }
+    }
+
     fn visit_crate(&mut self, krate: &mut ast::Crate) {
         let g = &self.sess.psess.attr_id_generator;
 
@@ -156,8 +185,7 @@ impl<'tcx, 'op> ast::mut_visit::MutVisitor for SubstWriter<'tcx, 'op> {
 
             let insert_before_loc = SubstLoc::InsertBefore(stmt_id, stmt_span);
             if let Some(insertions_before) = self.substitutions.remove(&insert_before_loc) {
-                let subst_loc_idx = self.indexed_subst_locs.len();
-                self.indexed_subst_locs.push(insert_before_loc);
+                let subst_loc_idx = self.loc_slot(insert_before_loc);
 
                 let replacement_stmts = expand_subst_match_stmt(self.def_site, subst_loc_idx, None, insertions_before);
                 let replacement_stmts_count = replacement_stmts.len();
@@ -169,8 +197,7 @@ impl<'tcx, 'op> ast::mut_visit::MutVisitor for SubstWriter<'tcx, 'op> {
 
             let replacement_loc = SubstLoc::Replace(stmt_id, stmt_span);
             if let Some(replacements) = self.substitutions.remove(&replacement_loc) {
-                let subst_loc_idx = self.indexed_subst_locs.len();
-                self.indexed_subst_locs.push(replacement_loc);
+                let subst_loc_idx = self.loc_slot(replacement_loc);
 
                 let replacement_stmts = expand_subst_match_stmt(self.def_site, subst_loc_idx, None, replacements);
                 let replacement_stmts_count = replacement_stmts.len();
@@ -182,8 +209,7 @@ impl<'tcx, 'op> ast::mut_visit::MutVisitor for SubstWriter<'tcx, 'op> {
 
             let insert_after_loc = SubstLoc::InsertAfter(stmt_id, stmt_span);
             if let Some(insertions_after) = self.substitutions.remove(&insert_after_loc) {
-                let subst_loc_idx = self.indexed_subst_locs.len();
-                self.indexed_subst_locs.push(insert_after_loc);
+                let subst_loc_idx = self.loc_slot(insert_after_loc);
 
                 let replacement_stmts = expand_subst_match_stmt(self.def_site, subst_loc_idx, None, insertions_after);
                 let replacement_stmts_count = replacement_stmts.len();
@@ -221,8 +247,7 @@ impl<'tcx, 'op> ast::mut_visit::MutVisitor for SubstWriter<'tcx, 'op> {
 
         let replacement_loc = SubstLoc::Replace(expr.id, expr.span);
         if let Some(replacements) = self.substitutions.remove(&replacement_loc) {
-            let subst_loc_idx = self.indexed_subst_locs.len();
-            self.indexed_subst_locs.push(replacement_loc);
+            let subst_loc_idx = self.loc_slot(replacement_loc);
 
             *expr = *expand_subst_match_expr(expr.span, subst_loc_idx, Some(Box::new(expr.clone())), replacements);
         }
@@ -233,7 +258,7 @@ impl<'tcx, 'op> ast::mut_visit::MutVisitor for SubstWriter<'tcx, 'op> {
     }
 }
 
-pub fn write_substitutions<'tcx>(tcx: TyCtxt<'tcx>, mutations: &[Mut], krate: &mut ast::Crate) -> Vec<SubstLoc> {
+pub fn write_substitutions<'tcx>(tcx: TyCtxt<'tcx>, mutations: &[Mut], krate: &mut ast::Crate) -> Vec<SubstSlot> {
     let mut substitutions: FxHashMap<SubstLoc, Vec<(MutId, &Subst)>> = Default::default();
     for mutation in mutations {
         for subst in &mutation.substs {
@@ -259,11 +284,11 @@ pub fn write_substitutions<'tcx>(tcx: TyCtxt<'tcx>, mutations: &[Mut], krate: &m
         sess: tcx.sess,
         substitutions,
         def_site,
-        indexed_subst_locs: Vec::with_capacity(n_subst_locs),
+        slots: Vec::with_capacity(n_subst_locs),
     };
     subst_writer.visit_crate(krate);
 
-    subst_writer.indexed_subst_locs
+    subst_writer.slots
 }
 
 struct SyntaxAmbiguityResolver<'tcx> {

@@ -717,11 +717,11 @@ pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
 
             let t_codegen_start = Instant::now();
 
-            let subst_locs = mutest_emit::codegen::substitution::write_substitutions(tcx, &mutations, &mut generated_crate_ast);
+            let subst_slots = mutest_emit::codegen::substitution::write_substitutions(tcx, &mutations, &mut generated_crate_ast);
 
             let meta_mutant = MetaMutant::Internal {
                 mutations: &mutations,
-                subst_locs: &subst_locs,
+                subst_slots: &subst_slots,
                 mutation_parallelism,
                 unsafe_targeting: opts.unsafe_targeting,
             };

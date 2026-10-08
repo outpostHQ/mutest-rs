@@ -267,9 +267,8 @@ fn any_test_thread_abandoned() -> bool {
 /// The substitution of the active mutant at the location, or none for a test the run gave up, which an unwinding
 /// abandoned test reaches past `is_test_thread_active`.
 #[inline(always)]
-pub(crate) fn active_subst<S: SubstMap>(subst_map: &Option<S>, subst_loc_idx: SubstLocIdx) -> Option<SubstMeta> {
-    let subst = match subst_map { Some(subst_map) => subst_map.subst_at(subst_loc_idx), None => None };
-    match subst {
+pub(crate) fn active_subst<S: SubstMap>(subst_map: &S, subst_loc_idx: SubstLocIdx) -> Option<SubstMeta> {
+    match subst_map.subst_at(subst_loc_idx) {
         Some(_) if any_test_thread_abandoned() && test_thread_abandoned() => None,
         subst => subst,
     }
