@@ -184,6 +184,7 @@ pub mod print {
         TESTS = "tests"; ["Print list of test cases."]
         CALL_GRAPH = "call-graph"; ["Print call graph of test cases."]
         TARGETS = "targets"; ["Print list of functions targeted for mutation at the specified depth."]
+        UNREACHED = "unreached"; ["Print list of mutable functions not targeted for mutation at the specified depth."]
         MUTATIONS = "mutations"; ["Print list of generated mutations, optionally grouped into mutation batches."]
         CONFLICT_GRAPH = "conflict-graph"; ["Print mutation conflict graph."]
         COMPATIBILITY_GRAPH = "compatibility-graph"; ["Print mutation compatibility graph (i.e., the complement graph of the conflict graph)."]

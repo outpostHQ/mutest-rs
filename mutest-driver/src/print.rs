@@ -116,6 +116,33 @@ pub fn print_targets<'tcx, 'trg>(tcx: TyCtxt<'tcx>, crate_kind: &config::CrateKi
     );
 }
 
+pub fn print_unreached_fns(tcx: TyCtxt<'_>, unreached_fns: &[(DefId, Option<usize>)]) {
+    // Functions are printed in source span order.
+    let mut fns_in_print_order = unreached_fns.iter()
+        .map(|&(def_id, distance)| (tcx.def_span(def_id), def_id, distance))
+        .collect::<Vec<_>>();
+    fns_in_print_order.sort_unstable_by(|(span_a, ..), (span_b, ..)| span_diagnostic_ord(*span_a, *span_b));
+
+    let mut too_distant_fns_count = 0;
+
+    for (span, def_id, distance) in fns_in_print_order {
+        let reachability = match distance {
+            Some(distance) => {
+                too_distant_fns_count += 1;
+                format!("tests -({distance})->")
+            }
+            None => "no tests".to_owned(),
+        };
+        println!("{reachability} {def_path} at {span:#?}", def_path = tcx.def_path_str(def_id));
+    }
+
+    println!("unreached: {total} total; {unreached} not reached; {too_distant} beyond mutation depth",
+        total = unreached_fns.len(),
+        unreached = unreached_fns.len() - too_distant_fns_count,
+        too_distant = too_distant_fns_count,
+    );
+}
+
 fn matches_entry_point_filters(entry_point_path_str: &str, entry_point_filters: &[String]) -> bool {
     entry_point_filters.is_empty() || entry_point_filters.iter().any(|entry_point_filter| entry_point_path_str.contains(entry_point_filter))
 }

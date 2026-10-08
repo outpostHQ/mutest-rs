@@ -182,6 +182,7 @@ impl Fixture {
                     tests: None,
                     call_graph: None,
                     mutation_targets: None,
+                    unreached_fns: None,
                     mutations: None,
                     conflict_graph: None,
                     code: None,

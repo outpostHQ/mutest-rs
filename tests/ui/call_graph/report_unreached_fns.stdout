@@ -1,0 +1,16 @@
+
+@@@ targets @@@
+
+tests -(1)-> at_depth_2 at tests/ui/call_graph/report_unreached_fns.rs:12:1: 12:16 (#0)
+  (1) test
+
+tests -(0)-> at_depth_1 at tests/ui/call_graph/report_unreached_fns.rs:16:1: 16:16 (#0)
+  (0) test
+
+targets: 2 total; 2 safe; 0 unsafe (0 tainted)
+
+@@@ unreached @@@
+
+no tests never_called at tests/ui/call_graph/report_unreached_fns.rs:8:1: 8:18 (#0)
+tests -(2)-> beyond_depth at tests/ui/call_graph/report_unreached_fns.rs:10:1: 10:18 (#0)
+unreached: 2 total; 1 not reached; 1 beyond mutation depth

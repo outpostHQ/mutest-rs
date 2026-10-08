@@ -1,7 +1,7 @@
 use std::env;
 use std::time::{Duration, Instant};
 
-use mutest_emit::analysis::call_graph::{EntryPointAssocs, EntryPoints, Targeting, TargetReachability};
+use mutest_emit::analysis::call_graph::{EntryPointAssocs, EntryPoints, Target, Targeting, TargetReachability};
 use mutest_emit::analysis::hir;
 use mutest_emit::analysis::tests::Test;
 use mutest_emit::codegen::ast;
@@ -24,7 +24,7 @@ use crate::passes::{Flow, base_compiler_config};
 use crate::passes::external_mutant::{ExternalTargets, StableTarget};
 use crate::passes::external_mutant::crate_const_storage;
 use crate::passes::external_mutant::specialized_crate::SpecializedMutantCrateCompilationRequest;
-use crate::print::{print_call_graph, print_mutations, print_mutation_graph, print_targets, print_tests};
+use crate::print::{print_call_graph, print_mutations, print_mutation_graph, print_targets, print_tests, print_unreached_fns};
 use crate::write::{write_call_graph, write_mutations, write_tests};
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -110,6 +110,33 @@ fn reached_tests<'t>(crate_kind: &config::CrateKind, external_meta_mutant_crate:
         (false, None) => (&[], mutest_emit::codegen::expansion::strip_test_cases),
         _ => (tests, mutest_emit::codegen::expansion::clean_up_test_cases),
     }
+}
+
+/// The mutable functions that are no targets, with the distance of those that tests reach beyond the mutation depth.
+fn unreached_fns(tcx: TyCtxt<'_>, cnum: Option<hir::CrateNum>, tests: &[Test], targets: &[Target], too_distant_fns: &[Target]) -> Vec<(hir::DefId, Option<usize>)> {
+    let target_def_ids = targets.iter().map(|target| target.def_id()).collect::<FxHashSet<_>>();
+    let distances = too_distant_fns.iter()
+        .filter_map(|target| match target.reachability {
+            TargetReachability::NestedCallee { distance } => Some((target.def_id(), distance)),
+            TargetReachability::DirectEntry => None,
+        })
+        .collect::<FxHashMap<_, _>>();
+
+    mutest_emit::analysis::call_graph::all_mutable_fns(tcx, cnum, tests)
+        .filter(|def_id| !target_def_ids.contains(def_id))
+        .map(|def_id| (def_id, distances.get(&def_id).copied()))
+        .collect()
+}
+
+/// Prints one output under its header, and returns whether the analysis ends with it, as the last output asked for.
+fn print_output(opts: &config::Options, header: &str, print: impl FnOnce()) -> bool {
+    if opts.print_opts.print_headers { println!("\n@@@ {header} @@@\n"); }
+    print();
+    if opts.outputs.last().copied() == Some(config::OutputKind::PrintInfo) && opts.print_opts.is_empty() {
+        return true;
+    }
+    if opts.verbosity >= 1 { println!(); }
+    false
 }
 
 pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
@@ -353,12 +380,15 @@ pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
                         if opts.verbosity >= 1 { println!(); }
                     }
 
-                    let mut targets = reachable_fns.into_iter()
-                        .filter(|f| match f.reachability {
+                    let (mut targets, too_distant_fns): (Vec<_>, Vec<_>) = reachable_fns.into_iter()
+                        .partition(|f| match f.reachability {
                             TargetReachability::DirectEntry => true,
                             TargetReachability::NestedCallee { distance } => distance < opts.mutation_depth,
-                        })
-                        .collect::<Vec<_>>();
+                        });
+
+                    let unreached_fns = opts.print_opts.unreached_fns.is_some().then(|| {
+                        unreached_fns(tcx, external_meta_mutant_crate, &tests, &targets, &too_distant_fns)
+                    });
 
                     // Target-level filtering of mutations.
                     // NOTE: The rest of the intra-target filtering happens later.
@@ -403,20 +433,23 @@ pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
 
                     pass_result.target_analysis_duration = t_target_analysis_start.elapsed();
 
-                    if let Some(_) = opts.print_opts.mutation_targets.take() {
-                        if opts.print_opts.print_headers { println!("\n@@@ targets @@@\n"); }
-                        print_targets(tcx, &opts.crate_kind, &targets, opts.unsafe_targeting);
-                        if opts.outputs.last().copied() == Some(config::OutputKind::PrintInfo) && opts.print_opts.is_empty() {
-                            if opts.report_timings {
-                                println!("\nfinished in {total:.2?} (targets {targets:.2?}; write {write:.2?})",
-                                    total = t_start.elapsed(),
-                                    targets = pass_result.test_discovery_duration + pass_result.target_analysis_duration,
-                                    write = pass_result.write_duration,
-                                );
-                            }
-                            return Flow::Break;
+                    if opts.print_opts.mutation_targets.take().is_some()
+                        && print_output(opts, "targets", || print_targets(tcx, &opts.crate_kind, &targets, opts.unsafe_targeting))
+                    {
+                        if opts.report_timings {
+                            println!("\nfinished in {total:.2?} (targets {targets:.2?}; write {write:.2?})",
+                                total = t_start.elapsed(),
+                                targets = pass_result.test_discovery_duration + pass_result.target_analysis_duration,
+                                write = pass_result.write_duration,
+                            );
                         }
-                        if opts.verbosity >= 1 { println!(); }
+                        return Flow::Break;
+                    }
+
+                    if opts.print_opts.unreached_fns.take().is_some()
+                        && print_output(opts, "unreached", || print_unreached_fns(tcx, &unreached_fns.unwrap_or_default()))
+                    {
+                        return Flow::Break;
                     }
 
                     (entry_points, targets, json_definitions)

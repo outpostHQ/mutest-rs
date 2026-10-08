@@ -390,6 +390,7 @@ pub fn main() -> process::ExitCode {
                 tests: None,
                 call_graph: None,
                 mutation_targets: None,
+                unreached_fns: None,
                 mutations: None,
                 conflict_graph: None,
                 code: None,
@@ -421,6 +422,7 @@ pub fn main() -> process::ExitCode {
                         print_opts.call_graph = Some(config::CallGraphOptions { format: graph_format, entry_point_filters, non_local_call_view });
                     }
                     opts::TARGETS => print_opts.mutation_targets = Some(()),
+                    opts::UNREACHED => print_opts.unreached_fns = Some(()),
                     opts::MUTATIONS => print_opts.mutations = Some(()),
                     opts::CONFLICT_GRAPH | opts::COMPATIBILITY_GRAPH => {
                         let compatibility_graph = matches!(print_name, opts::COMPATIBILITY_GRAPH);

@@ -479,7 +479,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
                 }
             }
 
-            info_request_directive @ ("print-tests" | "print-call-graph" | "print-targets" | "print-mutations" | "print-code") => {
+            info_request_directive @ ("print-tests" | "print-call-graph" | "print-targets" | "print-unreached" | "print-mutations" | "print-code") => {
                 let TestTarget::Mutest(mutest_target_directives) = &mut test_directives.target else {
                     results.ignored_tests_count += 1;
                     log_test(&name, TestResult::Ignored, Some(&format!("invalid directive: `{info_request_directive}` directive cannot be used with `rustc` target directive")));
@@ -496,6 +496,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
                     "print-tests" => { mutest_target_directives.mutest_prints.insert("tests"); }
                     "print-call-graph" => { mutest_target_directives.mutest_prints.insert("call-graph"); }
                     "print-targets" => { mutest_target_directives.mutest_prints.insert("targets"); }
+                    "print-unreached" => { mutest_target_directives.mutest_prints.insert("unreached"); }
                     "print-mutations" => { mutest_target_directives.mutest_prints.insert("mutations"); }
                     "print-code" => { mutest_target_directives.mutest_prints.insert("code"); }
                     _ => unreachable!(),

@@ -93,6 +93,7 @@ pub struct PrintOptions {
     pub tests: Option<()>,
     pub call_graph: Option<CallGraphOptions>,
     pub mutation_targets: Option<()>,
+    pub unreached_fns: Option<()>,
     pub mutations: Option<()>,
     pub conflict_graph: Option<ConflictGraphOptions>,
     pub code: Option<()>,
@@ -104,6 +105,7 @@ impl PrintOptions {
             && self.tests.is_none()
             && self.call_graph.is_none()
             && self.mutation_targets.is_none()
+            && self.unreached_fns.is_none()
             && self.mutations.is_none()
             && self.conflict_graph.is_none()
             && self.code.is_none()
