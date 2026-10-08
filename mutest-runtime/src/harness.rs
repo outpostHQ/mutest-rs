@@ -998,7 +998,7 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
             println!("  test {} ... fail", failed_profiled_test.test.desc.name.as_slice());
         }
         println!("not all tests passed, cannot continue");
-        process::exit(exit_code::BASELINE_FAILED);
+        test_runner::progress::exit_incomplete(exit_code::BASELINE_FAILED);
     }
 
     sort_profiled_tests_by_exec_time(&mut profiled_tests);

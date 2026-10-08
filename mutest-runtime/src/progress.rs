@@ -252,6 +252,12 @@ pub(crate) fn fail(error: impl std::fmt::Display) -> ! {
     process::exit(101)
 }
 
+/// Ends a run whose mutations cannot be evaluated, after telling the progress reader that it is incomplete.
+pub(crate) fn exit_incomplete(code: i32) -> ! {
+    let _ = terminal(false, code);
+    process::exit(code)
+}
+
 fn require_enabled(required: bool, enabled: bool) -> io::Result<()> {
     if required && !enabled {
         return Err(io::Error::other(
