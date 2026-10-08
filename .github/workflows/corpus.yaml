@@ -126,7 +126,6 @@ jobs:
         run: |
           status=0
           cargo mutest run $ARGS > "$RUNNER_TEMP/analysis.log" 2>&1 || status=$?
-          tail -n 40 "$RUNNER_TEMP/analysis.log"
           case "$status" in
             0|2|3) ;;
             *) echo "::error::${{ matrix.crate }} analysis did not complete (exit $status)"; exit 1 ;;
@@ -145,3 +144,8 @@ jobs:
             fi
             echo "::notice::${{ matrix.crate }} (exit $status) $summary"
           done <<< "$summaries"
+
+      - name: Show the end of the analysis log
+        if: always() && matrix.analyze
+        shell: bash
+        run: tail -n 60 "$RUNNER_TEMP/analysis.log" || true
