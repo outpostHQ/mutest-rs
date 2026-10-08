@@ -8,6 +8,9 @@ on:
       - "main"
     paths:
       - "rust-toolchain.toml"
+      - "Cargo.lock"
+      - "cargo-mutest/**"
+      - "mutest-*/**"
       - ".github/workflows/corpus.yaml"
   schedule:
     - cron: "0 4 * * 1"
@@ -24,7 +27,7 @@ jobs:
       fail-fast: false
       matrix:
         os: ["ubuntu-latest", "macos-latest", "windows-latest"]
-        crate: ["tokio", "serde", "pest", "libp2p", "iroh", "quinn", "hyper", "tonic", "block2", "windows-core", "progenitor"]
+        crate: ["tokio", "serde", "pest", "libp2p", "iroh", "quinn", "hyper", "tonic", "block2", "windows-core", "progenitor", "itoa", "base64", "anyhow"]
         exclude:
           - { crate: "block2", os: "ubuntu-latest" }
           - { crate: "block2", os: "windows-latest" }
@@ -37,7 +40,7 @@ jobs:
           - { crate: "serde", repo: "serde-rs/serde", rev: "7fc3b4c30c94f73a96ebd1553f2b090d928fc3a8", args: "-p serde --lib" }
           # v2.9.2, grammars defined through the derive macro's DSL
           - { crate: "pest", repo: "pest-parser/pest", rev: "67e5acbbe622fab0771cf9d515e4ea7744f482d5", args: "-p pest_grammars --lib" }
-          - { crate: "pest", os: "ubuntu-latest", analyze: "-p pest --lib" }
+          - { crate: "pest", analyze: "-p pest --lib" }
           # libp2p-v0.56.0
           - { crate: "libp2p", repo: "libp2p/rust-libp2p", rev: "70082df7e6181722630eabc5de5373733aac9a21", args: "-p libp2p-swarm --lib" }
           # v0.98.2
@@ -54,6 +57,12 @@ jobs:
           - { crate: "windows-core", repo: "microsoft/windows-rs", rev: "50e85cbbc063b2d67c931ba0f6dd96bf8b466373", args: "-p windows-core --lib" }
           # v0.15.0
           - { crate: "progenitor", repo: "oxidecomputer/progenitor", rev: "76a3b70f0eb11e044b52ee15bd07bcc370c8adb5", args: "-p progenitor-impl" }
+          # 1.0.18, tested only by an integration test
+          - { crate: "itoa", repo: "dtolnay/itoa", rev: "af77385d0daf4d0e949e81f2588be2e44f69f086", args: "--test test", analyze: "--test test" }
+          # v0.23.1
+          - { crate: "base64", repo: "marshallpierce/rust-base64", rev: "069bf7067b949f5c0a92b6ceb82492920502f2c2", args: "--lib", analyze: "--lib" }
+          # 1.0.104
+          - { crate: "anyhow", repo: "dtolnay/anyhow", rev: "1dbe1862aae650423e3361fbd20b7d17c5109cc3", args: "--test test_context --test test_fmt", analyze: "--test test_context --test test_fmt" }
 
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
@@ -122,10 +131,17 @@ jobs:
             0|2|3) ;;
             *) echo "::error::${{ matrix.crate }} analysis did not complete (exit $status)"; exit 1 ;;
           esac
-          summary=$(grep -m1 '^ *mutations: ' "$RUNNER_TEMP/analysis.log")
-          detected=$(sed -n 's/.* \([0-9]*\) detected .*/\1/p' <<< "$summary")
-          if [ "${detected:-0}" -eq 0 ]; then
-            echo "::error::${{ matrix.crate }} analysis detected no mutations: $summary"
+          # Each test target prints its own summary, and each must detect mutations.
+          summaries=$(grep '^ *mutations: ' "$RUNNER_TEMP/analysis.log" || true)
+          if [ -z "$summaries" ]; then
+            echo "::error::${{ matrix.crate }} analysis printed no summary"
             exit 1
           fi
-          echo "::notice::${{ matrix.crate }} (exit $status) $summary"
+          while read -r summary; do
+            detected=$(sed -n 's/.* \([0-9]*\) detected .*/\1/p' <<< "$summary")
+            if [ "${detected:-0}" -eq 0 ]; then
+              echo "::error::${{ matrix.crate }} analysis detected no mutations: $summary"
+              exit 1
+            fi
+            echo "::notice::${{ matrix.crate }} (exit $status) $summary"
+          done <<< "$summaries"
