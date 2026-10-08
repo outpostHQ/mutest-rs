@@ -26,6 +26,7 @@ use crate::test_runner;
 use crate::thread_pool::ThreadPool;
 use crate::write::{EvaluationStreamWriter, write_evaluation};
 
+mod alone;
 mod profiling;
 mod scheduling;
 use scheduling::ScheduledMutant;
@@ -199,6 +200,13 @@ fn sort_profiled_tests_by_exec_time(profiled_tests: &mut Vec<ProfiledTest>) {
             (None, None) => Ordering::Equal,
         }
     });
+}
+
+/// Runs the tests closest to `mutations` first when the options ask for that order.
+fn order_tests(opts: &Options, tests: &mut Vec<test_runner::Test>, external_tests_extra: Option<&ExternalTestsExtra>, mutations: &[&'static MutationMeta]) {
+    if let config::TestOrdering::MutationDistance = opts.test_ordering {
+        prioritize_tests_by_distance(tests, external_tests_extra, mutations);
+    }
 }
 
 fn prioritize_tests_by_distance(tests: &mut Vec<test_runner::Test>, external_tests_extra: Option<&ExternalTestsExtra>, mutations: &[&'static MutationMeta]) {
@@ -470,14 +478,13 @@ fn run_tests(
         })
         .collect::<Vec<_>>();
 
-    if verbosity >= 1 {
-        let id = match mutant {
-            Mutant::Mutation(mutant) => mutant.mutation.id,
-            Mutant::Batch(mutant) => mutant.batch_id,
-        };
-        print!("{id}: ");
-    }
-    println!("ran {completed} out of {total} {descr}{lingering_opt}",
+    let id = match mutant {
+        Mutant::Mutation(mutant) => mutant.mutation.id,
+        Mutant::Batch(mutant) => mutant.batch_id,
+    };
+    // One print, so the line of a mutant that runs side by side with others stays whole.
+    println!("{id_opt}ran {completed} out of {total} {descr}{lingering_opt}",
+        id_opt = if verbosity >= 1 { format!("{id}: ") } else { String::new() },
         completed = completed_tests_count,
         total = total_tests_count,
         descr = match total_tests_count {
@@ -704,9 +711,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                 println!();
 
                 let mut tests = clone_tests(tests.iter().filter(|test| batched_mutant.mutations.iter().any(|mutation| is_reachable_test(mutation, &test.desc, external_tests_extra))));
-                if let config::TestOrdering::MutationDistance = opts.test_ordering {
-                    prioritize_tests_by_distance(&mut tests, external_tests_extra, batched_mutant.mutations);
-                }
+                order_tests(opts, &mut tests, external_tests_extra, batched_mutant.mutations);
                 maximize_mutation_parallelism(&mut tests, external_tests_extra, batched_mutant.mutations);
 
                 journal_started(journal, batched_mutant.mutations);
@@ -763,9 +768,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                         println!();
 
                         let mut tests = clone_tests(tests.iter().filter(|test| is_reachable_test(mutant.mutation, &test.desc, external_tests_extra)));
-                        if let config::TestOrdering::MutationDistance = opts.test_ordering {
-                            prioritize_tests_by_distance(&mut tests, external_tests_extra, &[mutant.mutation]);
-                        }
+                        order_tests(opts, &mut tests, external_tests_extra, &[mutant.mutation]);
 
                         let job_exhaustive = opts.exhaustive;
                         let job_isolated = scheduled_mutant.isolated;
@@ -826,28 +829,13 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
 
 /// Evaluates `mutation` while no other mutant runs; a timeout rerun runs one test at a time, with longer limits.
 fn evaluate_alone<S: SubstMap + Sync>(analysis: &MutationAnalysis<'_, S>, (mutant, mutation): (Mutant, &'static MutationMeta), timeout_rerun: bool, thread_pool: Option<ThreadPool>, lingering_test_monitoring_thread: &LingeringTestMonitoringThread, eval_stream_writer: Option<EvaluationStreamWriter>, journal: Option<&WorkerJournal>) -> MutationTestResults {
-    let &MutationAnalysis { opts, tests, external_tests_extra, meta_mutant } = analysis;
+    let &MutationAnalysis { opts, external_tests_extra, meta_mutant, .. } = analysis;
 
-    // SAFETY: Ideally, since the previous test runs all completed,
-    //         no other thread is running, no one else is reading from the handle.
-    //         Lingering test cases from previous test runs are forcibly terminated
-    //         before they try to read from the handle after the corresponding thread
-    //         has been marked inactive.
+    // SAFETY: The earlier test runs have ended, so no thread reads the handle: a test still running is marked
+    //         abandoned before the run ends, and an abandoned test reads no substitution.
     unsafe { meta_mutant.active_mutant_handle.replace(Some(S::with(mutant.substitutions()))); }
 
-    println!("{}", if timeout_rerun { "confirming timeout of mutation alone:" } else { "applying mutation:" });
-    print_mutation(mutation, opts.verbosity);
-    println!();
-
-    // The other mutations of a batch stay active, but no test of this mutation reaches them.
-    let mut tests = clone_tests(tests.iter().filter(|test| is_reachable_test(mutation, &test.desc, external_tests_extra)));
-    if timeout_rerun {
-        tests.iter_mut().for_each(|test| test.timeout = test.timeout.map(timeouts::confirmation_timeout));
-    }
-    if let config::TestOrdering::MutationDistance = opts.test_ordering {
-        prioritize_tests_by_distance(&mut tests, external_tests_extra, &[mutation]);
-    }
-
+    let tests = alone::tests(analysis, mutation, timeout_rerun);
     if !timeout_rerun { journal_started(journal, &[mutation]); }
     let (mut run_results, lingering_tests) = run_tests(tests, external_tests_extra, mutant, opts.exhaustive, journal::isolates(journal, opts.mutation_isolation, &[mutation]), thread_pool, timeout_rerun.then_some(1), eval_stream_writer, opts.verbosity);
     lingering_test_monitoring_thread.submit_lingering_tests(lingering_tests);

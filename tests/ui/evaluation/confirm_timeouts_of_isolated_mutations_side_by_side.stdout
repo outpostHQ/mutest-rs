@@ -1,0 +1,26 @@
+profiling reference test run
+
+applying mutation:
+- [fn_return_default] return `0` without evaluating the function body at tests/ui/evaluation/confirm_timeouts_of_isolated_mutations_side_by_side.rs:10:1: 12:2
+
+ran 1 out of 1 test
+
+applying mutation:
+- [fn_return_default] return `1` without evaluating the function body at tests/ui/evaluation/confirm_timeouts_of_isolated_mutations_side_by_side.rs:10:1: 12:2
+
+ran 1 out of 1 test
+
+confirming timeout of mutation alone:
+- [fn_return_default] return `0` without evaluating the function body at tests/ui/evaluation/confirm_timeouts_of_isolated_mutations_side_by_side.rs:10:1: 12:2
+
+confirming timeout of mutation alone:
+- [fn_return_default] return `1` without evaluating the function body at tests/ui/evaluation/confirm_timeouts_of_isolated_mutations_side_by_side.rs:10:1: 12:2
+
+ran 1 out of 1 test
+
+ran 1 out of 1 test
+
+mutations: none. 0 detected (2 timed out; 0 crashed); 0 undetected; 2 total
+     safe: none. 0 detected (2 timed out; 0 crashed); 0 undetected; 2 total
+   unsafe: none. 0 detected (0 timed out; 0 crashed); 0 undetected; 0 total
+timeouts confirmed: 2 re-run alone; 0 detected, 0 undetected, 0 crashed, 2 timed out again

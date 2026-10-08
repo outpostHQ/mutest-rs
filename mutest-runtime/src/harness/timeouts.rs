@@ -1,11 +1,14 @@
-//! A loaded machine can make a test time out, so each timed-out mutation runs again after the analysis:
-//! alone, one test at a time, with longer limits, and only with the tests that did not pass it.
+//! A loaded machine can make a test time out, so each timed-out mutation runs again after the analysis, one test at a
+//! time, with longer limits, and only with the tests that did not pass it; isolated mutations run side by side.
 
-use std::sync::Arc;
+use std::iter;
+use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::Duration;
 
-use super::{LingeringTestMonitoringThread, MutationAnalysis, MutationAnalysisResults, MutationTestResult, MutationTestResults, clone_tests, evaluate_alone, record_finished_mutation, test};
-use crate::journal::WorkerJournal;
+use super::{LingeringTestMonitoringThread, MutationAnalysis, MutationAnalysisResults, MutationTestResult, MutationTestResults, alone, clone_tests, evaluate_alone, record_finished_mutation, run_tests, test};
+use crate::journal::{self, WorkerJournal};
+use crate::test_runner;
 use crate::metadata::{Mutant, MutationMeta, SubstMap};
 use crate::thread_pool::ThreadPool;
 use crate::write::EvaluationStreamWriter;
@@ -68,12 +71,56 @@ pub(super) fn confirm_timeouts<S: SubstMap + Sync>(
     eval_stream_writer: Option<EvaluationStreamWriter>,
     journal: Option<&WorkerJournal>,
 ) {
-    for (mutant, mutation, analysis_results) in timed_out_mutations {
-        let tests = clone_tests(analysis.tests.iter().filter(|test| !passed(&analysis_results, &test.desc.name)));
+    let (isolated, in_process): (Vec<_>, Vec<_>) = timed_out_mutations.into_iter()
+        .partition(|&(_, mutation, _)| journal::isolates(journal, analysis.opts.mutation_isolation, &[mutation]));
+    for (mutant, mutation, analysis_results) in in_process {
+        let tests = not_passed(analysis.tests, &analysis_results);
         let rerun_results = evaluate_alone(&MutationAnalysis { tests: &tests, ..*analysis }, (mutant, mutation), true, thread_pool.clone(), lingering_test_monitoring_thread, eval_stream_writer.clone(), journal);
-        results.timeout_reruns.record(rerun_results.result);
-        record_finished_mutation(results, journal, mutation, merged(analysis_results, rerun_results), true);
+        finish_rerun(results, journal, mutation, analysis_results, rerun_results);
     }
+
+    let reruns = isolated.iter().map(|(mutant, mutation, analysis_results)| {
+        let tests = not_passed(analysis.tests, analysis_results);
+        (*mutant, *mutation, alone::tests(&MutationAnalysis { tests: &tests, ..*analysis }, mutation, true))
+    }).collect::<Vec<_>>();
+    let rerun_results = side_by_side(reruns, analysis, thread_pool, lingering_test_monitoring_thread, eval_stream_writer);
+    for ((_, mutation, analysis_results), rerun_results) in iter::zip(isolated, rerun_results) {
+        finish_rerun(results, journal, mutation, analysis_results, rerun_results);
+    }
+}
+
+/// Runs the tests of isolated mutations, which share no process, side by side on at most half the cores, so each still
+/// runs with little load; gives their results in the order of `reruns`.
+fn side_by_side<S: SubstMap + Sync>(reruns: Vec<(Mutant, &'static MutationMeta, Vec<test_runner::Test>)>, analysis: &MutationAnalysis<'_, S>, thread_pool: Option<ThreadPool>, lingering_test_monitoring_thread: &LingeringTestMonitoringThread, eval_stream_writer: Option<EvaluationStreamWriter>) -> Vec<MutationTestResults> {
+    let (exhaustive, verbosity, external_tests_extra) = (analysis.opts.exhaustive, analysis.opts.verbosity, analysis.external_tests_extra);
+    let width = thread::available_parallelism().map_or(1, |cores| cores.get().div_ceil(2)).min(reruns.len());
+    let queue = Mutex::new(reruns.into_iter().enumerate());
+    let finished = Mutex::new(Vec::new());
+    thread::scope(|scope| {
+        for _ in 0..width {
+            let (thread_pool, eval_stream_writer, queue, finished) = (thread_pool.clone(), eval_stream_writer.clone(), &queue, &finished);
+            scope.spawn(move || loop {
+                let Some((index, (mutant, mutation, tests))) = queue.lock().unwrap().next() else { break };
+                let (mut run_results, lingering_tests) = run_tests(tests, external_tests_extra, mutant, exhaustive, true, thread_pool.clone(), Some(1), eval_stream_writer.clone(), verbosity);
+                lingering_test_monitoring_thread.submit_lingering_tests(lingering_tests);
+                let Some(rerun_results) = run_results.remove(&mutation.id) else { unreachable!() };
+                finished.lock().unwrap().push((index, rerun_results));
+            });
+        }
+    });
+    let mut finished = finished.into_inner().unwrap();
+    finished.sort_unstable_by_key(|&(index, _)| index);
+    finished.into_iter().map(|(_, rerun_results)| rerun_results).collect()
+}
+
+/// The tests that did not pass the mutation in the analysis, which its rerun runs again.
+fn not_passed(tests: &[test_runner::Test], analysis_results: &MutationTestResults) -> Vec<test_runner::Test> {
+    clone_tests(tests.iter().filter(|test| !passed(analysis_results, &test.desc.name)))
+}
+
+fn finish_rerun(results: &mut MutationAnalysisResults, journal: Option<&WorkerJournal>, mutation: &'static MutationMeta, analysis_results: MutationTestResults, rerun_results: MutationTestResults) {
+    results.timeout_reruns.record(rerun_results.result);
+    record_finished_mutation(results, journal, mutation, merged(analysis_results, rerun_results), true);
 }
 
 fn passed(results: &MutationTestResults, test: &test::TestName) -> bool {
