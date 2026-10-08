@@ -196,6 +196,11 @@ impl Journal {
         &self.path
     }
 
+    /// Whether no worker wrote a row, so that the journal holds nothing to examine.
+    pub fn is_empty(&self) -> io::Result<bool> {
+        Ok(self.file.metadata()?.len() == 0)
+    }
+
     pub(crate) fn preserve(mut self) {
         self.retained = true;
     }
@@ -372,7 +377,9 @@ mod tests {
     fn each_crashed_mutation_is_isolated_once_and_a_restart_keeps_the_finished_results() {
         let journal = Journal::create().unwrap();
         let worker_journal = WorkerJournal::open(journal.path.clone()).unwrap();
+        assert!(journal.is_empty().unwrap());
         worker_journal.started(&[1, 2, 4]);
+        assert!(!journal.is_empty().unwrap());
         worker_journal.finished(1, &Default::default(), false);
         worker_journal.finished(4, &Default::default(), true);
         let crash = journal.isolate_unfinished().unwrap();

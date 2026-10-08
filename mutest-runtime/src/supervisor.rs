@@ -116,7 +116,7 @@ pub fn supervise() -> ! {
                 status = sys::exit_status(exit_code::PANIC);
             }
         }
-        if !status.code().is_some_and(exit_code::analysis_completed) {
+        if !status.code().is_some_and(exit_code::analysis_completed) && !journal.is_empty().unwrap_or(false) {
             eprintln!("incomplete analysis journal retained at {}", journal.path().display());
             journal.preserve();
         }

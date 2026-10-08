@@ -1,6 +1,6 @@
 //@ run: exit 1
 //@ stdout
-//@ stderr
+//@ stderr: empty
 //@ run-flags: --isolate=everything
 
 //! An unknown isolation mode is a usage error, not a panic.
