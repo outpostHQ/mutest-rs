@@ -91,6 +91,36 @@ A run of several test harnesses exits with the most severe of these codes, in th
 
 A mutation that times out runs again after the analysis, alone and one test at a time. Each test then gets five times its first time limit, and at least ten seconds more. The result of this rerun is the result of the mutation, and the line `timeouts confirmed: R re-run alone; D detected, U undetected, C crashed, T timed out again` counts the reruns.
 
+### What mutest-rs mutates
+
+mutest-rs mutates a function only if a test can call it. The call graph starts from each test, and follows:
+
+* direct calls, and calls through generic functions after monomorphization;
+* calls through `dyn Trait` objects, which reach each method of the vtables built for the trait;
+* calls through function pointers and closures coerced to function pointers;
+* calls through the `Fn`, `FnMut`, and `FnOnce` traits, such as a closure given to `Option::map`;
+* calls inside a `const fn` that runs at runtime, and `Drop` implementations run by drop glue.
+
+The distance from a test to a function counts only the frames of the crate under test. Frames of the standard library and of dependencies add nothing, so `--depth` and `--call-graph-depth-limit` limit the frames of your own code.
+
+Use `--print unreached` to list the functions that mutest-rs does not mutate: functions that no test calls, and functions beyond the mutation depth.
+
+```sh
+cargo mutest run -p <PACKAGE> --lib --print unreached
+```
+
+## Platforms
+
+mutest-rs builds with the nightly toolchain pinned in [`rust-toolchain.toml`](rust-toolchain.toml), and runs on Linux, macOS, and Windows. A mutation that crashes or hangs the test process ends only that process; mutest-rs records the crash or timeout and continues. Each platform makes sure that processes the tests start do not outlive them:
+
+| Platform | Processes started by tests | When mutest-rs is killed | Crash reports |
+| -------- | -------------------------- | ------------------------ | ------------- |
+| Linux    | A subreaper adopts them, and kills them when the test ends. | `PR_SET_PDEATHSIG` kills the test process. | Core dumps are limited to 1 byte. |
+| macOS    | They are in the process group of the test, which is killed when the test ends. | A thread in the test process checks its parent every 50 ms, and kills the process group of the test when the parent exits. | Core dumps are disabled. |
+| Windows  | They are in a job object, which is closed when the test ends. | Closing the job object kills them. | The job object sets `JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION`, so a crash shows no error dialog. |
+
+On macOS, a process that leaves the process group on purpose, with `setsid` or `setpgid`, is not killed. The job object on Windows does not allow `CREATE_BREAKAWAY_FROM_JOB`.
+
 ### Using `cfg(mutest)`
 
 When running `cargo mutest`, the `mutest` cfg is set. This can be used to detect if code is running under mutest-rs, and enable conditional compilation based on it.
