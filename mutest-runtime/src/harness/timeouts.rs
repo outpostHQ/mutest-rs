@@ -1,5 +1,5 @@
-//! A loaded machine can make a test time out, so each timed-out mutation runs again after the analysis, one test at a
-//! time, with longer limits, and only with the tests that did not pass it; isolated mutations run side by side.
+//! A loaded machine can make a test pass a short limit, so each mutation that timed out within short limits runs again
+//! after the analysis, one test at a time, with the tests that did not pass it; isolated mutations run side by side.
 
 use std::iter;
 use std::sync::{Arc, Mutex};
@@ -49,16 +49,30 @@ impl TimeoutReruns {
     }
 }
 
-/// The limit of a test when its timed-out mutation runs again: twice its first limit, and at least ten seconds more.
-/// A rerun runs one test at a time with little load, so twice the limit of the loaded analysis is enough.
+/// A limit under this is short: load alone can use it up, and a rerun of its test costs little.
+/// A test that passes a longer limit took five times its reference time, which load does not explain.
+const SHORT_LIMIT: Duration = Duration::from_secs(20);
+
+/// The limit of a test when its timed-out mutation runs again: a short limit gets ten seconds more.
 pub(super) fn confirmation_timeout(timeout: Duration) -> Duration {
-    Ord::max(timeout * 2, timeout + Duration::from_secs(10))
+    if timeout < SHORT_LIMIT { timeout + Duration::from_secs(10) } else { timeout }
 }
 
-/// Defers a timed-out mutation to `confirm_timeouts`, and records any other result.
-pub(super) fn finish_mutation(results: &mut MutationAnalysisResults, timed_out_mutations: &mut Vec<(Mutant, &'static MutationMeta, MutationTestResults)>, journal: Option<&WorkerJournal>, mutant: Mutant, mutation: &'static MutationMeta, mutation_result: MutationTestResults) {
+/// Whether no timeout is sure yet: each limit that a test passed is short.
+fn all_short(limits: impl IntoIterator<Item = Option<Duration>>) -> bool {
+    limits.into_iter().all(|limit| limit.is_none_or(|limit| limit < SHORT_LIMIT))
+}
+
+/// The limits of the tests that timed out with the mutation.
+fn passed_limits<'a>(tests: &'a [test_runner::Test], mutation_result: &'a MutationTestResults) -> impl Iterator<Item = Option<Duration>> + 'a {
+    let timed_out = |test: &&test_runner::Test| matches!(mutation_result.results_per_test.get(&test.desc.name), Some(Some(MutationTestResult::TimedOut)));
+    tests.iter().filter(timed_out).map(|test| test.timeout)
+}
+
+/// Defers a mutation that timed out within short limits to `confirm_timeouts`, and records any other result.
+pub(super) fn finish_mutation(results: &mut MutationAnalysisResults, timed_out_mutations: &mut Vec<(Mutant, &'static MutationMeta, MutationTestResults)>, journal: Option<&WorkerJournal>, tests: &[test_runner::Test], mutant: Mutant, mutation: &'static MutationMeta, mutation_result: MutationTestResults) {
     match mutation_result.result {
-        MutationTestResult::TimedOut => timed_out_mutations.push((mutant, mutation, mutation_result)),
+        MutationTestResult::TimedOut if all_short(passed_limits(tests, &mutation_result)) => timed_out_mutations.push((mutant, mutation, mutation_result)),
         _ => record_finished_mutation(results, journal, mutation, mutation_result, false),
     }
 }
@@ -143,6 +157,22 @@ mod tests {
     fn results(result: MutationTestResult, tests: &[(&'static str, MutationTestResult)]) -> MutationTestResults {
         let results_per_test = tests.iter().map(|&(name, result)| (test::StaticTestName(name), Some(result))).collect();
         MutationTestResults { result, results_per_test }
+    }
+
+    #[test]
+    fn a_test_gets_five_times_its_reference_time_and_at_least_a_second_more() {
+        let limit = |millis| super::super::profiling::auto_test_timeout(Duration::from_millis(millis));
+        assert_eq!((limit(10), limit(250), limit(60_000)), (Duration::from_millis(1010), Duration::from_millis(1250), Duration::from_secs(300)));
+    }
+
+    #[test]
+    fn only_a_timeout_within_short_limits_runs_again() {
+        let secs = Duration::from_secs;
+        assert!(all_short([Some(secs(1)), Some(secs(19))]));
+        assert!(!all_short([Some(secs(1)), Some(secs(20))]));
+        assert!(all_short([]));
+        assert_eq!((confirmation_timeout(secs(1)), confirmation_timeout(secs(19))), (secs(11), secs(29)));
+        assert_eq!(confirmation_timeout(secs(20)), secs(20));
     }
 
     #[test]

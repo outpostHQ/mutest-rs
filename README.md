@@ -83,13 +83,13 @@ See `--help` for more options and subcommands.
 | 0    | The analysis completed, and the tests caught every mutation. |
 | 1    | The command could not run as given: an argument is wrong, or a part of mutest-rs it needs is not installed. |
 | 2    | The analysis completed, and the tests missed some mutations. |
-| 3    | The analysis completed, and some mutations timed out, also when run again alone. |
+| 3    | The analysis completed, and some mutations timed out. |
 | 4    | A test harness did not build, or its tests failed without mutations, so its mutations were not evaluated. |
 | 101  | mutest-rs panicked, or a test harness ended abnormally, such as being killed by a signal. |
 
 A run of several test harnesses exits with the most severe of these codes, in the order 101, 1, 4, 3, 2, 0. With `--simulate`, it exits 0 if the tests catch the mutation and 2 if they miss it.
 
-The time limit of a test is its time in the reference run and half more, but at least one second more. A mutation that times out runs again after the analysis, alone and one test at a time. Each test then gets twice its first time limit, and at least ten seconds more. The result of this rerun is the result of the mutation, and the line `timeouts confirmed: R re-run alone; D detected, U undetected, C crashed, T timed out again` counts the reruns.
+The time limit of a test is five times its time in the reference run, but at least one second more than that time. A loaded machine can make a test pass a limit under 20 seconds, so a mutation that times out only within such limits runs again after the analysis, alone and one test at a time. Each test with such a limit then gets ten seconds more. The result of this rerun is the result of the mutation, and the line `timeouts confirmed: R re-run alone; D detected, U undetected, C crashed, T timed out again` counts the reruns. A timeout within a limit of 20 seconds or more is final.
 
 Each mutated function keeps its original code beside the code that holds its mutations, and chooses one of the two each time it starts. With no mutation active, as in the reference run, it runs the code that holds its mutations, so the time limit of a test allows for the cost of that code. With a mutation of another function active, it runs its original code. A call that already runs original code when a mutation becomes active, such as the loop of a thread that a test left running, does not run that mutation. With `--isolate=all`, each mutation runs in a new process, where no such call exists.
 

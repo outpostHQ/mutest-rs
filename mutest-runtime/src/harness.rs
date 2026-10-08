@@ -680,7 +680,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
         MutationParallelism::None(mutants) => {
             for mutant in mutants.iter().filter(|mutant| !journal::finished_before(journal, mutant.mutation)) {
                 let mutation_result = evaluate_alone(analysis, (Mutant::Mutation(mutant), mutant.mutation), false, thread_pool.clone(), &lingering_test_monitoring_thread, eval_stream_writer.clone(), journal);
-                timeouts::finish_mutation(&mut results, &mut timed_out_mutations, journal, Mutant::Mutation(mutant), mutant.mutation, mutation_result);
+                timeouts::finish_mutation(&mut results, &mut timed_out_mutations, journal, analysis.tests, Mutant::Mutation(mutant), mutant.mutation, mutation_result);
             }
         }
         MutationParallelism::Batched(batched_mutants) => {
@@ -714,7 +714,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
 
                 for mutation in batched_mutant.mutations.iter().filter(|mutation| !journal::finished_before(journal, mutation)) {
                     let Some(mutation_result) = run_results.remove(&mutation.id) else { unreachable!() };
-                    timeouts::finish_mutation(&mut results, &mut timed_out_mutations, journal, Mutant::Batch(batched_mutant), mutation, mutation_result);
+                    timeouts::finish_mutation(&mut results, &mut timed_out_mutations, journal, analysis.tests, Mutant::Batch(batched_mutant), mutation, mutation_result);
                 }
             }
         }
@@ -798,7 +798,7 @@ fn run_mutation_analysis<S: SubstMap + Sync>(
                     let mutant = completed_mutant.scheduled.mutant;
 
                     let Ok(mutation_result) = completed_mutant.join_handle.join() else { unreachable!() };
-                    timeouts::finish_mutation(&mut results, &mut timed_out_mutations, journal, Mutant::Mutation(mutant), mutant.mutation, mutation_result);
+                    timeouts::finish_mutation(&mut results, &mut timed_out_mutations, journal, analysis.tests, Mutant::Mutation(mutant), mutant.mutation, mutation_result);
                 }
 
                 if any_removed {
