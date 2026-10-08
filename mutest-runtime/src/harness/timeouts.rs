@@ -1,10 +1,10 @@
 //! A loaded machine can make a test time out, so each timed-out mutation runs again after the analysis:
-//! alone, one test at a time, with longer limits.
+//! alone, one test at a time, with longer limits, and only with the tests that did not pass it.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::{LingeringTestMonitoringThread, MutationAnalysis, MutationAnalysisResults, MutationTestResult, MutationTestResults, evaluate_alone, record_finished_mutation};
+use super::{LingeringTestMonitoringThread, MutationAnalysis, MutationAnalysisResults, MutationTestResult, MutationTestResults, clone_tests, evaluate_alone, record_finished_mutation, test};
 use crate::journal::WorkerJournal;
 use crate::metadata::{Mutant, MutationMeta, SubstMap};
 use crate::thread_pool::ThreadPool;
@@ -52,25 +52,61 @@ pub(super) fn confirmation_timeout(timeout: Duration) -> Duration {
 }
 
 /// Defers a timed-out mutation to `confirm_timeouts`, and records any other result.
-pub(super) fn finish_mutation(results: &mut MutationAnalysisResults, timed_out_mutations: &mut Vec<(Mutant, &'static MutationMeta)>, journal: Option<&WorkerJournal>, mutant: Mutant, mutation: &'static MutationMeta, mutation_result: MutationTestResults) {
+pub(super) fn finish_mutation(results: &mut MutationAnalysisResults, timed_out_mutations: &mut Vec<(Mutant, &'static MutationMeta, MutationTestResults)>, journal: Option<&WorkerJournal>, mutant: Mutant, mutation: &'static MutationMeta, mutation_result: MutationTestResults) {
     match mutation_result.result {
-        MutationTestResult::TimedOut => timed_out_mutations.push((mutant, mutation)),
+        MutationTestResult::TimedOut => timed_out_mutations.push((mutant, mutation, mutation_result)),
         _ => record_finished_mutation(results, journal, mutation, mutation_result, false),
     }
 }
 
 pub(super) fn confirm_timeouts<S: SubstMap + Sync>(
     analysis: &MutationAnalysis<'_, S>,
-    timed_out_mutations: Vec<(Mutant, &'static MutationMeta)>,
+    timed_out_mutations: Vec<(Mutant, &'static MutationMeta, MutationTestResults)>,
     results: &mut MutationAnalysisResults,
     thread_pool: Option<ThreadPool>,
     lingering_test_monitoring_thread: &Arc<LingeringTestMonitoringThread>,
     eval_stream_writer: Option<EvaluationStreamWriter>,
     journal: Option<&WorkerJournal>,
 ) {
-    for timed_out_mutation in timed_out_mutations {
-        let mutation_result = evaluate_alone(analysis, timed_out_mutation, true, thread_pool.clone(), lingering_test_monitoring_thread, eval_stream_writer.clone(), journal);
-        results.timeout_reruns.record(mutation_result.result);
-        record_finished_mutation(results, journal, timed_out_mutation.1, mutation_result, true);
+    for (mutant, mutation, analysis_results) in timed_out_mutations {
+        let tests = clone_tests(analysis.tests.iter().filter(|test| !passed(&analysis_results, &test.desc.name)));
+        let rerun_results = evaluate_alone(&MutationAnalysis { tests: &tests, ..*analysis }, (mutant, mutation), true, thread_pool.clone(), lingering_test_monitoring_thread, eval_stream_writer.clone(), journal);
+        results.timeout_reruns.record(rerun_results.result);
+        record_finished_mutation(results, journal, mutation, merged(analysis_results, rerun_results), true);
+    }
+}
+
+fn passed(results: &MutationTestResults, test: &test::TestName) -> bool {
+    matches!(results.results_per_test.get(test), Some(Some(MutationTestResult::Undetected)))
+}
+
+/// The tests that passed the mutation in the analysis keep their results; the tests that ran again take their new ones.
+fn merged(analysis_results: MutationTestResults, rerun_results: MutationTestResults) -> MutationTestResults {
+    let mut results_per_test = analysis_results.results_per_test;
+    results_per_test.retain(|_, result| matches!(result, Some(MutationTestResult::Undetected)));
+    results_per_test.extend(rerun_results.results_per_test);
+    MutationTestResults { result: rerun_results.result, results_per_test }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn results(result: MutationTestResult, tests: &[(&'static str, MutationTestResult)]) -> MutationTestResults {
+        let results_per_test = tests.iter().map(|&(name, result)| (test::StaticTestName(name), Some(result))).collect();
+        MutationTestResults { result, results_per_test }
+    }
+
+    #[test]
+    fn timeout_rerun_runs_only_the_tests_that_did_not_pass() {
+        let analysis_results = results(MutationTestResult::TimedOut, &[("passed", MutationTestResult::Undetected), ("slow", MutationTestResult::TimedOut), ("crashed", MutationTestResult::Crashed)]);
+        assert!(passed(&analysis_results, &test::StaticTestName("passed")));
+        assert!(!passed(&analysis_results, &test::StaticTestName("slow")));
+        assert!(!passed(&analysis_results, &test::StaticTestName("not run")));
+
+        let merged = merged(analysis_results, results(MutationTestResult::Undetected, &[("slow", MutationTestResult::Undetected)]));
+        assert_eq!(merged.result, MutationTestResult::Undetected);
+        let expected = results(MutationTestResult::Undetected, &[("passed", MutationTestResult::Undetected), ("slow", MutationTestResult::Undetected)]);
+        assert_eq!(merged.results_per_test, expected.results_per_test);
     }
 }
