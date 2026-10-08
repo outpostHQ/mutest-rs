@@ -258,15 +258,15 @@ impl LingeringTestMonitoringThread {
             };
 
             loop {
-                match running_test_receiver.try_recv() {
+                match running_test_receiver.recv_timeout(Duration::from_millis(5)) {
                     Ok(running_tests) => {
                         sentinel.lingering_tests.extend(running_tests);
                     }
 
-                    Err(mpsc::TryRecvError::Disconnected) => break,
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
 
                     // No tests received, continue normally.
-                    Err(mpsc::TryRecvError::Empty) => {}
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
                 }
 
                 if let Some((completed_running_test, mutation)) = sentinel.lingering_tests.extract_if(.., |(running_test, _)| running_test.join_handle.as_ref().is_some_and(|h| h.is_finished())).next() {
