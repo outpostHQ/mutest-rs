@@ -20,7 +20,10 @@ use crate::thread_pool::{self, ThreadPool};
 mod subprocess;
 #[path = "progress.rs"]
 pub(crate) mod progress;
+#[path = "mutation_child.rs"]
+mod mutation_child;
 pub(crate) use subprocess::{TEST_RUNNER_PID_VAR, dispatch as dispatch_subprocess_owner};
+pub(crate) use mutation_child::{TESTS_OF_CHILD_VAR, run_tests_in_spawned_subprocess, tests_of_child};
 #[cfg(windows)]
 pub(crate) use subprocess::job::Job;
 
@@ -320,6 +323,25 @@ fn run_test_in_process(
 
 pub static TEST_SUBPROCESS_INVOCATION: &str = "__ISOLATED_TEST_CASE";
 
+/// The command that runs the test `name` in a child process, which runs the tests in `list` in turn, if given.
+fn isolated_command(name: &test::TestName, cmd_hook: &(dyn Fn(&mut Command) + Send + Sync), list: Option<&std::path::Path>, no_capture: bool) -> io::Result<Command> {
+    let mut command = Command::new(env::current_exe()?);
+    let name_tests = |command: &mut Command| {
+        command.env(TEST_SUBPROCESS_INVOCATION, name.as_slice());
+        if let Some(list) = list { command.env(TESTS_OF_CHILD_VAR, list); }
+    };
+    name_tests(&mut command);
+    cmd_hook(&mut command);
+    // Set again, in case the hook cleared the environment.
+    name_tests(&mut command);
+    if no_capture {
+        command.stdout(process::Stdio::inherit()).stderr(process::Stdio::inherit());
+    } else {
+        command.stdout(process::Stdio::piped()).stderr(process::Stdio::piped());
+    }
+    Ok(command)
+}
+
 fn spawn_test_subprocess(
     id: test::TestId,
     desc: test::TestDesc,
@@ -329,18 +351,8 @@ fn spawn_test_subprocess(
     test_timeout: Option<Duration>,
     no_capture: bool,
 ) {
-    let outcome = panic::catch_unwind(panic::AssertUnwindSafe(|| -> io::Result<_> {
-        let mut command = Command::new(env::current_exe()?);
-        command.env(TEST_SUBPROCESS_INVOCATION, desc.name.as_slice());
-        cmd_hook(&mut command);
-        // Set again, in case the hook cleared the environment.
-        command.env(TEST_SUBPROCESS_INVOCATION, desc.name.as_slice());
-        if no_capture {
-            command.stdout(process::Stdio::inherit()).stderr(process::Stdio::inherit());
-        } else {
-            command.stdout(process::Stdio::piped()).stderr(process::Stdio::piped());
-        }
-        subprocess::run(command, control_ch, test_timeout)
+    let outcome = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+        subprocess::run(isolated_command(&desc.name, &*cmd_hook, None, no_capture)?, control_ch, test_timeout)
     }));
     let message = match outcome {
         Ok(Ok((result, exec_time, stdout))) => MonitorMessage::Completed(CompletedTest { id, desc, result, exec_time: Some(exec_time), stdout }),
@@ -357,52 +369,6 @@ fn __rust_begin_short_backtrace<T, F: FnOnce() -> T>(f: F) -> T {
 
     // Prevent this frame from being tail-call optimized away.
     test::black_box(result)
-}
-
-pub fn run_test_in_spawned_subprocess(test: test::TestDescAndFn) -> ! {
-    let builtin_panic_hook = panic::take_hook();
-
-    let exit_with_result = Arc::new(move |panic_info: Option<&panic::PanicHookInfo<'_>>| -> ! {
-        let task_result = match panic_info {
-            Some(info) => Err(info.payload()),
-            None => Ok(()),
-        };
-        let test_result = TestResult::from_task(test.desc.should_panic, task_result, None, None);
-
-        if let TestResult::FailedMsg(msg) = &test_result {
-            eprintln!("{msg}");
-        }
-        if let Some(info) = panic_info {
-            builtin_panic_hook(info);
-        }
-
-        match test_result {
-            TestResult::Ok => process::exit(TR_OK),
-            TestResult::Failed | TestResult::FailedMsg(_) => process::exit(TR_FAILED),
-            TestResult::CrashedMsg(_) | TestResult::TimedOut | TestResult::Ignored => unreachable!(),
-        }
-    });
-
-    panic::set_hook({
-        let exit_with_result_panic = exit_with_result.clone();
-        Box::new(move |panic_info| exit_with_result_panic(Some(panic_info)))
-    });
-
-    let result = match test.testfn {
-        test::TestFn::StaticTestFn(f)
-        => __rust_begin_short_backtrace(f),
-
-        | test::TestFn::DynTestFn(_)
-        | test::TestFn::StaticBenchFn(_)
-        | test::TestFn::StaticBenchAsTestFn(_)
-        | test::TestFn::DynBenchFn(_)
-        | test::TestFn::DynBenchAsTestFn(_)
-        => unreachable!(),
-    };
-
-    if let Err(e) = result { panic!("{e}"); }
-
-    exit_with_result(None);
 }
 
 fn run_test(
@@ -714,8 +680,8 @@ where
     remaining.reverse();
 
     let supports_threads = !cfg!(target_os = "emscripten") && !cfg!(target_family = "wasm");
-    let synchronous = matches!(&test_run_strategy, TestRunStrategy::InProcess(_))
-        && remaining.iter().all(|(_, test)| test.timeout.is_none());
+    let isolated = matches!(&test_run_strategy, TestRunStrategy::InIsolatedChildProcess(_));
+    let synchronous = !isolated && remaining.iter().all(|(_, test)| test.timeout.is_none());
     if !supports_threads && !synchronous {
         panic!("isolated tests and timeouts require thread support");
     }
@@ -731,9 +697,10 @@ where
         no_capture,
         on_test_event,
     };
-    match concurrency == 1 && synchronous {
-        true => scheduler.run_serially(),
-        false => scheduler.run_concurrently(concurrency),
+    match (concurrency, synchronous, isolated) {
+        (1, true, _) => scheduler.run_serially(),
+        (1, _, true) => scheduler.run_in_mutation_children(),
+        _ => scheduler.run_concurrently(concurrency),
     }
 }
 
@@ -946,6 +913,17 @@ mod tests {
     struct Scratch(PathBuf);
     impl Drop for Scratch {
         fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); }
+    }
+
+    /// The body of a fixture test that a child process runs; a crash or a hang ends the child before it writes coverage.
+    pub(super) fn fixture_fn(name: &str) -> fn() -> Result<(), String> {
+        match name {
+            "fail" => || Err("fails".to_owned()),
+            "crash" => || process::exit(3),
+            "should-panic" => || panic!("expected"),
+            "hang" => || loop { thread::park(); },
+            _ => || Ok(()),
+        }
     }
 
     pub(super) fn descriptor(timeout: Option<Duration>) -> Test {

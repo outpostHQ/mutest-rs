@@ -1149,18 +1149,16 @@ fn verdict_exit_code(results: &MutationAnalysisResults) -> i32 {
 
 const MUTEST_ISOLATED_WORKER_MUTATION_ID: &str = "__MUTEST_ISOLATED_WORKER_MUTATION_ID";
 
-fn mutest_isolated_worker(test: test::TestDescAndFn, meta_mutant: &'static MetaMutant<impl SubstMap>) -> ! {
+fn mutest_isolated_worker(tests: Vec<test::TestDescAndFn>, report: Option<std::fs::File>, meta_mutant: &'static MetaMutant<impl SubstMap>) -> ! {
     let mutation_id = env::var(MUTEST_ISOLATED_WORKER_MUTATION_ID).unwrap()
         .parse::<u32>().expect(&format!("{MUTEST_ISOLATED_WORKER_MUTATION_ID} must be a number"));
 
-    let Some(mutant) = meta_mutant.find_mutant_with_mutation(mutation_id) else {
-        panic!("{MUTEST_ISOLATED_WORKER_MUTATION_ID} must be a valid id");
-    };
+    let Some(mutant) = meta_mutant.find_mutant_with_mutation(mutation_id) else { panic!("{MUTEST_ISOLATED_WORKER_MUTATION_ID} must be a valid id") };
 
     // SAFETY: No other thread is running yet, no one else is reading from the handle yet.
     unsafe { meta_mutant.active_mutant_handle.replace(Some(SubstMap::with(mutant.substitutions()))); }
 
-    test_runner::run_test_in_spawned_subprocess(test);
+    test_runner::run_tests_in_spawned_subprocess(tests, report);
 }
 
 fn mutest_simulate_main<S: SubstMap>(args: &[&str], tests: Vec<test::TestDescAndFn>, mutant: &'static StandaloneMutantMeta, active_mutant_handle: &'static ActiveMutantHandle<S>) {
@@ -1282,16 +1280,16 @@ pub fn mutest_main_static(test_suite: TestSuite<'_>, meta_mutant: &'static MetaM
     test_runner::dispatch_subprocess_owner();
     let TestSuite::Tests(tests, external_tests_extra) = test_suite;
     if let Ok(test_name) = env::var(test_runner::TEST_SUBPROCESS_INVOCATION) {
-        let runner_pid = env::var_os(test_runner::TEST_RUNNER_PID_VAR);
+        let (runner_pid, list) = (env::var_os(test_runner::TEST_RUNNER_PID_VAR), env::var_os(test_runner::TESTS_OF_CHILD_VAR));
         // SAFETY: No other thread is running.
         unsafe {
             env::remove_var(test_runner::TEST_SUBPROCESS_INVOCATION);
             env::remove_var(test_runner::TEST_RUNNER_PID_VAR);
+            env::remove_var(test_runner::TESTS_OF_CHILD_VAR);
         }
         crate::supervisor::end_with_runner(runner_pid);
-        let test = tests.iter().find(|test| test.desc.name.as_slice() == test_name)
-            .expect(&format!("cannot find test with name `{test_name}`"));
-        mutest_isolated_worker(make_owned_test_def(test), meta_mutant)
+        let (tests, report) = test_runner::tests_of_child(tests, &test_name, list);
+        mutest_isolated_worker(tests.into_iter().map(make_owned_test_def).collect(), report, meta_mutant)
     }
 
     let args = env::args().collect::<Vec<_>>();

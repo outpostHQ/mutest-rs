@@ -161,11 +161,11 @@ fn isolated_abort() -> Result<(), String> {
 }
 
 pub(crate) fn isolated_entry() {
-    if env::var("MUTEST_REGRESSION_SCENARIO").unwrap() == "evaluate-unrepeatable" { mutest_isolated_worker(case("abort", run_once), &SINGLE) }
+    if env::var("MUTEST_REGRESSION_SCENARIO").unwrap() == "evaluate-unrepeatable" { mutest_isolated_worker(vec![case("abort", run_once)], None, &SINGLE) }
     match env::var(test_runner::TEST_SUBPROCESS_INVOCATION).unwrap().as_str() {
-        "abort" => mutest_isolated_worker(case("abort", aborting), &BATCH),
-        "collateral" => mutest_isolated_worker(case("collateral", collateral), &BATCH),
-        _ => mutest_isolated_worker(case("isolated", isolated_abort), &UNSAFE_META),
+        "abort" => mutest_isolated_worker(vec![case("abort", aborting)], None, &BATCH),
+        "collateral" => mutest_isolated_worker(vec![case("collateral", collateral)], None, &BATCH),
+        _ => mutest_isolated_worker(vec![case("isolated", isolated_abort)], None, &UNSAFE_META),
     }
 }
 
