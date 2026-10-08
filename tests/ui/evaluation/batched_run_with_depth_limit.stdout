@@ -1,0 +1,231 @@
+batch of 2 mutations
+  - [fn_return_default] return `0` without evaluating the function body in add_one at tests/ui/evaluation/batched_run_with_depth_limit.rs:8:1: 10:2
+    <-(0)- test_add_one
+  - [fn_return_default] return `0` without evaluating the function body in add_two at tests/ui/evaluation/batched_run_with_depth_limit.rs:12:1: 14:2
+    <-(0)- test_add_two
+
+batch of 2 mutations
+  - [fn_return_default] return `1` without evaluating the function body in add_one at tests/ui/evaluation/batched_run_with_depth_limit.rs:8:1: 10:2
+    <-(0)- test_add_one
+  - [fn_return_default] return `1` without evaluating the function body in add_two at tests/ui/evaluation/batched_run_with_depth_limit.rs:12:1: 14:2
+    <-(0)- test_add_two
+
+batch of 2 mutations
+  - [arg_default_shadow] ignore `a` argument by shadowing it with `Default::default()` in add_one at tests/ui/evaluation/batched_run_with_depth_limit.rs:8:12: 8:18
+    <-(0)- test_add_one
+  - [arg_default_shadow] ignore `a` argument by shadowing it with `Default::default()` in add_two at tests/ui/evaluation/batched_run_with_depth_limit.rs:12:12: 12:18
+    <-(0)- test_add_two
+
+batch of 2 mutations
+  - [math_op_add_mul_swap] swap operator `+` for `*` in add_one at tests/ui/evaluation/batched_run_with_depth_limit.rs:9:5: 9:10
+    <-(0)- test_add_one
+  - [math_op_add_mul_swap] swap operator `+` for `*` in add_two at tests/ui/evaluation/batched_run_with_depth_limit.rs:13:5: 13:10
+    <-(0)- test_add_two
+
+batch of 2 mutations
+  - [math_op_add_sub_swap] swap operator `+` for `-` in add_one at tests/ui/evaluation/batched_run_with_depth_limit.rs:9:5: 9:10
+    <-(0)- test_add_one
+  - [math_op_add_sub_swap] swap operator `+` for `-` in add_two at tests/ui/evaluation/batched_run_with_depth_limit.rs:13:5: 13:10
+    <-(0)- test_add_two
+
+batch of 1 mutation
+  - [fn_return_default] return `0` without evaluating the function body in add_one_if_small at tests/ui/evaluation/batched_run_with_depth_limit.rs:16:1: 19:2
+    <-(1)- test_add_one_if_small_and_even
+
+batch of 1 mutation
+  - [fn_return_default] return `1` without evaluating the function body in add_one_if_small at tests/ui/evaluation/batched_run_with_depth_limit.rs:16:1: 19:2
+    <-(1)- test_add_one_if_small_and_even
+
+batch of 1 mutation
+  - [arg_default_shadow] ignore `a` argument by shadowing it with `Default::default()` in add_one_if_small at tests/ui/evaluation/batched_run_with_depth_limit.rs:16:21: 16:27
+    <-(1)- test_add_one_if_small_and_even
+
+batch of 1 mutation
+  - [bool_expr_negate] negate boolean expression in add_one_if_small at tests/ui/evaluation/batched_run_with_depth_limit.rs:17:8: 17:15
+    <-(1)- test_add_one_if_small_and_even
+
+batch of 1 mutation
+  - [relational_op_eq_swap] add equality to relational operator `>` in add_one_if_small at tests/ui/evaluation/batched_run_with_depth_limit.rs:17:8: 17:15
+    <-(1)- test_add_one_if_small_and_even
+
+batch of 1 mutation
+  - [relational_op_invert] invert relational operator `>` for `<=` in add_one_if_small at tests/ui/evaluation/batched_run_with_depth_limit.rs:17:8: 17:15
+    <-(1)- test_add_one_if_small_and_even
+
+batch of 1 mutation
+  - [call_delete] delete call to `add_one` and replace it with `Default::default()` in add_one_if_small at tests/ui/evaluation/batched_run_with_depth_limit.rs:18:5: 18:15
+    <-(1)- test_add_one_if_small_and_even
+
+batch of 1 mutation
+  - [call_value_default_shadow] ignore return value of call to `add_one` by shadowing it with `Default::default()` in add_one_if_small at tests/ui/evaluation/batched_run_with_depth_limit.rs:18:5: 18:15
+    <-(1)- test_add_one_if_small_and_even
+
+batch of 1 mutation
+  - [fn_return_default] return `0` without evaluating the function body in add_one_if_small_and_even at tests/ui/evaluation/batched_run_with_depth_limit.rs:21:1: 24:2
+    <-(0)- test_add_one_if_small_and_even
+
+batch of 1 mutation
+  - [fn_return_default] return `1` without evaluating the function body in add_one_if_small_and_even at tests/ui/evaluation/batched_run_with_depth_limit.rs:21:1: 24:2
+    <-(0)- test_add_one_if_small_and_even
+
+batch of 1 mutation
+  - [arg_default_shadow] ignore `a` argument by shadowing it with `Default::default()` in add_one_if_small_and_even at tests/ui/evaluation/batched_run_with_depth_limit.rs:21:30: 21:36
+    <-(0)- test_add_one_if_small_and_even
+
+batch of 1 mutation
+  - [bool_expr_negate] negate boolean expression in add_one_if_small_and_even at tests/ui/evaluation/batched_run_with_depth_limit.rs:22:8: 22:18
+    <-(0)- test_add_one_if_small_and_even
+
+batch of 1 mutation
+  - [eq_op_invert] invert equality operator `!=` to `==` in add_one_if_small_and_even at tests/ui/evaluation/batched_run_with_depth_limit.rs:22:8: 22:18
+    <-(0)- test_add_one_if_small_and_even
+
+batch of 1 mutation
+  - [math_op_div_rem_swap] swap operator `%` for `/` in add_one_if_small_and_even at tests/ui/evaluation/batched_run_with_depth_limit.rs:22:8: 22:13
+    <-(0)- test_add_one_if_small_and_even
+
+batch of 1 mutation
+  - [call_delete] delete call to `add_one_if_small` and replace it with `Default::default()` in add_one_if_small_and_even at tests/ui/evaluation/batched_run_with_depth_limit.rs:23:5: 23:24
+    <-(0)- test_add_one_if_small_and_even
+
+batch of 1 mutation
+  - [call_value_default_shadow] ignore return value of call to `add_one_if_small` by shadowing it with `Default::default()` in add_one_if_small_and_even at tests/ui/evaluation/batched_run_with_depth_limit.rs:23:5: 23:24
+    <-(0)- test_add_one_if_small_and_even
+
+26 mutations; 26 safe; 0 unsafe (0 tainted)
+21 batches; 10 batched; 16 unbatched
+
+---
+
+profiling reference test run
+
+applying batch of 2 mutations:
+- [fn_return_default] return `0` without evaluating the function body at tests/ui/evaluation/batched_run_with_depth_limit.rs:8:1: 10:2
+- [fn_return_default] return `0` without evaluating the function body at tests/ui/evaluation/batched_run_with_depth_limit.rs:12:1: 14:2
+
+ran 2 out of 2 tests
+
+applying batch of 2 mutations:
+- [fn_return_default] return `1` without evaluating the function body at tests/ui/evaluation/batched_run_with_depth_limit.rs:8:1: 10:2
+- [fn_return_default] return `1` without evaluating the function body at tests/ui/evaluation/batched_run_with_depth_limit.rs:12:1: 14:2
+
+ran 2 out of 2 tests
+
+applying batch of 2 mutations:
+- [arg_default_shadow] ignore `a` argument by shadowing it with `Default::default()` at tests/ui/evaluation/batched_run_with_depth_limit.rs:8:12: 8:18
+- [arg_default_shadow] ignore `a` argument by shadowing it with `Default::default()` at tests/ui/evaluation/batched_run_with_depth_limit.rs:12:12: 12:18
+
+ran 2 out of 2 tests
+
+applying batch of 2 mutations:
+- [math_op_add_mul_swap] swap operator `+` for `*` at tests/ui/evaluation/batched_run_with_depth_limit.rs:9:5: 9:10
+- [math_op_add_mul_swap] swap operator `+` for `*` at tests/ui/evaluation/batched_run_with_depth_limit.rs:13:5: 13:10
+
+ran 2 out of 2 tests
+
+warning: [math_op_add_mul_swap] mutation was not detected
+  --> tests/ui/evaluation/batched_run_with_depth_limit.rs:13:5
+   |
+13 |     a + 2
+   |     ^^^^^ swap operator for `*`
+   |
+   = note: expression replaced with: `a * 2`
+
+applying batch of 2 mutations:
+- [math_op_add_sub_swap] swap operator `+` for `-` at tests/ui/evaluation/batched_run_with_depth_limit.rs:9:5: 9:10
+- [math_op_add_sub_swap] swap operator `+` for `-` at tests/ui/evaluation/batched_run_with_depth_limit.rs:13:5: 13:10
+
+ran 2 out of 2 tests
+
+applying batch of 1 mutation:
+- [fn_return_default] return `0` without evaluating the function body at tests/ui/evaluation/batched_run_with_depth_limit.rs:16:1: 19:2
+
+ran 1 out of 1 test
+
+applying batch of 1 mutation:
+- [fn_return_default] return `1` without evaluating the function body at tests/ui/evaluation/batched_run_with_depth_limit.rs:16:1: 19:2
+
+ran 1 out of 1 test
+
+applying batch of 1 mutation:
+- [arg_default_shadow] ignore `a` argument by shadowing it with `Default::default()` at tests/ui/evaluation/batched_run_with_depth_limit.rs:16:21: 16:27
+
+ran 1 out of 1 test
+
+applying batch of 1 mutation:
+- [bool_expr_negate] negate boolean expression at tests/ui/evaluation/batched_run_with_depth_limit.rs:17:8: 17:15
+
+ran 1 out of 1 test
+
+applying batch of 1 mutation:
+- [relational_op_eq_swap] add equality to relational operator `>` at tests/ui/evaluation/batched_run_with_depth_limit.rs:17:8: 17:15
+
+ran 1 out of 1 test
+
+warning: [relational_op_eq_swap] mutation was not detected
+  --> tests/ui/evaluation/batched_run_with_depth_limit.rs:17:8
+   |
+17 |     if a > 100 { return a; }
+   |        ^^^^^^^ add equality to relational operator
+   |
+   = note: expression replaced with: `a >= 100`
+
+applying batch of 1 mutation:
+- [relational_op_invert] invert relational operator `>` for `<=` at tests/ui/evaluation/batched_run_with_depth_limit.rs:17:8: 17:15
+
+ran 1 out of 1 test
+
+applying batch of 1 mutation:
+- [call_delete] delete call to `add_one` and replace it with `Default::default()` at tests/ui/evaluation/batched_run_with_depth_limit.rs:18:5: 18:15
+
+ran 1 out of 1 test
+
+applying batch of 1 mutation:
+- [call_value_default_shadow] ignore return value of call to `add_one` by shadowing it with `Default::default()` at tests/ui/evaluation/batched_run_with_depth_limit.rs:18:5: 18:15
+
+ran 1 out of 1 test
+
+applying batch of 1 mutation:
+- [fn_return_default] return `0` without evaluating the function body at tests/ui/evaluation/batched_run_with_depth_limit.rs:21:1: 24:2
+
+ran 1 out of 1 test
+
+applying batch of 1 mutation:
+- [fn_return_default] return `1` without evaluating the function body at tests/ui/evaluation/batched_run_with_depth_limit.rs:21:1: 24:2
+
+ran 1 out of 1 test
+
+applying batch of 1 mutation:
+- [arg_default_shadow] ignore `a` argument by shadowing it with `Default::default()` at tests/ui/evaluation/batched_run_with_depth_limit.rs:21:30: 21:36
+
+ran 1 out of 1 test
+
+applying batch of 1 mutation:
+- [bool_expr_negate] negate boolean expression at tests/ui/evaluation/batched_run_with_depth_limit.rs:22:8: 22:18
+
+ran 1 out of 1 test
+
+applying batch of 1 mutation:
+- [eq_op_invert] invert equality operator `!=` to `==` at tests/ui/evaluation/batched_run_with_depth_limit.rs:22:8: 22:18
+
+ran 1 out of 1 test
+
+applying batch of 1 mutation:
+- [math_op_div_rem_swap] swap operator `%` for `/` at tests/ui/evaluation/batched_run_with_depth_limit.rs:22:8: 22:13
+
+ran 1 out of 1 test
+
+applying batch of 1 mutation:
+- [call_delete] delete call to `add_one_if_small` and replace it with `Default::default()` at tests/ui/evaluation/batched_run_with_depth_limit.rs:23:5: 23:24
+
+ran 1 out of 1 test
+
+applying batch of 1 mutation:
+- [call_value_default_shadow] ignore return value of call to `add_one_if_small` by shadowing it with `Default::default()` at tests/ui/evaluation/batched_run_with_depth_limit.rs:23:5: 23:24
+
+ran 1 out of 1 test
+
+mutations: 92.31%. 24 detected (0 timed out; 0 crashed); 2 undetected; 26 total
+     safe: 92.31%. 24 detected (0 timed out; 0 crashed); 2 undetected; 26 total
+   unsafe: none. 0 detected (0 timed out; 0 crashed); 0 undetected; 0 total
+timeouts confirmed: 0 re-run alone; 0 detected, 0 undetected, 0 crashed, 0 timed out again

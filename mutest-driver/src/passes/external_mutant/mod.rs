@@ -18,6 +18,7 @@ pub struct StableTarget {
     pub unsafety: Unsafety,
     pub reachability: TargetReachability,
     pub reachable_from: FxHashMap<hir::DefPathHash, EntryPointAssoc>,
+    pub reached_by_truncated_entry_point: bool,
 }
 
 impl StableTarget {
@@ -35,6 +36,7 @@ impl StableTarget {
             unsafety: target.unsafety,
             reachability: target.reachability,
             reachable_from: stable_reachable_from,
+            reached_by_truncated_entry_point: target.reached_by_truncated_entry_point,
         }
     }
 
@@ -61,6 +63,7 @@ impl StableTarget {
             unsafety: self.unsafety,
             reachability: self.reachability,
             reachable_from: EntryPointAssocs::Extern(session_reachable_from),
+            reached_by_truncated_entry_point: self.reached_by_truncated_entry_point,
         }
     }
 }

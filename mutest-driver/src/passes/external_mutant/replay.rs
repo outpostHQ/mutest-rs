@@ -22,6 +22,7 @@ pub struct Target {
     unsafety: u8,
     distance: Option<usize>,
     entries: Vec<((u64, u64), usize, Option<u8>)>,
+    truncated: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -79,6 +80,7 @@ impl Targets {
                             (hash(h), entry.distance, entry.unsafe_call_path.map(source))
                         })
                         .collect(),
+                    truncated: target.reached_by_truncated_entry_point,
                 })
                 .collect(),
             paths: value
@@ -125,6 +127,7 @@ impl Targets {
                             ))
                         })
                         .collect::<Result<_, String>>()?,
+                    reached_by_truncated_entry_point: target.truncated,
                 })
             })
             .collect::<Result<_, String>>()?;

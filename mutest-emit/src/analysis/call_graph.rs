@@ -240,6 +240,9 @@ pub struct Target {
     pub unsafety: Unsafety,
     pub reachability: TargetReachability,
     pub reachable_from: EntryPointAssocs,
+    /// Whether an explicit call graph limit cut the calls of an entry point that reaches the target,
+    /// so that the entry point may also reach any other target.
+    pub reached_by_truncated_entry_point: bool,
 }
 
 impl Target {
@@ -492,6 +495,8 @@ pub struct CallGraph<'tcx> {
     pub foreign_calls_count: usize,
     pub root_calls: FxHashMap<hir::LocalDefId, Vec<InstanceCall<'tcx>>>,
     pub nested_calls: Vec<FxHashMap<Callee<'tcx>, Vec<InstanceCall<'tcx>>>>,
+    /// The callers at the explicit depth limit whose calls are left out of the call graph.
+    pub truncated_callers: FxHashSet<Callee<'tcx>>,
 }
 
 impl<'tcx> CallGraph<'tcx> {
@@ -547,6 +552,7 @@ fn new_nested_target<'ast, 'tcx>(
         unsafety: item_unsafety,
         reachability: TargetReachability::NestedCallee { distance },
         reachable_from: EntryPointAssocs::Local(Default::default()),
+        reached_by_truncated_entry_point: false,
     })
 }
 
@@ -701,6 +707,19 @@ fn sort_callers_by_span<'tcx>(tcx: TyCtxt<'tcx>, callers: FxHashSet<Callee<'tcx>
     callers
 }
 
+/// The calls of the body, including the drop glue it runs and the functions it coerces into pointers or trait objects.
+fn body_calls<'tcx>(tcx: TyCtxt<'tcx>, body_mir: &'tcx mir::Body<'tcx>, generic_args: ty::GenericArgsRef<'tcx>) -> impl Iterator<Item = Call<'tcx>> {
+    mir_callees(tcx, body_mir, generic_args)
+        .chain(drop_glue_callees(tcx, body_mir, generic_args))
+        .chain(coercion_callees(tcx, body_mir, generic_args))
+}
+
+/// Records the caller at the depth limit as truncated if it calls any function, as the call graph leaves its calls out.
+fn record_truncated_caller<'tcx>(tcx: TyCtxt<'tcx>, call_graph: &mut CallGraph<'tcx>, caller: Callee<'tcx>) {
+    let body_mir = tcx.instance_mir(ty::InstanceKind::Item(caller.def_id));
+    if body_calls(tcx, body_mir, caller.generic_args).next().is_some() { call_graph.truncated_callers.insert(caller); }
+}
+
 /// Records the calls of the caller at the distance, and adds its callees to the found callees.
 fn record_caller_calls<'tcx>(
     tcx: TyCtxt<'tcx>,
@@ -712,9 +731,7 @@ fn record_caller_calls<'tcx>(
 ) {
     let body_mir = tcx.instance_mir(ty::InstanceKind::Item(caller.def_id));
 
-    let mut calls = mir_callees(tcx, &body_mir, caller.generic_args).collect::<Vec<_>>();
-    calls.extend(drop_glue_callees(tcx, body_mir, caller.generic_args));
-    calls.extend(coercion_callees(tcx, body_mir, caller.generic_args));
+    let mut calls = body_calls(tcx, body_mir, caller.generic_args).collect::<Vec<_>>();
     // HACK: We must sort the calls into a stable order for the corresponding diagnostics to be printed in a stable order.
     calls.sort_unstable_by(|call_a, call_b| span_diagnostic_ord(call_a.span, call_b.span));
 
@@ -728,8 +745,8 @@ fn record_caller_calls<'tcx>(
     }
 }
 
-/// Records the calls of the callers at the distance, and returns the callees at the next distance and the number of
-/// callers ignored at the depth limit. The callees of a caller that does not add to the distance join the callers.
+/// Records the calls of the callers at the distance, and returns the callees at the next distance. The callees of a
+/// caller that does not add to the distance join the callers; at the depth limit, the other callers are truncated.
 fn record_calls_at_distance<'tcx>(
     tcx: TyCtxt<'tcx>,
     call_graph: &mut CallGraph<'tcx>,
@@ -738,9 +755,8 @@ fn record_calls_at_distance<'tcx>(
     mut callers: FxHashSet<Callee<'tcx>>,
     distance: usize,
     at_depth_limit: bool,
-) -> (FxHashSet<Callee<'tcx>>, usize) {
+) -> FxHashSet<Callee<'tcx>> {
     let mut next_distance_callees: FxHashSet<Callee<'tcx>> = Default::default();
-    let mut ignored_callers: FxHashSet<Callee<'tcx>> = Default::default();
 
     while !callers.is_empty() {
         let mut same_distance_callees: FxHashSet<Callee<'tcx>> = Default::default();
@@ -754,7 +770,7 @@ fn record_calls_at_distance<'tcx>(
 
             let counts_call_frame = targeting.counts_call_frame(caller.def_id);
             if at_depth_limit && counts_call_frame {
-                ignored_callers.insert(caller);
+                record_truncated_caller(tcx, call_graph, caller);
                 continue;
             }
 
@@ -770,7 +786,14 @@ fn record_calls_at_distance<'tcx>(
         callers = same_distance_callees;
     }
 
-    (next_distance_callees, ignored_callers.len())
+    next_distance_callees
+}
+
+fn mark_targets_reached_by_truncated_entry_points(targets: &mut FxHashMap<hir::DefId, Target>, truncated_entry_points: &FxHashSet<LocalEntryPoint>) {
+    for target in targets.values_mut() {
+        let EntryPointAssocs::Local(reachable_from) = &target.reachable_from else { unreachable!() };
+        target.reached_by_truncated_entry_point = reachable_from.keys().any(|entry_point| truncated_entry_points.contains(entry_point));
+    }
 }
 
 pub fn reachable_fns<'ast, 'tcx, 'ent>(
@@ -788,6 +811,7 @@ pub fn reachable_fns<'ast, 'tcx, 'ent>(
         foreign_calls_count: 0,
         root_calls: Default::default(),
         nested_calls: vec![],
+        truncated_callers: Default::default(),
     };
 
     let test_def_ids = match entry_points {
@@ -810,9 +834,7 @@ pub fn reachable_fns<'ast, 'tcx, 'ent>(
             }
         }
 
-        let mut calls = mir_callees(tcx, &body_mir, tcx.mk_args(&[])).collect::<Vec<_>>();
-        calls.extend(drop_glue_callees(tcx, body_mir, tcx.mk_args(&[])));
-        calls.extend(coercion_callees(tcx, body_mir, tcx.mk_args(&[])));
+        let mut calls = body_calls(tcx, body_mir, tcx.mk_args(&[])).collect::<Vec<_>>();
         // HACK: We must sort the calls into a stable order for the corresponding diagnostics to be printed in a stable order.
         calls.sort_unstable_by(|call_a, call_b| span_diagnostic_ord(call_a.span, call_b.span));
 
@@ -838,8 +860,7 @@ pub fn reachable_fns<'ast, 'tcx, 'ent>(
 
         call_graph.nested_calls.push(Default::default());
         let callers = mem::take(&mut previously_found_callees);
-        let (next_distance_callees, ignored_callers_count) = record_calls_at_distance(tcx, &mut call_graph, targeting, &mut already_recorded_callers, callers, distance, at_depth_limit);
-        previously_found_callees = next_distance_callees;
+        previously_found_callees = record_calls_at_distance(tcx, &mut call_graph, targeting, &mut already_recorded_callers, callers, distance, at_depth_limit);
 
         // Remove the empty entry that was prepared for the nested calls at the last distance.
         if call_graph.nested_calls.last().is_some_and(|calls| calls.is_empty()) { call_graph.nested_calls.pop(); }
@@ -847,6 +868,7 @@ pub fn reachable_fns<'ast, 'tcx, 'ent>(
         if !at_depth_limit { continue; }
 
         // Warn about non-recorded callers because of explicit call graph depth limit.
+        let ignored_callers_count = call_graph.truncated_callers.len();
         if let Some(depth_limit) = depth_limit && ignored_callers_count > 0 {
             let mut diagnostic = tcx.dcx().struct_warn("incomplete call graph due to explicit depth limit");
             diagnostic.note(format!("call graph depth limit is set to {depth_limit}"));
@@ -899,8 +921,8 @@ pub fn reachable_fns<'ast, 'tcx, 'ent>(
         }
     }
 
-    /// Records the targets reachable from the entry point with a 0-1 breadth-first search over (callee, unsafety) states.
-    /// Only calls from counted frames add to the distance. A reach at no shorter distance, without more unsafety, changes no target.
+    /// Records the targets the entry point reaches with a 0-1 breadth-first search over (callee, unsafety) states, and returns
+    /// whether a limit cut a call trace. Only counted frames add to the distance; a reach no shorter and no less safe changes nothing.
     fn record_nested_targets<'ast, 'tcx>(
         tcx: TyCtxt<'tcx>,
         def_res: &ast_lowering::DefResolutions,
@@ -913,7 +935,8 @@ pub fn reachable_fns<'ast, 'tcx, 'ent>(
         root_unsafety: Option<UnsafeSource>,
         targets: &mut FxHashMap<hir::DefId, Target>,
         trace_length_limit: Option<usize>,
-    ) {
+    ) -> bool {
+        let mut truncated = false;
         let mut reached: FxHashMap<Callee<'tcx>, (usize, Option<UnsafeSource>)> = Default::default();
         let mut queue: VecDeque<(Callee<'tcx>, Option<UnsafeSource>, usize)> = Default::default();
 
@@ -928,14 +951,17 @@ pub fn reachable_fns<'ast, 'tcx, 'ent>(
 
             record_target(tcx, def_res, krate, test_def_ids, entry_point, targeting, caller, unsafety, distance, targets);
 
+            let callees = callee_lookup_cache.callees_of_nested_caller(caller);
+            truncated |= callee_lookup_cache.call_graph.truncated_callers.contains(&caller);
             let counts_call_frame = targeting.counts_call_frame(caller.def_id);
             let callee_distance = distance + counts_call_frame as usize;
             if let Some(trace_length_limit) = trace_length_limit && callee_distance >= trace_length_limit {
                 tcx.dcx().warn("exceeded explicit call graph trace length limit");
+                truncated |= !callees.is_empty();
                 continue;
             }
 
-            for &call in callee_lookup_cache.callees_of_nested_caller(caller) {
+            for &call in callees {
                 let unsafety = match call.safety {
                     hir::Safety::Safe => unsafety,
                     hir::Safety::Unsafe => Some(UnsafeSource::Unsafe),
@@ -948,10 +974,13 @@ pub fn reachable_fns<'ast, 'tcx, 'ent>(
                 }
             }
         }
+
+        truncated
     }
 
     let callee_lookup_cache = CalleeLookupCache::new(&call_graph);
     let mut targets: FxHashMap<hir::DefId, Target> = Default::default();
+    let mut truncated_entry_points: FxHashSet<LocalEntryPoint> = Default::default();
     for (&entry_point, calls) in &call_graph.root_calls {
         let Some(def_item) = ast_lowering::find_def_in_ast(tcx, def_res, entry_point, krate) else { continue };
         let unsafety = match check_item_unsafety(def_item) {
@@ -960,8 +989,10 @@ pub fn reachable_fns<'ast, 'tcx, 'ent>(
         };
         // HACK: We can discard any def body overrides for entry points, as we have already collected all call information from them.
         let entry_point = LocalEntryPoint { local_def_id: entry_point, body_local_def_id: None };
-        record_nested_targets(tcx, def_res, krate, &test_def_ids, &callee_lookup_cache, entry_point, targeting, calls, unsafety, &mut targets, trace_length_limit);
+        let truncated = record_nested_targets(tcx, def_res, krate, &test_def_ids, &callee_lookup_cache, entry_point, targeting, calls, unsafety, &mut targets, trace_length_limit);
+        truncated_entry_points.extend(truncated.then_some(entry_point));
     }
+    mark_targets_reached_by_truncated_entry_points(&mut targets, &truncated_entry_points);
 
     (call_graph, targets.into_values().collect())
 }

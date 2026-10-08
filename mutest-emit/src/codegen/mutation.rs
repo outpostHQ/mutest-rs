@@ -763,9 +763,9 @@ pub enum MutationParallelism<'trg, 'm> {
 }
 
 pub fn conflicting_targets(a: &Target, b: &Target) -> bool {
-    let reachable_from_a = a.reachable_from.iter().map(|(entry_point, _)| entry_point).collect();
-    let reachable_from_b = b.reachable_from.iter().map(|(entry_point, _)| entry_point).collect();
-    !FxHashSet::is_disjoint(&reachable_from_a, &reachable_from_b)
+    if a.reached_by_truncated_entry_point || b.reached_by_truncated_entry_point { return true; }
+    let reachable_from_a: FxHashSet<_> = a.reachable_from.iter().map(|(entry_point, _)| entry_point).collect();
+    b.reachable_from.iter().any(|(entry_point, _)| reachable_from_a.contains(&entry_point))
 }
 
 pub struct MutationConflictGraph<'m> {
