@@ -1,0 +1,7 @@
+[range_limit_swap] include limit in range expression in exclusive at tests/ui/mutation/ops/range_limit_swap/keep_type_of_inferred_bounds.rs:8:5: 8:27
+  <-(0)- test
+
+[range_limit_swap] exclude limit from range expression in inclusive at tests/ui/mutation/ops/range_limit_swap/keep_type_of_inferred_bounds.rs:12:5: 12:28
+  <-(0)- test
+
+2 mutations; 2 safe; 0 unsafe (0 tainted)
