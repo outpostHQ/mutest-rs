@@ -30,9 +30,10 @@ fn profile_passing_tests(tests: Vec<test::TestDescAndFn>, journal: Option<&Worke
     profiled_tests
 }
 
-/// The limit of a test: its time in the reference run, and a tenth more, but at least one second more.
+/// The limit of a test: its time in the reference run, and half more, but at least one second more,
+/// as code with an active mutant runs slower than in the reference run.
 pub(super) fn auto_test_timeout(exec_time: Duration) -> Duration {
-    exec_time + Ord::max(exec_time.mul_f32(0.1), Duration::from_secs(1))
+    exec_time + Ord::max(exec_time.mul_f32(0.5), Duration::from_secs(1))
 }
 
 fn exit_unless_all_pass(profiled_tests: &[ProfiledTest]) {
