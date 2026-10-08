@@ -763,9 +763,7 @@ pub enum MutationParallelism<'trg, 'm> {
 }
 
 pub fn conflicting_targets(a: &Target, b: &Target) -> bool {
-    if a.reached_by_truncated_entry_point || b.reached_by_truncated_entry_point { return true; }
-    let reachable_from_a: FxHashSet<_> = a.reachable_from.iter().map(|(entry_point, _)| entry_point).collect();
-    b.reachable_from.iter().any(|(entry_point, _)| reachable_from_a.contains(&entry_point))
+    a.complete_reachable_from().zip(b.complete_reachable_from()).is_none_or(|(a, b)| a.shares_entry_point_with(b))
 }
 
 pub struct MutationConflictGraph<'m> {

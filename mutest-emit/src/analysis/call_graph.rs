@@ -144,6 +144,11 @@ impl EntryPointAssocs {
             }
         }
     }
+
+    pub fn shares_entry_point_with(&self, other: &EntryPointAssocs) -> bool {
+        let entry_points: FxHashSet<_> = self.iter().map(|(entry_point, _)| entry_point).collect();
+        other.iter().any(|(entry_point, _)| entry_points.contains(&entry_point))
+    }
 }
 
 #[derive(Debug)]
@@ -170,6 +175,11 @@ impl Target {
             let unsafety = entry_point_assoc.unsafe_call_path.map(Unsafety::Tainted).unwrap_or(Unsafety::None);
             unsafety.is_unsafe(unsafe_targeting)
         })
+    }
+
+    /// The entry points that reach the target, or `None` if one of them may also reach any other target.
+    pub fn complete_reachable_from(&self) -> Option<&EntryPointAssocs> {
+        (!self.reached_by_truncated_entry_point).then_some(&self.reachable_from)
     }
 }
 
