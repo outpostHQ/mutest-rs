@@ -213,12 +213,19 @@ thread_local! {
     static TEST_THREAD_ACTIVE: Cell<Arc<AtomicBool>> = Cell::new(Arc::new(AtomicBool::new(true)));
 }
 
-pub fn is_test_thread_active() -> bool {
+/// Whether the run gave up the test of this thread, after its timeout or after the run stopped early.
+pub(crate) fn test_thread_abandoned() -> bool {
     TEST_THREAD_ACTIVE.with(|cell| {
         // SAFETY: This thread-local cell is not mutated while its pointer is borrowed.
         let value = (unsafe { &*cell.as_ptr() }).as_ref();
-        value.load(atomic::Ordering::SeqCst)
+        !value.load(atomic::Ordering::SeqCst)
     })
+}
+
+/// Whether this thread may go on past a substitution point, where an abandoned test is cancelled by a panic;
+/// an abandoned test that unwinds already goes on with no substitution, as a second panic would abort the process.
+pub fn is_test_thread_active() -> bool {
+    !test_thread_abandoned() || thread::panicking()
 }
 
 fn run_test_in_process(
@@ -614,11 +621,16 @@ fn timed_out_in_process_tests(running_tests: &HashMap<test::TestId, RunningTest>
         .collect()
 }
 
-/// Reports a timed-out in-process test, and stops it from reading the active substitutions.
-fn abandon_timed_out_test(test_id: test::TestId, running_test: &RunningTest) -> CompletedTest {
+/// Stops an in-process test from reading the active substitutions, which may soon belong to another mutation.
+fn abandon(running_test: &RunningTest) {
     if let Some(active_signal) = &running_test.active_signal {
         active_signal.store(false, atomic::Ordering::SeqCst);
     }
+}
+
+/// Reports a timed-out in-process test, and abandons it.
+fn abandon_timed_out_test(test_id: test::TestId, running_test: &RunningTest) -> CompletedTest {
+    abandon(running_test);
     CompletedTest {
         id: test_id,
         desc: running_test.desc.clone(),
@@ -745,7 +757,7 @@ where
     }
 
     /// Keeps up to `concurrency` tests running at once. A run the caller stops, or whose callback fails,
-    /// first cleans up its isolated tests, and returns the tests still running as lingering.
+    /// first cleans up its isolated tests, and abandons the tests still running, returned as lingering.
     fn run_concurrently(mut self, concurrency: usize) -> Result<(Vec<Test>, Vec<RunningTest>), E> {
         let flow = self.run_until_all_finish(concurrency);
         if let TestRunStrategy::InIsolatedChildProcess(_) = &self.strategy
@@ -753,6 +765,7 @@ where
         {
             incomplete_isolation(&message);
         }
+        self.running.values().for_each(abandon);
         flow?;
         self.lingering.extend(self.running.drain());
         Ok(self.finish())
@@ -828,6 +841,58 @@ where
         let Flow::Continue = self.emit_queue()? else { return Ok(Flow::Stop) };
         progress::end(&completed_test, true);
         self.emit(TestEvent::Result(completed_test))
+    }
+}
+
+#[cfg(test)]
+mod abandon_tests {
+    use super::*;
+
+    static RELEASE: AtomicBool = AtomicBool::new(false);
+
+    fn named_test(name: &'static str, test_fn: fn() -> Result<(), String>) -> Test {
+        Test {
+            desc: test::TestDesc {
+                name: test::StaticTestName(name), ignore: false, ignore_message: None,
+                source_file: file!(), start_line: 0, start_col: 0, end_line: 0, end_col: 0,
+                should_panic: test::ShouldPanic::No, compile_fail: false, no_run: false,
+                test_type: test::TestType::UnitTest,
+            },
+            test_fn: test::TestFn::StaticTestFn(test_fn), timeout: None,
+        }
+    }
+
+    #[test]
+    fn a_run_stopped_early_abandons_the_tests_it_leaves_running() {
+        let blocks = || {
+            while !RELEASE.load(atomic::Ordering::SeqCst) { thread::sleep(Duration::from_millis(1)); }
+            Ok(())
+        };
+        let (_, lingering) = run_tests_with_concurrency(vec![named_test("finishes", || Ok(())), named_test("blocks", blocks)], |event, _| -> Result<Flow, ()> {
+            Ok(match event { TestEvent::Result(_) => Flow::Stop, _ => Flow::Continue })
+        }, TestRunStrategy::InProcess(None), false, 2).unwrap();
+        RELEASE.store(true, atomic::Ordering::SeqCst);
+        let [lingering] = &lingering[..] else { panic!("the blocked test must linger") };
+        assert!(!lingering.active_signal.as_ref().unwrap().load(atomic::Ordering::SeqCst));
+    }
+
+    #[test]
+    fn an_abandoned_test_thread_unwinds_without_a_second_cancellation() {
+        struct Probe(mpsc::Sender<(bool, bool)>);
+        impl Drop for Probe {
+            fn drop(&mut self) {
+                let _ = self.0.send((is_test_thread_active(), test_thread_abandoned()));
+            }
+        }
+        let (tx, rx) = mpsc::channel();
+        let joined = thread::spawn(move || {
+            TEST_THREAD_ACTIVE.set(Arc::new(AtomicBool::new(false)));
+            let probe = Probe(tx);
+            probe.0.send((is_test_thread_active(), test_thread_abandoned())).unwrap();
+            panic!("cancelled");
+        }).join();
+        assert!(joined.is_err());
+        assert_eq!(rx.iter().collect::<Vec<_>>(), [(false, true), (true, true)]);
     }
 }
 

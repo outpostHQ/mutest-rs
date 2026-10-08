@@ -1,0 +1,41 @@
+[bool_expr_negate] negate boolean expression in reaches_subst at tests/ui/evaluation/cancel_test_once_if_it_unwinds_through_subst.rs:20:8: 20:12
+  <-(1)- test1
+
+[bool_expr_negate] negate boolean expression in loops_until_cancelled at tests/ui/evaluation/cancel_test_once_if_it_unwinds_through_subst.rs:31:12: 31:16
+  <-(0)- test1
+
+2 mutations; 2 safe; 0 unsafe (0 tainted)
+
+---
+
+profiling reference test run
+
+applying mutation:
+- 1: [bool_expr_negate] negate boolean expression at tests/ui/evaluation/cancel_test_once_if_it_unwinds_through_subst.rs:20:8: 20:12
+
+1: ran 1 out of 1 test
+
+warning: [bool_expr_negate] mutation was not detected
+  --> tests/ui/evaluation/cancel_test_once_if_it_unwinds_through_subst.rs:20:8
+   |
+20 |     if true {
+   |        ^^^^ negate boolean expression
+   |
+   = note: expression replaced with: `!true`
+
+applying mutation:
+- 2: [bool_expr_negate] negate boolean expression at tests/ui/evaluation/cancel_test_once_if_it_unwinds_through_subst.rs:31:12: 31:16
+
+2: ran 1 out of 1 test (1 lingering)
+
+confirming timeout of mutation alone:
+- 2: [bool_expr_negate] negate boolean expression at tests/ui/evaluation/cancel_test_once_if_it_unwinds_through_subst.rs:31:12: 31:16
+
+2: ran 1 out of 1 test (1 lingering)
+
+bool_expr_negate:   0.00%. 0 detected (1 timed out; 0 crashed); 1 undetected
+
+mutations: 0.00%. 0 detected (1 timed out; 0 crashed); 1 undetected; 2 total
+     safe: 0.00%. 0 detected (1 timed out; 0 crashed); 1 undetected; 2 total
+   unsafe: none. 0 detected (0 timed out; 0 crashed); 0 undetected; 0 total
+timeouts confirmed: 1 re-run alone; 0 detected, 0 undetected, 0 crashed, 1 timed out again

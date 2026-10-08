@@ -67,7 +67,7 @@ impl<S: SubstMap> ActiveMutantHandle<S> {
         //         and the value is allowed to change before the substitution metadata is read.
         let subst_map_ref = (unsafe { &*self.0.as_ptr() }).as_ref();
 
-        subst_map_ref.and_then(|subst| subst.subst_at(subst_loc_idx))
+        subst_map_ref.and_then(|subst| subst.subst_at(subst_loc_idx)).filter(|_| !test_runner::test_thread_abandoned())
     }
 
     /// # Safety
@@ -81,7 +81,7 @@ impl<S: SubstMap> ActiveMutantHandle<S> {
 
         // SAFETY: The caller must ensure that the substitution location index is
         //         valid for the active substitution map.
-        subst_map_ref.and_then(|subst| unsafe { subst.subst_at_unchecked(subst_loc_idx) })
+        subst_map_ref.and_then(|subst| unsafe { subst.subst_at_unchecked(subst_loc_idx) }).filter(|_| !test_runner::test_thread_abandoned())
     }
 
     /// # Safety
