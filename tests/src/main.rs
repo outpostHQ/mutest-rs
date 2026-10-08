@@ -215,6 +215,29 @@ fn test_normalize_retained_journal_paths() {
     assert!(!journal.exists());
 }
 
+/// rustc joins the remapped paths of std sources with the host's path separator.
+fn normalize_std_source_paths(output: &str) -> String {
+    const PREFIX: &str = "/rustc/";
+    let mut normalized = String::with_capacity(output.len());
+    let mut rest = output;
+    while let Some(start) = rest.find(PREFIX) {
+        let (before, path) = rest.split_at(start);
+        let end = path.find([':', ' ', '\n']).unwrap_or(path.len());
+        normalized.push_str(before);
+        normalized.push_str(&path[..end].replace('\\', "/"));
+        rest = &path[end..];
+    }
+    normalized.push_str(rest);
+    normalized
+}
+
+#[test]
+fn test_normalize_std_source_paths() {
+    let output = "  -> f at /rustc/0abf/library/core\\src\\option.rs:1160:5: 1162:54 (#0)\nlet s = \"a\\\\b\";\n";
+
+    assert_eq!(normalize_std_source_paths(output), "  -> f at /rustc/0abf/library/core/src/option.rs:1160:5: 1162:54 (#0)\nlet s = \"a\\\\b\";\n");
+}
+
 const BUILD_OUT_DIR: &str = "target/mutest_test/debug/deps";
 const AUX_OUT_DIR: &str = "target/mutest_test/debug/deps/auxiliary";
 const EVAL_STREAM_OUT_DIR: &str = "target/mutest_test/json";
@@ -937,8 +960,8 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
     }
 
     // DefaultHasher output can change between Rust releases.
-    let stdout = stdout.replace(&crate_hash, "$HASH");
-    let stderr = stderr.replace(&crate_hash, "$HASH");
+    let stdout = normalize_std_source_paths(&stdout.replace(&crate_hash, "$HASH"));
+    let stderr = normalize_std_source_paths(&stderr.replace(&crate_hash, "$HASH"));
     let outputs = Outputs { stdout: &stdout, stderr: &stderr, eval_stream: &eval_stream };
 
     if opts.bless {
