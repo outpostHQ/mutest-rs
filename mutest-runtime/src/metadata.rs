@@ -90,7 +90,7 @@ impl<const N: usize> SubstMap for [Option<SubstMeta>; N] {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     fn subst_at(&self, subst_loc_idx: SubstLocIdx) -> Option<SubstMeta> {
         self[subst_loc_idx]
     }

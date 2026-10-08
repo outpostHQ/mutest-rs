@@ -14,6 +14,7 @@ use std::sync::mpsc;
 use std::thread::{self, ThreadId};
 use std::time::{Duration, Instant};
 
+use crate::metadata::{SubstLocIdx, SubstMap, SubstMeta};
 use crate::thread_pool::{self, ThreadPool};
 
 #[path = "subprocess.rs"]
@@ -249,24 +250,40 @@ fn abandon_signal(active_signal: &AtomicBool) {
     }
 }
 
-/// Whether the test of this thread is still active; `None` when the thread runs no test, or no test thread is abandoned.
-#[inline]
-fn active_signal() -> Option<bool> {
-    if ABANDONED_TEST_THREADS.load(atomic::Ordering::Relaxed) == 0 { return None; }
-    // SAFETY: The `TestThreadSignal` of this thread owns the signal, and clears the pointer before it drops it.
-    unsafe { TEST_THREAD_ACTIVE.get().as_ref() }.map(|active_signal| active_signal.load(atomic::Ordering::SeqCst))
-}
-
 /// Whether the run gave up the test of this thread, after its timeout or after the run stopped early.
-#[inline]
-pub(crate) fn test_thread_abandoned() -> bool {
-    active_signal() == Some(false)
+/// Callers check `any_test_thread_abandoned` first, as only then can it be true.
+fn test_thread_abandoned() -> bool {
+    // SAFETY: The `TestThreadSignal` of this thread owns the signal, and clears the pointer before it drops it.
+    unsafe { TEST_THREAD_ACTIVE.get().as_ref() }.is_some_and(|active_signal| !active_signal.load(atomic::Ordering::SeqCst))
 }
 
-/// Whether this thread may go on past a substitution point, where an abandoned test is cancelled by a panic;
-/// an abandoned test that unwinds already goes on with no substitution, as a second panic would abort the process.
-#[inline]
+/// Whether the run gave up a test whose thread still runs.
+/// Inlined even in unoptimized builds, as every substitution point calls it.
+#[inline(always)]
+fn any_test_thread_abandoned() -> bool {
+    ABANDONED_TEST_THREADS.load(atomic::Ordering::Relaxed) != 0
+}
+
+/// The substitution of the active mutant at the location, or none for a test the run gave up, which an unwinding
+/// abandoned test reaches past `is_test_thread_active`.
+#[inline(always)]
+pub(crate) fn active_subst<S: SubstMap>(subst_map: &Option<S>, subst_loc_idx: SubstLocIdx) -> Option<SubstMeta> {
+    let subst = match subst_map { Some(subst_map) => subst_map.subst_at(subst_loc_idx), None => None };
+    match subst {
+        Some(_) if any_test_thread_abandoned() && test_thread_abandoned() => None,
+        subst => subst,
+    }
+}
+
+/// Whether this thread may go on past a substitution point, where an abandoned test is cancelled by a panic.
+#[inline(always)]
 pub fn is_test_thread_active() -> bool {
+    !any_test_thread_abandoned() || test_thread_goes_on()
+}
+
+/// Whether the test of this thread goes on: the run did not give it up, or it unwinds already,
+/// as a second panic would abort the process.
+fn test_thread_goes_on() -> bool {
     !test_thread_abandoned() || thread::panicking()
 }
 

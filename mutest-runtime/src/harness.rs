@@ -66,27 +66,21 @@ impl<S: SubstMap> ActiveMutantHandle<S> {
         Self(Cell::new(Some(v)))
     }
 
-    #[inline]
+    /// Inlined even in unoptimized builds, as every substitution point calls it.
+    #[inline(always)]
     pub fn subst_at(self: &'static Self, subst_loc_idx: SubstLocIdx) -> Option<SubstMeta> {
         // SAFETY: We are acquiring a reference to the static memory location backing the handle
         //         and the value is allowed to change before the substitution metadata is read.
-        let subst_map_ref = (unsafe { &*self.0.as_ptr() }).as_ref();
-
-        subst_map_ref.and_then(|subst| subst.subst_at(subst_loc_idx)).filter(|_| !test_runner::test_thread_abandoned())
+        test_runner::active_subst(unsafe { &*self.0.as_ptr() }, subst_loc_idx)
     }
 
     /// # Safety
     ///
     /// The substitution location index must be valid for the active substitution map.
-    #[inline]
+    /// The index is checked anyway, as `get_unchecked` costs several calls in unoptimized builds.
+    #[inline(always)]
     pub unsafe fn subst_at_unchecked(self: &'static Self, subst_loc_idx: SubstLocIdx) -> Option<SubstMeta> {
-        // SAFETY: We are acquiring a reference to the static memory location backing the handle
-        //         and the value is allowed to change before the substitution metadata is read.
-        let subst_map_ref = (unsafe { &*self.0.as_ptr() }).as_ref();
-
-        // SAFETY: The caller must ensure that the substitution location index is
-        //         valid for the active substitution map.
-        subst_map_ref.and_then(|subst| unsafe { subst.subst_at_unchecked(subst_loc_idx) }).filter(|_| !test_runner::test_thread_abandoned())
+        self.subst_at(subst_loc_idx)
     }
 
     /// # Safety

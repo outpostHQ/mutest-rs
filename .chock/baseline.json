@@ -10,7 +10,7 @@
       "mutest-emit/src/codegen/hygiene.rs": 2033,
       "mutest-emit/src/codegen/mutation.rs": 1145,
       "mutest-inspector/src/server.rs": 1226,
-      "mutest-runtime/src/harness.rs": 1332
+      "mutest-runtime/src/harness.rs": 1326
     },
     "binsize": {
       "cargo-mutest": 1895552,
@@ -475,7 +475,7 @@
       "mutest-runtime-embedded-target-stub/src/harness.rs#impl": 1,
       "mutest-runtime-embedded-target-stub/src/metadata.rs#block": 1,
       "mutest-runtime-embedded-target-stub/src/metadata.rs#fn": 2,
-      "mutest-runtime/src/harness.rs#block": 10,
+      "mutest-runtime/src/harness.rs#block": 8,
       "mutest-runtime/src/harness.rs#fn": 2,
       "mutest-runtime/src/harness.rs#impl": 1,
       "mutest-runtime/src/harness/regression_fixture.rs#block": 3,
