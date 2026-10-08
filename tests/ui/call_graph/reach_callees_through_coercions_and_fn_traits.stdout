@@ -1,0 +1,79 @@
+
+@@@ call graph @@@
+
+entry points:
+
+test test
+  -> by_fn_ptr at tests/ui/call_graph/reach_callees_through_coercions_and_fn_traits.rs:9:1: 9:15 (#0)
+  -> <Square as Shape>::area at tests/ui/call_graph/reach_callees_through_coercions_and_fn_traits.rs:20:5: 20:25 (#0)
+  -> <Square as std::ops::Drop>::drop at tests/ui/call_graph/reach_callees_through_coercions_and_fn_traits.rs:24:5: 24:23 (#0)
+  -> area_of at tests/ui/call_graph/reach_callees_through_coercions_and_fn_traits.rs:27:1: 27:36 (#0)
+  -> test::{closure#1} at tests/ui/call_graph/reach_callees_through_coercions_and_fn_traits.rs:38:19: 38:21 (#0)
+  -> std::option::Option::<u8>::map::<u8, fn(u8) -> u8 {by_fn_item}> at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/core/src/option.rs:1160:5: 1162:54 (#0)
+  -> std::option::Option::<u8>::map::<u8, {closure@tests/ui/call_graph/reach_callees_through_coercions_and_fn_traits.rs:33:25: 33:28}> at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/core/src/option.rs:1160:5: 1162:54 (#0)
+  -> std::boxed::Box::<Square>::new at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/alloc/src/boxed.rs:290:5: 290:29 (#0)
+  -> <std::boxed::Box<dyn Shape> as std::ops::Drop>::drop at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/alloc/src/boxed.rs:1979:5: 1979:23 (#0)
+
+nested calls at distance 1:
+
+area_of at tests/ui/call_graph/reach_callees_through_coercions_and_fn_traits.rs:27:1: 27:36 (#0)
+  -> <dyn Shape as Shape>::area at tests/ui/call_graph/reach_callees_through_coercions_and_fn_traits.rs:14:5: 14:26 (#0)
+test::{closure#0} at tests/ui/call_graph/reach_callees_through_coercions_and_fn_traits.rs:33:25: 33:28 (#0)
+  -> by_fn_once_closure at tests/ui/call_graph/reach_callees_through_coercions_and_fn_traits.rs:5:1: 5:35 (#0)
+test::{closure#1} at tests/ui/call_graph/reach_callees_through_coercions_and_fn_traits.rs:38:19: 38:21 (#0)
+  -> by_closure_fn_ptr at tests/ui/call_graph/reach_callees_through_coercions_and_fn_traits.rs:11:1: 11:23 (#0)
+std::mem::Alignment::new_unchecked::precondition_check at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/core/src/ub_checks.rs:68:13: 68:56 (#12)
+  -> std::intrinsics::ctpop::<usize> at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/core/src/intrinsics/mod.rs:1792:1: 1792:42 (#0)
+  -> core::panicking::panic_nounwind_fmt at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/core/src/panicking.rs:95:1: 95:88 (#0)
+std::alloc::Layout::from_size_alignment_unchecked::precondition_check at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/core/src/ub_checks.rs:68:13: 68:56 (#13)
+  -> core::panicking::panic_nounwind_fmt at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/core/src/panicking.rs:95:1: 95:88 (#0)
+std::ptr::NonNull::<T>::new_unchecked::precondition_check at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/core/src/ub_checks.rs:68:13: 68:56 (#17)
+  -> core::panicking::panic_nounwind_fmt at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/core/src/panicking.rs:95:1: 95:88 (#0)
+std::option::Option::<u8>::map::<u8, fn(u8) -> u8 {by_fn_item}> at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/core/src/option.rs:1160:5: 1162:54 (#0)
+  -> by_fn_item at tests/ui/call_graph/reach_callees_through_coercions_and_fn_traits.rs:7:1: 7:27 (#0)
+std::option::Option::<u8>::map::<u8, {closure@tests/ui/call_graph/reach_callees_through_coercions_and_fn_traits.rs:33:25: 33:28}> at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/core/src/option.rs:1160:5: 1162:54 (#0)
+  -> test::{closure#0} at tests/ui/call_graph/reach_callees_through_coercions_and_fn_traits.rs:33:25: 33:28 (#0)
+std::alloc::Global::alloc_impl_runtime at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/alloc/src/alloc.rs:330:5: 330:93 (#0)
+  -> std::ptr::NonNull::<T>::new_unchecked::precondition_check at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/core/src/ub_checks.rs:68:13: 68:56 (#17)
+  -> alloc::alloc::__rust_alloc at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/alloc/src/alloc.rs:22:5: 22:63 (#0)
+  -> alloc::alloc::__rust_alloc_zeroed at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/alloc/src/alloc.rs:39:5: 39:70 (#0)
+  -> alloc::alloc::__rust_no_alloc_shim_is_unstable_v2 at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/alloc/src/alloc.rs:43:5: 43:46 (#0)
+<std::alloc::Global as std::alloc::Allocator>::deallocate at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/alloc/src/alloc.rs:586:5: 586:66 (#0)
+  -> alloc::alloc::__rust_dealloc at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/alloc/src/alloc.rs:26:5: 26:72 (#0)
+std::boxed::box_new_uninit at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/alloc/src/boxed.rs:250:1: 250:51 (#0)
+  -> std::alloc::Global::alloc_impl_runtime at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/alloc/src/alloc.rs:330:5: 330:93 (#0)
+  -> std::alloc::handle_alloc_error at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/alloc/src/alloc.rs:669:1: 669:53 (#0)
+std::boxed::Box::<Square>::new at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/alloc/src/boxed.rs:290:5: 290:29 (#0)
+  -> <Square as std::ops::Drop>::drop at tests/ui/call_graph/reach_callees_through_coercions_and_fn_traits.rs:24:5: 24:23 (#0)
+  -> std::boxed::box_new_uninit at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/alloc/src/boxed.rs:250:1: 250:51 (#0)
+<std::boxed::Box<dyn Shape> as std::ops::Drop>::drop at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/alloc/src/boxed.rs:1979:5: 1979:23 (#0)
+  -> std::mem::Alignment::new_unchecked::precondition_check at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/core/src/ub_checks.rs:68:13: 68:56 (#12)
+  -> std::alloc::Layout::from_size_alignment_unchecked::precondition_check at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/core/src/ub_checks.rs:68:13: 68:56 (#13)
+  -> <std::alloc::Global as std::alloc::Allocator>::deallocate at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/alloc/src/alloc.rs:586:5: 586:66 (#0)
+  -> std::intrinsics::size_of_val::<dyn Shape> at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/core/src/intrinsics/mod.rs:2987:1: 2987:68 (#0)
+  -> std::intrinsics::align_of_val::<dyn Shape> at /rustc/0abfedbc7cd4e725f126913880c95800394f7c37/library/core/src/intrinsics/mod.rs:3000:1: 3000:69 (#0)
+
+@@@ targets @@@
+
+tests -(1)-> by_fn_once_closure at tests/ui/call_graph/reach_callees_through_coercions_and_fn_traits.rs:5:1: 5:35 (#0)
+  (1) test
+
+tests -(0)-> by_fn_item at tests/ui/call_graph/reach_callees_through_coercions_and_fn_traits.rs:7:1: 7:27 (#0)
+  (0) test
+
+tests -(0)-> by_fn_ptr at tests/ui/call_graph/reach_callees_through_coercions_and_fn_traits.rs:9:1: 9:15 (#0)
+  (0) test
+
+tests -(1)-> by_closure_fn_ptr at tests/ui/call_graph/reach_callees_through_coercions_and_fn_traits.rs:11:1: 11:23 (#0)
+  (1) test
+
+tests -(0)-> <Square as Shape>::area at tests/ui/call_graph/reach_callees_through_coercions_and_fn_traits.rs:20:5: 20:25 (#0)
+  (0) test
+
+tests -(0)-> <Square as std::ops::Drop>::drop at tests/ui/call_graph/reach_callees_through_coercions_and_fn_traits.rs:24:5: 24:23 (#0)
+  (0) test
+
+tests -(0)-> area_of at tests/ui/call_graph/reach_callees_through_coercions_and_fn_traits.rs:27:1: 27:36 (#0)
+  (0) test
+
+targets: 7 total; 7 safe; 0 unsafe (0 tainted)

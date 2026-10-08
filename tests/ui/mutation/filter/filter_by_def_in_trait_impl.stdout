@@ -1,6 +1,6 @@
-built call graph with depth of 2
-reached 60.00% of functions from tests (3 out of 5 functions)
-filtered to 33.33% of functions (1 out of 3 functions)
+built call graph with depth of 3
+reached 80.00% of functions from tests (4 out of 5 functions)
+filtered to 25.00% of functions (1 out of 4 functions)
 
 @@@ targets @@@
 

@@ -23,6 +23,10 @@ use crate::codegen::symbols::{DUMMY_SP, Span, Symbol, span_diagnostic_ord, sym};
 use crate::codegen::tool_attr;
 use crate::stop;
 
+mod implicit_calls;
+
+use implicit_calls::{coercion_callees, drop_glue_callees};
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum UnsafeSource {
     EnclosingUnsafe,
@@ -459,28 +463,6 @@ pub fn mir_callees<'tcx>(tcx: TyCtxt<'tcx>, body_mir: &'tcx mir::Body<'tcx>, gen
         })
 }
 
-pub fn drop_glue_callees<'tcx>(tcx: TyCtxt<'tcx>, body_mir: &'tcx mir::Body<'tcx>, generic_args: ty::GenericArgsRef<'tcx>) -> impl Iterator<Item = Call<'tcx>> {
-    let instance = ty::Instance { def: body_mir.source.instance, args: generic_args };
-    let typing_env = ty::TypingEnv::fully_monomorphized();
-
-    body_mir.mentioned_items.iter().flatten()
-        .filter_map(|mentioned_item| {
-            match &mentioned_item.node {
-                mir::MentionedItem::Drop(dropped_ty) => Some(dropped_ty),
-                _ => None,
-            }
-        })
-        .map(move |&dropped_ty| {
-            let dropped_ty = instance.instantiate_mir_and_normalize_erasing_regions(tcx, typing_env, ty::EarlyBinder::bind(tcx, dropped_ty));
-            ty::Instance::resolve_drop_glue(tcx, dropped_ty)
-        })
-        .flat_map(move |drop_in_place| tcx.mir_inliner_callees(drop_in_place.def))
-        .map(move |&(def_id, generic_args)| {
-            let safety = tcx.fn_sig(def_id).skip_binder().safety();
-            Call { kind: CallKind::Def(def_id, generic_args), safety, span: DUMMY_SP }
-        })
-}
-
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub struct Callee<'tcx> {
     pub def_id: hir::DefId,
@@ -638,8 +620,26 @@ fn is_reported_foreign_item(tcx: TyCtxt<'_>, def_id: hir::DefId) -> bool {
     )
 }
 
-/// Resolves the callee instance of the call, and counts and reports virtual, dynamic and foreign calls.
-fn resolve_callee<'tcx>(tcx: TyCtxt<'tcx>, call_graph: &mut CallGraph<'tcx>, caller: Callee<'tcx>, call: Call<'tcx>) -> Option<Callee<'tcx>> {
+/// Returns the item whose body runs when the instance is called, looking through closure and function shims.
+fn shim_target<'tcx>(tcx: TyCtxt<'tcx>, instance: ty::Instance<'tcx>) -> Callee<'tcx> {
+    let typing_env = ty::TypingEnv::fully_monomorphized();
+
+    let ty::InstanceKind::Shim(shim) = instance.def else { return Callee::new(instance.def_id(), instance.args); };
+    match (shim, instance.args.types().next().map(|self_ty| self_ty.kind())) {
+        (ty::ShimKind::VTable(def_id), _) => shim_target(tcx, ty::Instance::expect_resolve(tcx, typing_env, def_id, instance.args, DUMMY_SP)),
+        (ty::ShimKind::Reify(def_id, _), _) => Callee::new(def_id, instance.args),
+        (ty::ShimKind::ClosureOnce { .. }, Some(&ty::Closure(def_id, generic_args))) => Callee::new(def_id, generic_args),
+        (ty::ShimKind::FnPtr(..), Some(&ty::FnDef(def_id, generic_args))) => {
+            let generic_args = generic_args.no_bound_vars().unwrap();
+            shim_target(tcx, ty::Instance::expect_resolve(tcx, typing_env, def_id, generic_args, DUMMY_SP))
+        }
+        _ => Callee::new(instance.def_id(), instance.args),
+    }
+}
+
+/// Resolves the callee instance of the call, and counts and reports virtual, dynamic and foreign calls if `reports`.
+/// Library frames do not report them: their targets are reached where they are coerced, and the user cannot change them.
+fn resolve_callee<'tcx>(tcx: TyCtxt<'tcx>, call_graph: &mut CallGraph<'tcx>, caller: Callee<'tcx>, call: Call<'tcx>, reports: bool) -> Option<Callee<'tcx>> {
     // NOTE: We are post type-checking, querying monomorphic obligations.
     let typing_env = ty::TypingEnv::fully_monomorphized();
 
@@ -652,7 +652,7 @@ fn resolve_callee<'tcx>(tcx: TyCtxt<'tcx>, call_graph: &mut CallGraph<'tcx>, cal
             // might take a different form at the resolved definition site, so we propagate them instead.
             let instance = ty::Instance::expect_resolve(tcx, typing_env, def_id, generic_args, DUMMY_SP);
 
-            if let ty::InstanceKind::Virtual(def_id, _) = instance.def {
+            if reports && let ty::InstanceKind::Virtual(def_id, _) = instance.def {
                 call_graph.virtual_calls_count += 1;
 
                 let mut diagnostic = tcx.dcx().struct_warn("encountered virtual call during call graph construction");
@@ -662,7 +662,7 @@ fn resolve_callee<'tcx>(tcx: TyCtxt<'tcx>, call_graph: &mut CallGraph<'tcx>, cal
                 diagnostic.emit();
             }
 
-            if is_reported_foreign_item(tcx, instance.def_id()) {
+            if reports && is_reported_foreign_item(tcx, instance.def_id()) {
                 call_graph.foreign_calls_count += 1;
 
                 let mut diagnostic = tcx.dcx().struct_warn("encountered foreign call during call graph construction");
@@ -672,9 +672,10 @@ fn resolve_callee<'tcx>(tcx: TyCtxt<'tcx>, call_graph: &mut CallGraph<'tcx>, cal
                 diagnostic.emit();
             }
 
-            Some(Callee::new(instance.def_id(), instance.args))
+            Some(shim_target(tcx, instance))
         }
 
+        CallKind::Ptr(_) if !reports => None,
         CallKind::Ptr(fn_sig) => {
             call_graph.dynamic_calls_count += 1;
 
@@ -707,16 +708,18 @@ fn record_caller_calls<'tcx>(
     caller: Callee<'tcx>,
     distance: usize,
     found_callees: &mut FxHashSet<Callee<'tcx>>,
+    reports: bool,
 ) {
     let body_mir = tcx.instance_mir(ty::InstanceKind::Item(caller.def_id));
 
     let mut calls = mir_callees(tcx, &body_mir, caller.generic_args).collect::<Vec<_>>();
-    calls.extend(drop_glue_callees(tcx, &body_mir, caller.generic_args));
+    calls.extend(drop_glue_callees(tcx, body_mir, caller.generic_args));
+    calls.extend(coercion_callees(tcx, body_mir, caller.generic_args));
     // HACK: We must sort the calls into a stable order for the corresponding diagnostics to be printed in a stable order.
     calls.sort_unstable_by(|call_a, call_b| span_diagnostic_ord(call_a.span, call_b.span));
 
     for call in calls {
-        let Some(callee) = resolve_callee(tcx, call_graph, caller, call) else { continue; };
+        let Some(callee) = resolve_callee(tcx, call_graph, caller, call, reports) else { continue; };
 
         let caller_calls = call_graph.nested_calls[distance].entry(caller).or_default();
         caller_calls.push(InstanceCall { callee, safety: call.safety, span: call.span });
@@ -745,8 +748,9 @@ fn record_calls_at_distance<'tcx>(
         for caller in sort_callers_by_span(tcx, callers) {
             stop::abort_if_requested(tcx);
 
-            // `const` functions, like other `const` scopes, cannot be mutated.
-            if tcx.is_const_fn(caller.def_id) || already_recorded_callers.contains(&caller) || !tcx.is_mir_available(caller.def_id) { continue; }
+            // A `const fn` called at runtime runs its callees, such as a closure given to `Option::map`, so it is walked;
+            // `record_target` still leaves it out, as its body cannot be mutated.
+            if already_recorded_callers.contains(&caller) || !tcx.is_mir_available(caller.def_id) { continue; }
 
             let counts_call_frame = targeting.counts_call_frame(caller.def_id);
             if at_depth_limit && counts_call_frame {
@@ -758,7 +762,7 @@ fn record_calls_at_distance<'tcx>(
                 true => &mut next_distance_callees,
                 false => &mut same_distance_callees,
             };
-            record_caller_calls(tcx, call_graph, caller, distance, found_callees);
+            record_caller_calls(tcx, call_graph, caller, distance, found_callees, counts_call_frame);
 
             already_recorded_callers.insert(caller);
         }
@@ -807,13 +811,14 @@ pub fn reachable_fns<'ast, 'tcx, 'ent>(
         }
 
         let mut calls = mir_callees(tcx, &body_mir, tcx.mk_args(&[])).collect::<Vec<_>>();
-        calls.extend(drop_glue_callees(tcx, &body_mir, tcx.mk_args(&[])));
+        calls.extend(drop_glue_callees(tcx, body_mir, tcx.mk_args(&[])));
+        calls.extend(coercion_callees(tcx, body_mir, tcx.mk_args(&[])));
         // HACK: We must sort the calls into a stable order for the corresponding diagnostics to be printed in a stable order.
         calls.sort_unstable_by(|call_a, call_b| span_diagnostic_ord(call_a.span, call_b.span));
 
         let caller = Callee::new(entry_point.local_def_id.to_def_id(), tcx.mk_args(&[]));
         for call in calls {
-            let Some(callee) = resolve_callee(tcx, &mut call_graph, caller, call) else { continue; };
+            let Some(callee) = resolve_callee(tcx, &mut call_graph, caller, call, true) else { continue; };
 
             let test_calls = call_graph.root_calls.entry(entry_point.local_def_id).or_default();
             test_calls.push(InstanceCall { callee, safety: call.safety, span: call.span });
@@ -920,9 +925,6 @@ pub fn reachable_fns<'ast, 'tcx, 'ent>(
 
         while let Some((caller, unsafety, distance)) = queue.pop_front() {
             stop::abort_if_requested(tcx);
-
-            // `const` functions, like other `const` scopes, cannot be mutated.
-            if tcx.is_const_fn(caller.def_id) { continue; }
 
             record_target(tcx, def_res, krate, test_def_ids, entry_point, targeting, caller, unsafety, distance, targets);
 
