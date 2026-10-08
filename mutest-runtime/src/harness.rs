@@ -1091,11 +1091,11 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
             print_mutation_analysis_epilogue(&results, opts.verbosity);
 
             if opts.report_timings {
-                println!("\nfinished in {total:.2?} (profiling {profiling:.2?}; tests {tests:.2?}; write {write:.2?})",
+                println!("\nfinished in {total:.2?} (profiling {profiling:.2?}; tests {tests:.2?}; write {write:.2?}{earlier})",
                     total = t_start.elapsed(),
                     profiling = test_profiling_duration,
                     tests = results.duration,
-                    write = write_duration,
+                    write = write_duration, earlier = supervisor::earlier_workers_timing(),
                 );
             }
 

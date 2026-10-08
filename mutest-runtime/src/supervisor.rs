@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use mutest_exit_code as exit_code;
 
 use crate::completion::{self, Completion};
-use crate::journal::Journal;
+use crate::journal::{self, Journal, WorkerJournal};
 
 #[cfg(target_os = "linux")]
 pub(crate) use sys::{kill_descendants_until, reap_with_status, skip_crash_reports};
@@ -25,9 +25,21 @@ const SUPERVISOR_PID_VAR: &str = "__MUTEST_SUPERVISOR_PID";
 const RUN_ELAPSED_VAR: &str = "__MUTEST_RUN_ELAPSED_NANOS";
 
 static RUN_START: OnceLock<Instant> = OnceLock::new();
+static WORKER_START: OnceLock<Instant> = OnceLock::new();
 
 pub fn run_start() -> Instant {
     *RUN_START.get_or_init(Instant::now)
+}
+
+/// The timing line's note of the time that the crashed workers before this one took, if this worker resumes their run.
+pub fn earlier_workers_timing() -> String {
+    earlier_workers_timing_of(journal::worker().is_some_and(WorkerJournal::resumes))
+}
+
+fn earlier_workers_timing_of(resumes: bool) -> String {
+    WORKER_START.get().filter(|_| resumes)
+        .map(|worker_start| format!("; earlier workers {:.2?}", worker_start.duration_since(run_start())))
+        .unwrap_or_default()
 }
 
 fn run_start_before(now: Instant, elapsed_nanos: &str) -> Option<Instant> {
@@ -63,6 +75,7 @@ pub(crate) fn take_worker_handoff() -> Option<Handoff> {
         .and_then(|elapsed| run_start_before(Instant::now(), &elapsed))
     {
         let _ = RUN_START.set(run_start);
+        let _ = WORKER_START.set(Instant::now());
     }
     after_initialization(sys::die_with(supervisor_pid.parse().ok()), || handoff)
         .unwrap_or_else(|status| exit_as(status, None))
@@ -968,7 +981,7 @@ mod sys {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use super::run_start_before;
+    use super::{WORKER_START, earlier_workers_timing_of, run_start, run_start_before};
 
     #[test]
     fn a_worker_times_what_it_does_from_when_the_run_started() {
@@ -976,6 +989,14 @@ mod tests {
 
         assert_eq!(run_start_before(now, "1500000000"), now.checked_sub(Duration::from_millis(1500)));
         assert_eq!(run_start_before(now, "soon"), None);
+    }
+
+    #[test]
+    fn a_resuming_worker_reports_the_time_of_the_crashed_workers() {
+        WORKER_START.set(run_start() + Duration::from_secs(605)).unwrap();
+
+        assert_eq!(earlier_workers_timing_of(true), "; earlier workers 605.00s");
+        assert_eq!(earlier_workers_timing_of(false), "");
     }
 
     #[cfg(target_os = "linux")]
