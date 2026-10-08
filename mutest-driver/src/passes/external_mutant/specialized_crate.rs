@@ -89,7 +89,7 @@ fn compile_in_child(config: &Config, record: &invocation::Record, suffix: &str, 
 
     let mut command = replay_command(record)?;
     command.env("MUTEST_REPLAY_REQUEST", &request_path);
-    for name in ["MUTEST_ENCODED_ARGS", "MUTEST_ARGS", "MUTEST_TARGET_DIR_ROOT", "MUTEST_SEARCH_PATH"] {
+    for name in ["MUTEST_ENCODED_ARGS", "MUTEST_ARGS", "MUTEST_TARGET_DIR_ROOT", "MUTEST_SEARCH_PATH", "LLVM_PROFILE_FILE"] {
         if let Some(value) = std::env::var_os(name) { command.env(name, value); }
     }
     command.args(&record.invocation.args[1..]);

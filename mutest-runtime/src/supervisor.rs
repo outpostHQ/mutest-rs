@@ -1025,6 +1025,8 @@ mod tests {
                     // Nothing of the outer run, such as its journal or progress settings, reaches the fixture.
                     .env_clear()
                     .env("PATH", "/usr/bin:/bin")
+                    // A coverage run collects the fixture's profile, which its scratch directory would lose.
+                    .envs(env::var_os("LLVM_PROFILE_FILE").map(|path| ("LLVM_PROFILE_FILE", path)))
                     .env("RUST_TEST_THREADS", "2")
                     .env("TMPDIR", root.join("tmp"))
                     .env(ROOT, &root)

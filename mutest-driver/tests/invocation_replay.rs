@@ -28,7 +28,7 @@ impl Fixture {
     fn driver(&self, directory: &Path) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_mutest-driver"));
         command.env_clear().current_dir(directory).env("TMPDIR", &self.output);
-        for name in ["PATH", "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH"] {
+        for name in ["PATH", "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH", "LLVM_PROFILE_FILE"] {
             if let Some(value) = env::var_os(name) {
                 command.env(name, value);
             }
@@ -241,7 +241,7 @@ fn diamond(case: Diamond) {
         .env("CARGO_BUILD_JOBS", "2")
         .env("TMPDIR", &fixture.output)
         .env("RUSTFLAGS", if case.split_metadata { "-Zembed-metadata=no" } else { "-Zembed-metadata=yes" });
-    for name in ["PATH", "HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN", "CARGO_HOME", "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH"] {
+    for name in ["PATH", "HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN", "CARGO_HOME", "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH", "LLVM_PROFILE_FILE"] {
         if let Some(value) = env::var_os(name) {
             cargo.env(name, value);
         }

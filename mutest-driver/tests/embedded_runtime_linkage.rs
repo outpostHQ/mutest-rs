@@ -50,6 +50,7 @@ impl Fixture {
             "LD_LIBRARY_PATH",
             "DYLD_LIBRARY_PATH",
             "DYLD_FALLBACK_LIBRARY_PATH",
+            "LLVM_PROFILE_FILE",
             "TMPDIR",
             "TMP",
             "TEMP",
