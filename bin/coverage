@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Runs the tests of bin/test with coverage instrumentation, and writes an LCOV report to the path given.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+lcov=$(realpath -m "${1:?usage: bin/coverage <LCOV_PATH>}")
+
+# Test binaries cannot link an instrumented runtime, so the driver embeds this uninstrumented one.
+cargo build --release -p mutest-runtime || exit 1
+rustup target add aarch64-unknown-none || exit 1
+cargo build --release --target aarch64-unknown-none -p test-metadata-shim -p mutest-runtime-embedded-target-stub || exit 1
+export MUTEST_RUNTIME_TARGET_DIR=$PWD/target
+
+# cargo-llvm-cov reports one profile, so every test runs in release, in a target directory of its own.
+export CARGO_TARGET_DIR=$PWD/target/release/coverage
+source <(cargo llvm-cov show-env --sh) || exit 1
+export LLVM_PROFILE_FILE=$CARGO_TARGET_DIR/mutest-rs-%8m.profraw
+cargo llvm-cov clean --workspace --profraw-only || exit 1
+
+status=0
+for package in cargo-mutest mutest-driver mutest-emit mutest-exit-code mutest-runtime mutest-inspector mutest-tests; do
+    cargo test --release -p "$package" --no-fail-fast || status=1
+done
+cargo run --release -p mutest-tests || status=1
+# Test children that run with a cleared environment write their profiles to their working directory.
+find . -path ./target -prune -o -name "default_*.profraw" -exec mv -t "$CARGO_TARGET_DIR" {} +
+cargo llvm-cov report --release --lcov --output-path "$lcov" || exit 1
+exit $status

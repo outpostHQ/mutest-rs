@@ -142,6 +142,12 @@ fn main() {
                 .unwrap_or_else(|| panic!("unexpected `OUT_DIR` format: {}", build_script_out_dir_path.display()));
         }
     };
+    // A coverage build embeds the runtime of an uninstrumented target directory, as test binaries cannot link an instrumented one.
+    println!("cargo:rerun-if-env-changed=MUTEST_RUNTIME_TARGET_DIR");
+    let workspace_out_dir_path = match env::var_os("MUTEST_RUNTIME_TARGET_DIR") {
+        Some(target_dir) => PathBuf::from(target_dir).join(workspace_out_dir_path.file_name().unwrap()),
+        None => workspace_out_dir_path.to_owned(),
+    };
 
     // Fetch Cargo workspace metadata for visible crate names of public dependencies.
     let metadata_cmd = cargo_metadata::MetadataCommand::new();
@@ -168,7 +174,7 @@ fn main() {
     // Embed absolute paths to the compiled artifacts and dependency directories,
     // which are used as fallback search paths if the dependencies are not embedded into binary
     // (i.e. for local debug builds).
-    let artifacts_dir_absolute_path = path::absolute(workspace_out_dir_path).expect(&format!("cannot get absolute path for `{}`", workspace_out_dir_path.display()));
+    let artifacts_dir_absolute_path = path::absolute(&workspace_out_dir_path).expect(&format!("cannot get absolute path for `{}`", workspace_out_dir_path.display()));
     println!("cargo:rustc-env=COMPILETIME_ARTIFACTS_DIR={}", artifacts_dir_absolute_path.display());
     let deps_dir_absolute_path = path::absolute(&deps_dir_path).expect(&format!("cannot get absolute path for `{}`", deps_dir_path.display()));
     println!("cargo:rustc-env=COMPILETIME_DEPS_DIR={}", deps_dir_absolute_path.display());
