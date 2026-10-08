@@ -11,7 +11,7 @@ default:
 gates: test doc modcheck
 
 # Shape. Ratchets against a committed baseline, and the supply chain.
-quality: manifest placement profile features hygiene source deps unused typos slop bigfiles complexity duplication codeslop
+quality: manifest placement profile features hygiene source deps unused typos slop bigfiles splits lean complexity duplication codeslop crap
 
 test:
     chock run test
@@ -41,7 +41,7 @@ profile:
 features:
     chock run features
 
-# git tracks a secret-bearing file, a credential literal, or build output.
+# The repository tracks a secret-bearing file, a credential literal, or build output.
 hygiene:
     chock run hygiene
 
@@ -112,6 +112,12 @@ slop:
 
 bigfiles:
     chock run bigfiles
+
+splits:
+    chock run splits
+
+lean:
+    chock run lean
 
 complexity:
     chock run complexity

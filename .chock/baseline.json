@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/outpostHQ/chock/main/schema/baseline-v1.json",
   "version": 1,
-  "chock": "0.1.1",
+  "chock": "0.2.0",
   "gates": {
     "assertions": {},
     "bigfiles": {
@@ -242,6 +242,7 @@
       "mutest-operators/src/relational_op_invert.rs#try_apply": 2
     },
     "features": {},
+    "lean": {},
     "manifest": {},
     "modcheck": {},
     "nesting": {
@@ -389,6 +390,15 @@
     "source": {
       "mutest-runtime/src/lib.rs#crate_level_allow": 1
     },
+    "splits": {
+      "cargo-mutest/src/main.rs": 1,
+      "mutest-driver/src/cargo_package_config.rs": 1,
+      "mutest-emit/src/analysis/res.rs": 1,
+      "mutest-emit/src/codegen/substitution.rs": 1,
+      "mutest-runtime/src/json.rs": 2,
+      "mutest-runtime/src/progress.rs": 1,
+      "mutest-runtime/src/test_runner.rs": 1
+    },
     "supply": {
       "async-trait#proc-macro": 1,
       "camino#build-script": 1,
@@ -460,6 +470,7 @@
     "dupdeps": "duplicate crate build(s)",
     "duplication": "duplicate(s)",
     "features": "feature declaration issue(s)",
+    "lean": "forwarders",
     "manifest": "unpinned dependency declaration(s)",
     "modcheck": "orphan module file(s)",
     "nesting": "level(s) past four",
@@ -467,6 +478,7 @@
     "slop": "over-long comment block(s)",
     "sort": "unsorted manifest(s)",
     "source": "suppression(s)",
+    "splits": "movable parts",
     "supply": "crate(s) running code at build time",
     "typos": "misspelling(s)",
     "unsafety": "unsafe site(s)",
