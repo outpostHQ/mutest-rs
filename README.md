@@ -89,7 +89,7 @@ See `--help` for more options and subcommands.
 
 A run of several test harnesses exits with the most severe of these codes, in the order 101, 1, 4, 3, 2, 0. With `--simulate`, it exits 0 if the tests catch the mutation and 2 if they miss it.
 
-A mutation that times out runs again after the analysis, alone and one test at a time. Each test then gets five times its first time limit, and at least ten seconds more. The result of this rerun is the result of the mutation, and the line `timeouts confirmed: R re-run alone; D detected, U undetected, C crashed, T timed out again` counts the reruns.
+A mutation that times out runs again after the analysis, alone and one test at a time. Each test then gets twice its first time limit, and at least ten seconds more. The result of this rerun is the result of the mutation, and the line `timeouts confirmed: R re-run alone; D detected, U undetected, C crashed, T timed out again` counts the reruns.
 
 ### What mutest-rs mutates
 

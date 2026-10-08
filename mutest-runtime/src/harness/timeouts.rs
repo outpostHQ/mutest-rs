@@ -49,9 +49,10 @@ impl TimeoutReruns {
     }
 }
 
-/// The limit of a test when its timed-out mutation runs again: five times its first limit, and at least ten seconds more.
+/// The limit of a test when its timed-out mutation runs again: twice its first limit, and at least ten seconds more.
+/// A rerun runs one test at a time with little load, so twice the limit of the loaded analysis is enough.
 pub(super) fn confirmation_timeout(timeout: Duration) -> Duration {
-    Ord::max(timeout * 5, timeout + Duration::from_secs(10))
+    Ord::max(timeout * 2, timeout + Duration::from_secs(10))
 }
 
 /// Defers a timed-out mutation to `confirm_timeouts`, and records any other result.
