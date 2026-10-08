@@ -415,10 +415,9 @@ fn run_tests(
 
                     test_runner::TestResult::CrashedMsg(_) => {
                         mutation_results.results_per_test.insert(test.desc.name.clone(), Some(MutationTestResult::Crashed));
-                        // Only mark mutation with crashed verdict if no other test has detected this mutation in a non-crashing way.
-                        if mutation_results.result != MutationTestResult::Detected {
-                            mutation_results.result = MutationTestResult::Crashed;
-                        }
+                        // The tests after a crash still run: one that fails gives the mutation a detection verdict.
+                        if mutation_results.result != MutationTestResult::Detected { mutation_results.result = MutationTestResult::Crashed; }
+                        return Ok(test_runner::Flow::Continue);
                     }
 
                     test_runner::TestResult::TimedOut => {
@@ -436,8 +435,8 @@ fn run_tests(
                     // Remove any remaining tests from the queue that are for the just detected mutation.
                     remaining_tests.retain(|(_, test)| !is_reachable_test(mutation, &test.desc, external_tests_extra));
 
-                    // If all mutations have been detected, stop test evaluation early.
-                    if results.iter().all(|(_, mutation_results)| !matches!(mutation_results.result, MutationTestResult::Undetected)) {
+                    // If all mutations have been detected, stop test evaluation early. One that crashed still has tests to run.
+                    if results.iter().all(|(_, mutation_results)| matches!(mutation_results.result, MutationTestResult::Detected | MutationTestResult::TimedOut)) {
                         return Ok(test_runner::Flow::Stop);
                     }
                 }

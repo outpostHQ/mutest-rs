@@ -1,0 +1,2 @@
+mutation analysis worker crashed during mutations [1]; restarting it to run their tests each in a process of its own
+mutation analysis worker crashed during mutations [2]; restarting it to run their tests each in a process of its own

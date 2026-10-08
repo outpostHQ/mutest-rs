@@ -91,6 +91,8 @@ A run of several test harnesses exits with the most severe of these codes, in th
 
 The time limit of a test is five times its time in the reference run, but at least one second more than that time. A loaded machine can make a test pass a limit under 20 seconds, so a mutation that times out only within such limits runs again after the analysis, alone and one test at a time. Each test with such a limit then gets ten seconds more. The result of this rerun is the result of the mutation, and the line `timeouts confirmed: R re-run alone; D detected, U undetected, C crashed, T timed out again` counts the reruns. A timeout within a limit of 20 seconds or more is final.
 
+A test crashes when a mutation makes it end its process, such as by a panic that cannot unwind. The tests after it still run, and the mutation counts as detected once one of them fails. A mutation counts as crashed only if a test crashes and no test fails. The score leaves out the mutations that crashed or timed out.
+
 Each mutated function keeps its original code beside the code that holds its mutations, and chooses one of the two each time it starts. With no mutation active, as in the reference run, it runs the code that holds its mutations, so the time limit of a test allows for the cost of that code. With a mutation of another function active, it runs its original code. A call that already runs original code when a mutation becomes active, such as the loop of a thread that a test left running, does not run that mutation. With `--isolate=all`, each mutation runs in a new process, where no such call exists.
 
 ### What mutest-rs mutates
