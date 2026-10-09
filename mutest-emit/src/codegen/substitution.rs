@@ -33,8 +33,9 @@ fn mk_subst_arm(sp: Span, read: SubstRead, mut_id: MutId, subst: Box<ast::Expr>)
         return ast::mk::arm(sp, ast::mk::pat_wild(sp), Some(guard::mk_runs_mutation_expr(sp, slot, mut_id)), Some(subst));
     }
 
-    // Some(subst) if subst.mutation.id == crate::mutest_generated::mutations::$mut_id.id => $subst,
-    let subst_ident = Ident::new(Symbol::intern("subst"), sp);
+    // Some(mutest_subst) if mutest_subst.mutation.id == crate::mutest_generated::mutations::$mut_id.id => $subst,
+    // The generated code is printed, so the name alone keeps the binding apart from the names in `$subst`.
+    let subst_ident = Ident::new(Symbol::intern("mutest_subst"), sp);
     let pat_some_subst = ast::mk::pat_tuple_struct(sp, path::Some(sp), thin_vec![*ast::mk::pat_ident(sp, subst_ident)]);
     let guard = ast::mk::expr_binary(sp, ast::BinOpKind::Eq,
         ast::mk::expr_field_deep(sp, ast::mk::expr_ident(sp, subst_ident), vec![Ident::new(sym::mutation, sp), Ident::new(sym::id, sp)]),
