@@ -694,18 +694,23 @@ mod linux {
         writer.write_all(&frame).unwrap();
         drop(writer);
         cancel(&mut reader).unwrap();
-        let mut received = Vec::new();
-        reader.read_to_end(&mut received).unwrap();
-        assert_eq!(received, frame);
+        assert_eq!(read_to_close(&mut reader), frame);
         let (mut reader, writer) = UnixStream::pair().unwrap();
         drop(writer);
         cancel(&mut reader).unwrap();
-        let mut received = Vec::new();
-        reader.read_to_end(&mut received).unwrap();
         assert!(
-            received.is_empty(),
+            read_to_close(&mut reader).is_empty(),
             "closed control pipe invented a completion"
         );
+    }
+
+    // A child that another test spawns can hold the peer open over the cancellation; its exit then resets the read.
+    #[cfg(test)]
+    fn read_to_close(channel: &mut UnixStream) -> Vec<u8> {
+        let mut received = Vec::new();
+        let reset = channel.read_to_end(&mut received).err().map(|error| error.kind());
+        assert!(reset.is_none_or(|kind| kind == io::ErrorKind::ConnectionReset), "{reset:?}");
+        received
     }
 
     fn execute(channel: &mut UnixStream) -> io::Result<(u8, i32, Duration)> {
