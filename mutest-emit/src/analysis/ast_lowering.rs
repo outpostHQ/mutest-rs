@@ -9,12 +9,11 @@ use rustc_data_structures::thin_vec::ThinVec;
 use rustc_data_structures::unord::UnordItems;
 use rustc_middle::middle::resolve::{PartialRes, ResolverAstLowering};
 use rustc_middle::ty::TyCtxt;
-use rustc_span::span_bug;
+use rustc_span::{DUMMY_SP, Span, span_bug};
 
 use crate::analysis::hir;
 use crate::analysis::res;
 use crate::codegen::ast;
-use crate::codegen::symbols::{DUMMY_SP, Span};
 
 pub struct DefResolutions {
     pub node_id_to_def_id: ast::node_id::NodeMap<hir::LocalDefId>,
