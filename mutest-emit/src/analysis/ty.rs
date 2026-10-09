@@ -79,9 +79,13 @@ pub mod print {
         })
     }
 
-    fn mk_expr_kind_int_ast(sp: Span, i: isize, suffix: Symbol) -> ast::ExprKind {
-        let abs_symbol = Symbol::intern(&i.abs().to_string());
-        let abs_lit_expr_kind = ast::ExprKind::Lit(ast::token::Lit::new(ast::token::LitKind::Integer, abs_symbol, Some(suffix)));
+    fn mk_expr_kind_uint_ast(v: u128, suffix: Symbol) -> ast::ExprKind {
+        let symbol = Symbol::intern(&v.to_string());
+        ast::ExprKind::Lit(ast::token::Lit::new(ast::token::LitKind::Integer, symbol, Some(suffix)))
+    }
+
+    fn mk_expr_kind_int_ast(sp: Span, i: i128, suffix: Symbol) -> ast::ExprKind {
+        let abs_lit_expr_kind = mk_expr_kind_uint_ast(i.unsigned_abs(), suffix);
 
         match i {
             0.. => abs_lit_expr_kind,
@@ -346,69 +350,69 @@ pub mod print {
                             ty::TyKind::Char => {
                                 scalar.to_char()
                                     .map(|v| {
-                                        let symbol = Symbol::intern(&v.to_string());
+                                        let symbol = Symbol::intern(&v.escape_default().to_string());
                                         ast::ExprKind::Lit(ast::token::Lit::new(ast::token::LitKind::Char, symbol, None))
                                     })
                                     .report_err()
                                     .map_err(|e| format!("encountered invalid char const: {e:?}"))
                             }
                             ty::TyKind::Int(ty::IntTy::I8) => {
-                                scalar.to_i8().map(|v| mk_expr_kind_int_ast(sp, v as isize, sym::i8))
+                                scalar.to_i8().map(|v| mk_expr_kind_int_ast(sp, v as i128, sym::i8))
                                     .report_err()
                                     .map_err(|e| format!("encountered invalid i8 const: {e:?}"))
                             }
                             ty::TyKind::Int(ty::IntTy::I16) => {
-                                scalar.to_i16().map(|v| mk_expr_kind_int_ast(sp, v as isize, sym::i16))
+                                scalar.to_i16().map(|v| mk_expr_kind_int_ast(sp, v as i128, sym::i16))
                                     .report_err()
                                     .map_err(|e| format!("encountered invalid i16 const: {e:?}"))
                             }
                             ty::TyKind::Int(ty::IntTy::I32) => {
-                                scalar.to_i32().map(|v| mk_expr_kind_int_ast(sp, v as isize, sym::i32))
+                                scalar.to_i32().map(|v| mk_expr_kind_int_ast(sp, v as i128, sym::i32))
                                     .report_err()
                                     .map_err(|e| format!("encountered invalid i32 const: {e:?}"))
                             }
                             ty::TyKind::Int(ty::IntTy::I64) => {
-                                scalar.to_i64().map(|v| mk_expr_kind_int_ast(sp, v as isize, sym::i64))
+                                scalar.to_i64().map(|v| mk_expr_kind_int_ast(sp, v as i128, sym::i64))
                                     .report_err()
                                     .map_err(|e| format!("encountered invalid i64 const: {e:?}"))
                             }
                             ty::TyKind::Int(ty::IntTy::I128) => {
-                                scalar.to_i128().map(|v| mk_expr_kind_int_ast(sp, v as isize, sym::i128))
+                                scalar.to_i128().map(|v| mk_expr_kind_int_ast(sp, v, sym::i128))
                                     .report_err()
                                     .map_err(|e| format!("encountered invalid i128 const: {e:?}"))
                             }
                             ty::TyKind::Int(ty::IntTy::Isize) => {
-                                scalar.to_target_isize(&tcx).map(|v| mk_expr_kind_int_ast(sp, v as isize, sym::isize))
+                                scalar.to_target_isize(&tcx).map(|v| mk_expr_kind_int_ast(sp, v as i128, sym::isize))
                                     .report_err()
                                     .map_err(|e| format!("encountered invalid isize const: {e:?}"))
                             }
                             ty::TyKind::Uint(ty::UintTy::U8) => {
-                                scalar.to_u8().map(|v| mk_expr_kind_int_ast(sp, v as isize, sym::u8))
+                                scalar.to_u8().map(|v| mk_expr_kind_uint_ast(v as u128, sym::u8))
                                     .report_err()
                                     .map_err(|e| format!("encountered invalid u8 const: {e:?}"))
                             }
                             ty::TyKind::Uint(ty::UintTy::U16) => {
-                                scalar.to_u16().map(|v| mk_expr_kind_int_ast(sp, v as isize, sym::u16))
+                                scalar.to_u16().map(|v| mk_expr_kind_uint_ast(v as u128, sym::u16))
                                     .report_err()
                                     .map_err(|e| format!("encountered invalid u16 const: {e:?}"))
                             }
                             ty::TyKind::Uint(ty::UintTy::U32) => {
-                                scalar.to_u32().map(|v| mk_expr_kind_int_ast(sp, v as isize, sym::u32))
+                                scalar.to_u32().map(|v| mk_expr_kind_uint_ast(v as u128, sym::u32))
                                     .report_err()
                                     .map_err(|e| format!("encountered invalid u32 const: {e:?}"))
                             }
                             ty::TyKind::Uint(ty::UintTy::U64) => {
-                                scalar.to_u64().map(|v| mk_expr_kind_int_ast(sp, v as isize, sym::u64))
+                                scalar.to_u64().map(|v| mk_expr_kind_uint_ast(v as u128, sym::u64))
                                     .report_err()
                                     .map_err(|e| format!("encountered invalid u64 const: {e:?}"))
                             }
                             ty::TyKind::Uint(ty::UintTy::U128) => {
-                                scalar.to_u128().map(|v| mk_expr_kind_int_ast(sp, v as isize, sym::u128))
+                                scalar.to_u128().map(|v| mk_expr_kind_uint_ast(v, sym::u128))
                                     .report_err()
                                     .map_err(|e| format!("encountered invalid u128 const: {e:?}"))
                             }
                             ty::TyKind::Uint(ty::UintTy::Usize) => {
-                                scalar.to_target_usize(&tcx).map(|v| mk_expr_kind_int_ast(sp, v as isize, sym::usize))
+                                scalar.to_target_usize(&tcx).map(|v| mk_expr_kind_uint_ast(v as u128, sym::usize))
                                     .report_err()
                                     .map_err(|e| format!("encountered invalid usize const: {e:?}"))
                             }

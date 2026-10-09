@@ -160,7 +160,7 @@
       "mutest-emit/src/analysis/diagnostic.rs": 0,
       "mutest-emit/src/analysis/hir.rs": 154,
       "mutest-emit/src/analysis/res.rs": 59,
-      "mutest-emit/src/analysis/ty.rs": 164,
+      "mutest-emit/src/analysis/ty.rs": 143,
       "mutest-emit/src/codegen/ast.rs": 371,
       "mutest-emit/src/codegen/cancellation.rs": 0,
       "mutest-emit/src/codegen/entry_point.rs": 1,
@@ -240,8 +240,6 @@
     },
     "duplication": {
       "mutest-emit/src/analysis/hir.rs#is_name_value_attr": 1,
-      "mutest-emit/src/analysis/ty.rs#mk_expr_kind_float_ast": 1,
-      "mutest-emit/src/analysis/ty.rs#mk_expr_kind_int_ast": 1,
       "mutest-emit/src/codegen/ast.rs#expr_float_exact": 1,
       "mutest-emit/src/codegen/ast.rs#expr_int_exact": 1,
       "mutest-emit/src/codegen/ast.rs#is_name_value_attr": 1,

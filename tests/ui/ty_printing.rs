@@ -100,6 +100,24 @@ fn ty_printing_cases() {
         { struct S<const C: i32>; t!(f_struct_const_i32 -> S<-2>); }
         { struct S<const C: usize>; t!(f_struct_const_expr -> S<{ 8 - 7 - 1 }>); }
         // { struct S<const C: f64>; t!(f_struct_const_f64 -> S<0.21f64>); } // Forbidden const generic parameter: f64.
+        { struct S<const C: bool>; t!(f_struct_const_bool -> S<true>); }
+        { struct S<const C: char>; t!(f_struct_const_char -> S<'c'>); }
+        { struct S<const C: char>; t!(f_struct_const_char_quote -> S<'\''>); }
+        { struct S<const C: char>; t!(f_struct_const_char_backslash -> S<'\\'>); }
+        { struct S<const C: char>; t!(f_struct_const_char_newline -> S<'\n'>); }
+        { struct S<const C: char>; t!(f_struct_const_char_non_ascii -> S<'\u{e9}'>); }
+        { struct S<const C: i8>; t!(f_struct_const_i8_min -> S<{ i8::MIN }>); }
+        { struct S<const C: i16>; t!(f_struct_const_i16_min -> S<{ i16::MIN }>); }
+        { struct S<const C: i64>; t!(f_struct_const_i64_min -> S<{ i64::MIN }>); }
+        { struct S<const C: i128>; t!(f_struct_const_i128_min -> S<{ i128::MIN }>); }
+        { struct S<const C: isize>; t!(f_struct_const_isize_min -> S<{ isize::MIN }>); }
+        { struct S<const C: i128>; t!(f_struct_const_i128_max -> S<{ i128::MAX }>); }
+        { struct S<const C: u8>; t!(f_struct_const_u8_max -> S<{ u8::MAX }>); }
+        { struct S<const C: u16>; t!(f_struct_const_u16_max -> S<{ u16::MAX }>); }
+        { struct S<const C: u32>; t!(f_struct_const_u32_max -> S<{ u32::MAX }>); }
+        { struct S<const C: u64>; t!(f_struct_const_u64_max -> S<{ u64::MAX }>); }
+        { struct S<const C: u128>; t!(f_struct_const_u128_max -> S<{ u128::MAX }>); }
+        { struct S<const C: usize>; t!(f_struct_const_usize_max -> S<{ usize::MAX }>); }
 
         {
             fn f_const_generic_wrapper<const N: usize>() {

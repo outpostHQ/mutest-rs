@@ -5512,11 +5512,11 @@
       "cyclomatic": 7.0,
       "file": "mutest-emit/src/analysis/ty.rs",
       "function": "AstTyPrinter::infers_higher_ranked_ty",
-      "line": 145,
+      "line": 149,
       "uncovered": [
         {
-          "end": 149,
-          "start": 149
+          "end": 153,
+          "start": 153
         }
       ]
     },
@@ -5527,50 +5527,98 @@
       "cyclomatic": 4.0,
       "file": "mutest-emit/src/analysis/ty.rs",
       "function": "AstTyPrinter::path_generic_args",
-      "line": 155,
+      "line": 159,
       "uncovered": [
         {
-          "end": 203,
-          "start": 203
+          "end": 207,
+          "start": 207
         },
         {
-          "end": 226,
-          "start": 222
+          "end": 230,
+          "start": 226
         }
       ]
     },
     {
-      "coverage": 32.41379310344827,
+      "coverage": 46.89655172413793,
       "crap": 79.75308641975309,
       "crate": "mutest-emit",
       "cyclomatic": 12.0,
       "file": "mutest-emit/src/analysis/ty.rs",
       "function": "AstTyPrinter::print_const",
-      "line": 325,
+      "line": 329,
       "uncovered": [
         {
-          "end": 363,
-          "start": 335
+          "end": 343,
+          "start": 343
         },
         {
-          "end": 408,
-          "start": 368
+          "end": 348,
+          "start": 348
         },
         {
-          "end": 453,
-          "start": 413
+          "end": 357,
+          "start": 357
         },
         {
-          "end": 469,
-          "start": 467
+          "end": 362,
+          "start": 362
         },
         {
-          "end": 546,
-          "start": 506
+          "end": 367,
+          "start": 367
         },
         {
-          "end": 560,
-          "start": 560
+          "end": 372,
+          "start": 372
+        },
+        {
+          "end": 377,
+          "start": 377
+        },
+        {
+          "end": 382,
+          "start": 382
+        },
+        {
+          "end": 387,
+          "start": 387
+        },
+        {
+          "end": 392,
+          "start": 392
+        },
+        {
+          "end": 397,
+          "start": 397
+        },
+        {
+          "end": 402,
+          "start": 402
+        },
+        {
+          "end": 407,
+          "start": 407
+        },
+        {
+          "end": 412,
+          "start": 412
+        },
+        {
+          "end": 457,
+          "start": 417
+        },
+        {
+          "end": 473,
+          "start": 471
+        },
+        {
+          "end": 550,
+          "start": 510
+        },
+        {
+          "end": 564,
+          "start": 564
         }
       ]
     },
@@ -5581,11 +5629,11 @@
       "cyclomatic": 8.0,
       "file": "mutest-emit/src/analysis/ty.rs",
       "function": "AstTyPrinter::print_def_path",
-      "line": 235,
+      "line": 239,
       "uncovered": [
         {
-          "end": 240,
-          "start": 240
+          "end": 244,
+          "start": 244
         }
       ]
     },
@@ -5596,19 +5644,19 @@
       "cyclomatic": 3.0,
       "file": "mutest-emit/src/analysis/ty.rs",
       "function": "AstTyPrinter::print_dyn_existential",
-      "line": 564,
+      "line": 568,
       "uncovered": [
         {
-          "end": 588,
-          "start": 588
+          "end": 592,
+          "start": 592
         },
         {
-          "end": 596,
-          "start": 596
+          "end": 600,
+          "start": 600
         },
         {
-          "end": 635,
-          "start": 635
+          "end": 639,
+          "start": 639
         }
       ]
     },
@@ -5619,11 +5667,11 @@
       "cyclomatic": 3.0,
       "file": "mutest-emit/src/analysis/ty.rs",
       "function": "AstTyPrinter::print_impl_trait_in_trait_ty",
-      "line": 137,
+      "line": 141,
       "uncovered": [
         {
-          "end": 140,
-          "start": 140
+          "end": 144,
+          "start": 144
         }
       ]
     },
@@ -5634,19 +5682,19 @@
       "cyclomatic": 14.0,
       "file": "mutest-emit/src/analysis/ty.rs",
       "function": "AstTyPrinter::print_region",
-      "line": 267,
+      "line": 271,
       "uncovered": [
         {
-          "end": 271,
-          "start": 271
-        },
-        {
-          "end": 317,
-          "start": 296
+          "end": 275,
+          "start": 275
         },
         {
           "end": 321,
-          "start": 321
+          "start": 300
+        },
+        {
+          "end": 325,
+          "start": 325
         }
       ]
     },
@@ -5657,31 +5705,31 @@
       "cyclomatic": 74.0,
       "file": "mutest-emit/src/analysis/ty.rs",
       "function": "AstTyPrinter::print_ty",
-      "line": 644,
+      "line": 648,
       "uncovered": [
         {
-          "end": 699,
-          "start": 698
+          "end": 703,
+          "start": 702
         },
         {
-          "end": 710,
-          "start": 710
+          "end": 714,
+          "start": 714
         },
         {
-          "end": 738,
-          "start": 722
+          "end": 742,
+          "start": 726
         },
         {
-          "end": 759,
-          "start": 758
+          "end": 763,
+          "start": 762
         },
         {
-          "end": 798,
-          "start": 798
+          "end": 802,
+          "start": 802
         },
         {
-          "end": 826,
-          "start": 818
+          "end": 830,
+          "start": 822
         }
       ]
     },
@@ -5701,7 +5749,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/analysis/ty.rs",
       "function": "const_ast",
-      "line": 875
+      "line": 879
     },
     {
       "coverage": 100.0,
@@ -5728,11 +5776,11 @@
       "cyclomatic": 3.0,
       "file": "mutest-emit/src/analysis/ty.rs",
       "function": "mk_expr_kind_float_ast",
-      "line": 98,
+      "line": 102,
       "uncovered": [
         {
-          "end": 112,
-          "start": 98
+          "end": 116,
+          "start": 102
         }
       ]
     },
@@ -5743,6 +5791,15 @@
       "cyclomatic": 3.0,
       "file": "mutest-emit/src/analysis/ty.rs",
       "function": "mk_expr_kind_int_ast",
+      "line": 87
+    },
+    {
+      "coverage": 100.0,
+      "crap": 1.0,
+      "crate": "mutest-emit",
+      "cyclomatic": 1.0,
+      "file": "mutest-emit/src/analysis/ty.rs",
+      "function": "mk_expr_kind_uint_ast",
       "line": 82
     },
     {
@@ -5779,7 +5836,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/analysis/ty.rs",
       "function": "region_ast",
-      "line": 855
+      "line": 859
     },
     {
       "coverage": 100.0,
@@ -5788,7 +5845,7 @@
       "cyclomatic": 1.0,
       "file": "mutest-emit/src/analysis/ty.rs",
       "function": "ty_ast",
-      "line": 831
+      "line": 835
     },
     {
       "coverage": 0.0,
@@ -17030,19 +17087,13 @@
       "line": 414
     },
     {
-      "coverage": 95.45454545454544,
+      "coverage": 100.0,
       "crap": 90.0,
       "crate": "mutest-runtime",
       "cyclomatic": 9.0,
       "file": "mutest-runtime/src/supervisor.rs",
       "function": "Attempt::observe",
-      "line": 381,
-      "uncovered": [
-        {
-          "end": 402,
-          "start": 402
-        }
-      ]
+      "line": 381
     },
     {
       "coverage": 100.0,
@@ -17457,7 +17508,7 @@
       ]
     },
     {
-      "coverage": 94.73684210526316,
+      "coverage": 89.47368421052632,
       "crap": 8.074646449919813,
       "crate": "mutest-runtime",
       "cyclomatic": 8.0,
@@ -17465,6 +17516,10 @@
       "function": "scanned_children",
       "line": 569,
       "uncovered": [
+        {
+          "end": 577,
+          "start": 577
+        },
         {
           "end": 584,
           "start": 584
