@@ -18,32 +18,59 @@ pub fn conflicting_substs(a: &SubstDef, b: &SubstDef) -> bool {
     }
 }
 
-fn mk_subst_match_expr(sp: Span, subst_loc_idx: usize, default: Option<Box<ast::Expr>>, substs: Vec<(MutId, Box<ast::Expr>)>) -> Box<ast::Expr> {
+/// How a location reads the mutation to apply.
+#[derive(Clone, Copy)]
+pub enum SubstRead {
+    /// From its own slot, where it also cancels a test the run gave up.
+    Loc(usize),
+    /// From the slot of the guard of its function body, and what the guard entered the body with.
+    Guard(usize),
+}
+
+fn mk_subst_arm(sp: Span, read: SubstRead, mut_id: MutId, subst: Box<ast::Expr>) -> ast::Arm {
+    // _ if $runs_mutation => $subst,
+    if let SubstRead::Guard(slot) = read {
+        return ast::mk::arm(sp, ast::mk::pat_wild(sp), Some(guard::mk_runs_mutation_expr(sp, slot, mut_id)), Some(subst));
+    }
+
+    // Some(subst) if subst.mutation.id == crate::mutest_generated::mutations::$mut_id.id => $subst,
+    let subst_ident = Ident::new(Symbol::intern("subst"), sp);
+    let pat_some_subst = ast::mk::pat_tuple_struct(sp, path::Some(sp), thin_vec![*ast::mk::pat_ident(sp, subst_ident)]);
+    let guard = ast::mk::expr_binary(sp, ast::BinOpKind::Eq,
+        ast::mk::expr_field_deep(sp, ast::mk::expr_ident(sp, subst_ident), vec![Ident::new(sym::mutation, sp), Ident::new(sym::id, sp)]),
+        ast::mk::expr_field(sp, ast::mk::expr_path(ast::mk::pathx(sp, path::mutations(sp), vec![Ident::new(mut_id.into_symbol(), sp)])), Ident::new(sym::id, sp)),
+    );
+    ast::mk::arm(sp, pat_some_subst, Some(guard), Some(subst))
+}
+
+fn mk_subst_match_expr(sp: Span, read: SubstRead, default: Option<Box<ast::Expr>>, substs: Vec<(MutId, Box<ast::Expr>)>) -> Box<ast::Expr> {
+    let (SubstRead::Loc(slot) | SubstRead::Guard(slot)) = read;
     let mut arm_idx = 0;
     let mut arms = substs.into_iter()
-        .map(|(mut_id, subst)| {
-            let subst = super_let_block(sp, subst_loc_idx, &mut arm_idx, subst);
-            // Some(subst) if subst.mutation.id == crate::mutest_generated::mutations::$mut_id.id => $subst,
-            let subst_ident = Ident::new(Symbol::intern("subst"), sp);
-            let pat_some_subst = ast::mk::pat_tuple_struct(sp, path::Some(sp), thin_vec![*ast::mk::pat_ident(sp, subst_ident)]);
-            let guard = ast::mk::expr_binary(sp, ast::BinOpKind::Eq,
-                ast::mk::expr_field_deep(sp, ast::mk::expr_ident(sp, subst_ident), vec![Ident::new(sym::mutation, sp), Ident::new(sym::id, sp)]),
-                ast::mk::expr_field(sp, ast::mk::expr_path(ast::mk::pathx(sp, path::mutations(sp), vec![Ident::new(mut_id.into_symbol(), sp)])), Ident::new(sym::id, sp)),
-            );
-            ast::mk::arm(sp, pat_some_subst, Some(guard), Some(subst))
-        })
+        .map(|(mut_id, subst)| mk_subst_arm(sp, read, mut_id, super_let_block(sp, slot, &mut arm_idx, subst)))
         .collect::<ThinVec<_>>();
-
-    arms.insert(0, guard::mk_cancel_arm(sp));
 
     // _ => $default
     arms.push(ast::mk::arm(sp, ast::mk::pat_wild(sp), None, match default {
-        Some(expr) => Some(super_let_block(sp, subst_loc_idx, &mut arm_idx, expr)),
+        Some(expr) => Some(super_let_block(sp, slot, &mut arm_idx, expr)),
         None => Some(ast::mk::expr_noop(sp)),
     }));
 
-    // match unsafe { crate::mutest_generated::ACTIVE_MUTANT_HANDLE.subst_at_unchecked($subst_loc_idx) } { ... }
-    ast::mk::expr_paren(sp, ast::mk::expr_match(sp, guard::mk_subst_lookup_expr(sp, subst_loc_idx), arms))
+    let scrutinee = mk_subst_scrutinee_expr(sp, read, &mut arms);
+    ast::mk::expr_paren(sp, ast::mk::expr_match(sp, scrutinee, arms))
+}
+
+/// The scrutinee of the match of a location. A location that reads its own slot gets the arm that cancels a test first.
+fn mk_subst_scrutinee_expr(sp: Span, read: SubstRead, arms: &mut ThinVec<ast::Arm>) -> Box<ast::Expr> {
+    match read {
+        // match unsafe { crate::mutest_generated::ACTIVE_MUTANT_HANDLE.subst_at_unchecked($slot) } { ... }
+        SubstRead::Loc(slot) => {
+            arms.insert(0, guard::mk_cancel_arm(sp));
+            guard::mk_subst_lookup_expr(sp, slot)
+        }
+        // match () { ... }
+        SubstRead::Guard(_) => ast::mk::expr_tuple(sp, thin_vec![]),
+    }
 }
 
 /// Extend borrowed temporaries beyond the match arm with `super let`.
@@ -60,7 +87,7 @@ fn super_let_block(sp: Span, subst_loc_idx: usize, arm_idx: &mut usize, expr: Bo
     ]))
 }
 
-pub fn expand_subst_match_expr(sp: Span, subst_loc_idx: usize, original: Option<Box<ast::Expr>>, substs: Vec<(MutId, &Subst)>) -> Box<ast::Expr> {
+pub fn expand_subst_match_expr(sp: Span, read: SubstRead, original: Option<Box<ast::Expr>>, substs: Vec<(MutId, &Subst)>) -> Box<ast::Expr> {
     let subst_exprs = substs.into_iter()
         .map(|(mut_id, subst)| {
             let subst_expr = match subst {
@@ -73,10 +100,10 @@ pub fn expand_subst_match_expr(sp: Span, subst_loc_idx: usize, original: Option<
         })
         .collect::<Vec<_>>();
 
-    mk_subst_match_expr(sp, subst_loc_idx, original, subst_exprs)
+    mk_subst_match_expr(sp, read, original, subst_exprs)
 }
 
-pub fn expand_subst_match_stmt(sp: Span, subst_loc_idx: usize, original: Option<ast::Stmt>, substs: Vec<(MutId, &Subst)>) -> Vec<ast::Stmt> {
+pub fn expand_subst_match_stmt(sp: Span, read: SubstRead, original: Option<ast::Stmt>, substs: Vec<(MutId, &Subst)>) -> Vec<ast::Stmt> {
     let mut binding_substs: Vec<(MutId, (Ident, ast::Mutability, Option<Box<ast::Ty>>, Box<ast::Expr>, Option<Box<ast::Expr>>))> = vec![];
     let mut non_binding_substs: Vec<(MutId, &Subst)> = vec![];
 
@@ -96,7 +123,7 @@ pub fn expand_subst_match_stmt(sp: Span, subst_loc_idx: usize, original: Option<
         // assigning the value of the previous binding with the same identifier to the new binding
         // (and copying all of the properties of the original binding): `let $ident = $ident`.
         let default_expr = default_expr.unwrap_or_else(|| ast::mk::expr_ident(sp, ident));
-        let subst_match_expr = mk_subst_match_expr(sp, subst_loc_idx, Some(default_expr), vec![(mut_id, expr)]);
+        let subst_match_expr = mk_subst_match_expr(sp, read, Some(default_expr), vec![(mut_id, expr)]);
 
         let mutbl = matches!(mutbl, ast::Mutability::Mut);
         stmts.push(ast::mk::stmt_let(sp, mutbl, ident, ty, subst_match_expr));
@@ -104,7 +131,7 @@ pub fn expand_subst_match_stmt(sp: Span, subst_loc_idx: usize, original: Option<
 
     if !non_binding_substs.is_empty() {
         let original_expr = original.map(|v| ast::mk::expr_block(ast::mk::block(sp, thin_vec![v])));
-        stmts.push(ast::mk::stmt_expr(expand_subst_match_expr(sp, subst_loc_idx, original_expr, non_binding_substs)));
+        stmts.push(ast::mk::stmt_expr(expand_subst_match_expr(sp, read, original_expr, non_binding_substs)));
     }
 
     stmts
@@ -114,8 +141,15 @@ pub fn expand_subst_match_stmt(sp: Span, subst_loc_idx: usize, original: Option<
 pub enum SubstSlot {
     /// A mutation with a substitution at the location.
     Loc(SubstLoc),
-    /// A mutation that sets a slot from the given one up to this one: the slots of one function body.
-    Guard(usize),
+    /// One of the mutations, which are those with a substitution in one function body.
+    Guard(Vec<MutId>),
+}
+
+/// The guard of a function body that keeps its original code, while the body is written.
+struct BodyGuard {
+    slot: usize,
+    /// The mutations with a substitution at a location written so far.
+    mut_ids: Vec<MutId>,
 }
 
 struct SubstWriter<'tcx, 'op> {
@@ -123,31 +157,31 @@ struct SubstWriter<'tcx, 'op> {
     substitutions: FxHashMap<SubstLoc, Vec<(MutId, &'op Subst)>>,
     def_site: Span,
     slots: Vec<SubstSlot>,
+    guard: Option<BodyGuard>,
 }
 
 impl<'tcx, 'op> SubstWriter<'tcx, 'op> {
-    fn loc_slot(&mut self, subst_loc: SubstLoc) -> usize {
-        self.slots.push(SubstSlot::Loc(subst_loc));
-        self.slots.len() - 1
-    }
-
-    /// `match $lookup { None => $original, _ => $substituted }` with a new slot for the slots from the given one on.
-    fn mk_guarded_body_expr(&mut self, first_slot: usize, mut original: Box<ast::Expr>, substituted: Box<ast::Expr>) -> Box<ast::Expr> {
-        guard::OriginalBody { sp: self.def_site }.visit_expr(&mut original);
-        self.slots.push(SubstSlot::Guard(first_slot));
-        guard::mk_guarded_body_expr(self.def_site, self.slots.len() - 1, original, substituted)
+    /// How the location with the substitutions reads the mutation to apply.
+    fn read_at(&mut self, subst_loc: SubstLoc, substs: &[(MutId, &'op Subst)]) -> SubstRead {
+        let Some(guard) = &mut self.guard else {
+            self.slots.push(SubstSlot::Loc(subst_loc));
+            return SubstRead::Loc(self.slots.len() - 1);
+        };
+        guard.mut_ids.extend(substs.iter().map(|(mut_id, _)| *mut_id));
+        SubstRead::Guard(guard.slot)
     }
 
     fn visit_fn_item(&mut self, ctxt: ast::visit::FnCtxt, vis: &mut ast::Visibility, func: &mut ast::Fn) {
         let original = guard::original_fn_body(func);
-        let first_slot = self.slots.len();
+        // A body that keeps its original code holds no function, so the guard of no outer body is in use here.
+        self.guard = original.is_some().then(|| BodyGuard { slot: self.slots.len(), mut_ids: vec![] });
         ast::mut_visit::walk_fn(self, ast::mut_visit::FnKind::Fn(ctxt, vis, &mut *func));
 
-        let (Some(original), Some(body)) = (original, &mut func.body) else { return; };
-        if self.slots.len() == first_slot { return; }
+        let (Some(original), Some(guard), Some(body)) = (original, self.guard.take(), &mut func.body) else { return; };
+        if guard.mut_ids.is_empty() { return; }
+        self.slots.push(SubstSlot::Guard(guard.mut_ids));
 
-        let substituted = ast::mk::expr_block(body.clone());
-        let guarded_body = self.mk_guarded_body_expr(first_slot, ast::mk::expr_block(original), substituted);
+        let guarded_body = guard::mk_guarded_body_expr(self.def_site, guard.slot, original, body.clone());
         *body = ast::mk::block(self.def_site, thin_vec![ast::mk::stmt_expr(guarded_body)]);
     }
 }
@@ -185,9 +219,9 @@ impl<'tcx, 'op> ast::mut_visit::MutVisitor for SubstWriter<'tcx, 'op> {
 
             let insert_before_loc = SubstLoc::InsertBefore(stmt_id, stmt_span);
             if let Some(insertions_before) = self.substitutions.remove(&insert_before_loc) {
-                let subst_loc_idx = self.loc_slot(insert_before_loc);
+                let read = self.read_at(insert_before_loc, &insertions_before);
 
-                let replacement_stmts = expand_subst_match_stmt(self.def_site, subst_loc_idx, None, insertions_before);
+                let replacement_stmts = expand_subst_match_stmt(self.def_site, read, None, insertions_before);
                 let replacement_stmts_count = replacement_stmts.len();
 
                 block.stmts.splice(i..i, replacement_stmts);
@@ -197,9 +231,9 @@ impl<'tcx, 'op> ast::mut_visit::MutVisitor for SubstWriter<'tcx, 'op> {
 
             let replacement_loc = SubstLoc::Replace(stmt_id, stmt_span);
             if let Some(replacements) = self.substitutions.remove(&replacement_loc) {
-                let subst_loc_idx = self.loc_slot(replacement_loc);
+                let read = self.read_at(replacement_loc, &replacements);
 
-                let replacement_stmts = expand_subst_match_stmt(self.def_site, subst_loc_idx, None, replacements);
+                let replacement_stmts = expand_subst_match_stmt(self.def_site, read, None, replacements);
                 let replacement_stmts_count = replacement_stmts.len();
 
                 block.stmts.splice(i..i, replacement_stmts);
@@ -209,9 +243,9 @@ impl<'tcx, 'op> ast::mut_visit::MutVisitor for SubstWriter<'tcx, 'op> {
 
             let insert_after_loc = SubstLoc::InsertAfter(stmt_id, stmt_span);
             if let Some(insertions_after) = self.substitutions.remove(&insert_after_loc) {
-                let subst_loc_idx = self.loc_slot(insert_after_loc);
+                let read = self.read_at(insert_after_loc, &insertions_after);
 
-                let replacement_stmts = expand_subst_match_stmt(self.def_site, subst_loc_idx, None, insertions_after);
+                let replacement_stmts = expand_subst_match_stmt(self.def_site, read, None, insertions_after);
                 let replacement_stmts_count = replacement_stmts.len();
                 i += replacement_stmts_count;
 
@@ -247,9 +281,9 @@ impl<'tcx, 'op> ast::mut_visit::MutVisitor for SubstWriter<'tcx, 'op> {
 
         let replacement_loc = SubstLoc::Replace(expr.id, expr.span);
         if let Some(replacements) = self.substitutions.remove(&replacement_loc) {
-            let subst_loc_idx = self.loc_slot(replacement_loc);
+            let read = self.read_at(replacement_loc, &replacements);
 
-            *expr = *expand_subst_match_expr(expr.span, subst_loc_idx, Some(Box::new(expr.clone())), replacements);
+            *expr = *expand_subst_match_expr(expr.span, read, Some(Box::new(expr.clone())), replacements);
         }
 
         if let Some(_insertions_after) = self.substitutions.remove(&SubstLoc::InsertAfter(expr.id, expr.span)) {
@@ -285,6 +319,7 @@ pub fn write_substitutions<'tcx>(tcx: TyCtxt<'tcx>, mutations: &[Mut], krate: &m
         substitutions,
         def_site,
         slots: Vec::with_capacity(n_subst_locs),
+        guard: None,
     };
     subst_writer.visit_crate(krate);
 

@@ -151,27 +151,18 @@ pub enum Mutant<'trg, 'm> {
 
 /// The mutation of the mutant that sets each slot of its substitution map, if any.
 fn slot_mutations<'a, 'trg, 'm>(mutations: &'a [&'m Mut<'trg, 'm>], subst_slots: &[SubstSlot]) -> Vec<Option<&'a &'m Mut<'trg, 'm>>> {
-    let mut slot_mutations: Vec<Option<&&Mut>> = Vec::with_capacity(subst_slots.len());
-    for subst_slot in subst_slots {
-        let mutation = match subst_slot {
+    subst_slots.iter()
+        .map(|subst_slot| match subst_slot {
             SubstSlot::Loc(subst_loc) => mutations.iter().find(|m| m.substs.iter().any(|s| s.location == *subst_loc)),
-            SubstSlot::Guard(first_slot) => slot_mutations[*first_slot..].iter().flatten().next().copied(),
-        };
-        slot_mutations.push(mutation);
-    }
-    slot_mutations
+            SubstSlot::Guard(mut_ids) => mutations.iter().find(|m| mut_ids.contains(&m.id)),
+        })
+        .collect()
 }
 
-/// `SubstMeta { mutation: &crate::mutest_generated::mutations::$mut_id }`
-fn mk_subst_meta_expr(sp: Span, mutation: &Mut) -> Box<ast::Expr> {
+/// `SubstMeta { mutation: &$mutation }`
+fn mk_subst_meta_expr(sp: Span, mutation: ast::Path) -> Box<ast::Expr> {
     ast::mk::expr_struct(sp, ast::mk::path_local(path::SubstMeta(sp)), thin_vec![
-        ast::mk::expr_struct_field(sp, Ident::new(sym::mutation, sp), {
-            // &mutations::$mut_id
-            ast::mk::expr_ref(sp, ast::mk::expr_path(ast::mk::pathx(sp,
-                path::mutations(sp),
-                vec![Ident::new(mutation.id.into_symbol(), sp)],
-            )))
-        }),
+        ast::mk::expr_struct_field(sp, Ident::new(sym::mutation, sp), ast::mk::expr_ref(sp, ast::mk::expr_path(mutation))),
     ])
 }
 
@@ -188,6 +179,7 @@ pub fn bake_mutant<'trg, 'm>(sp: Span, mutant: Mutant<'trg, 'm>, subst_slots: &[
                 let subst_loc_idx_expr = ast::mk::expr_lit(sp, ast::token::LitKind::Integer, Symbol::intern(&subst_loc_idx.to_string()), None);
 
                 // ($subst_loc_idx, SubstMeta { mutation: &crate::mutest_generated::mutations::$mut_id })
+                let mutation = ast::mk::pathx(sp, path::mutations(sp), vec![Ident::new(mutation.id.into_symbol(), sp)]);
                 ast::mk::expr_tuple(sp, thin_vec![subst_loc_idx_expr, mk_subst_meta_expr(sp, mutation)])
             })
             .collect::<ThinVec<_>>();
@@ -287,18 +279,17 @@ fn mk_subst_map_ty_alias(sp: Span, subst_slots: &[SubstSlot]) -> Box<ast::Item> 
     })))
 }
 
-/// The handle starts with the guard of each body with mutations set, and no substitution location: with no
-/// mutation active, such a body runs the code that holds its mutations, as the tests of a mutation make it.
-fn mk_active_mutant_handle_static<'trg, 'm>(sp: Span, mutations: &'m [Mut<'trg, 'm>], subst_slots: &[SubstSlot]) -> Box<ast::Item> {
-    let mutations = mutations.iter().collect::<Vec<_>>();
-    let subst_map_elements = iter::zip(subst_slots, slot_mutations(&mutations, subst_slots))
-        .map(|(subst_slot, mutation)| match (subst_slot, mutation) {
-            (SubstSlot::Guard(_), Some(mutation)) => ast::mk::expr_call_path(sp, path::Some(sp), thin_vec![mk_subst_meta_expr(sp, mutation)]),
-            _ => ast::mk::expr_path(path::None(sp)),
+/// The handle starts with the guard of each body with mutations set to no mutation: with no mutation active,
+/// such a body runs the code that holds its mutations, as the tests of a mutation make it.
+fn mk_active_mutant_handle_static(sp: Span, subst_slots: &[SubstSlot]) -> Box<ast::Item> {
+    let subst_map_elements = subst_slots.iter()
+        .map(|subst_slot| match subst_slot {
+            SubstSlot::Guard(_) => ast::mk::expr_call_path(sp, path::Some(sp), thin_vec![mk_subst_meta_expr(sp, ast::mk::path_local(path::NO_MUTATION(sp)))]),
+            SubstSlot::Loc(_) => ast::mk::expr_path(path::None(sp)),
         })
         .collect::<ThinVec<_>>();
 
-    // pub(crate) static ACTIVE_MUTANT_HANDLE: ActiveMutantHandle<SubstMap> = ActiveMutantHandle::with([None, Some(SubstMeta { .. }), ..]);
+    // pub(crate) static ACTIVE_MUTANT_HANDLE: ActiveMutantHandle<SubstMap> = ActiveMutantHandle::with([None, Some(SubstMeta { mutation: &NO_MUTATION }), ..]);
     let vis = ast::mk::vis_pub_crate(sp);
     let mutbl = ast::Mutability::Not;
     let ident = Ident::new(sym::ACTIVE_MUTANT_HANDLE, sp);
@@ -634,7 +625,7 @@ pub fn generate_harness<'tcx, 'ent, 'trg, 'm>(
             mutest_generated_mod_items.extend([
                 mk_crate_kind_const(def_site, "meta_mutant"),
                 mk_subst_map_ty_alias(def_site, subst_slots),
-                mk_active_mutant_handle_static(def_site, mutations, subst_slots),
+                mk_active_mutant_handle_static(def_site, subst_slots),
                 mk_mutations_mod(def_site, tcx, entry_points, mutations, unsafe_targeting),
                 mk_mutants_slice_const(def_site, mutations, mutation_parallelism, subst_slots),
             ]);

@@ -14,6 +14,7 @@ use std::sync::mpsc;
 use std::thread::{self, ThreadId};
 use std::time::{Duration, Instant};
 
+use crate::harness::ActiveMutantHandle;
 use crate::metadata::{SubstLocIdx, SubstMap, SubstMeta};
 use crate::thread_pool::{self, ThreadPool};
 
@@ -267,11 +268,40 @@ fn any_test_thread_abandoned() -> bool {
 /// The substitution of the active mutant at the location, or none for a test the run gave up, which an unwinding
 /// abandoned test reaches past `is_test_thread_active`.
 #[inline(always)]
-pub(crate) fn active_subst<S: SubstMap>(subst_map: &S, subst_loc_idx: SubstLocIdx) -> Option<SubstMeta> {
+fn active_subst<S: SubstMap>(subst_map: &S, subst_loc_idx: SubstLocIdx) -> Option<SubstMeta> {
     match subst_map.subst_at(subst_loc_idx) {
         Some(_) if any_test_thread_abandoned() && test_thread_abandoned() => None,
         subst => subst,
     }
+}
+
+impl<S: SubstMap> ActiveMutantHandle<S> {
+    /// Inlined even in unoptimized builds, as every substitution point calls it.
+    #[inline(always)]
+    pub fn subst_at(&'static self, subst_loc_idx: SubstLocIdx) -> Option<SubstMeta> {
+        active_subst(self.subst_map(), subst_loc_idx)
+    }
+
+    /// Whether a location runs the mutation: the one that the slot of the guard of its function body holds now.
+    /// The slot mostly holds what the guard entered the body with, and then the location reads nothing behind the slot.
+    #[inline(always)]
+    pub fn runs_mutation_at(&'static self, entered: SubstMeta, subst_loc_idx: SubstLocIdx, mutation_id: u32) -> bool {
+        let entered_with = entered.mutation.id == mutation_id;
+        match self.subst_map().subst_at(subst_loc_idx) {
+            Some(subst) if ptr::eq(subst.mutation, entered.mutation) => entered_with,
+            subst => runs_mutation_of_new_mutant(subst, entered_with, mutation_id),
+        }
+    }
+}
+
+/// Whether a location runs the mutation, after the run set another mutant than the thread entered the function body with.
+/// An abandoned test is cancelled by a panic where this changes the location; if it unwinds already, it keeps what it entered with.
+#[cold]
+fn runs_mutation_of_new_mutant(subst: Option<SubstMeta>, entered_with: bool, mutation_id: u32) -> bool {
+    let holds = subst.is_some_and(|subst| subst.mutation.id == mutation_id);
+    if holds == entered_with || !(any_test_thread_abandoned() && test_thread_abandoned()) { return holds; }
+    if !thread::panicking() { panic!("test thread no longer active: exiting after timeout"); }
+    entered_with
 }
 
 /// Whether this thread may go on past a substitution point, where an abandoned test is cancelled by a panic.
@@ -867,6 +897,7 @@ where
 #[cfg(test)]
 mod abandon_tests {
     use super::*;
+    use crate::{EntryPoints, MutationMeta, MutationSafety, NO_MUTATION};
 
     static RELEASE: AtomicBool = AtomicBool::new(false);
 
@@ -914,6 +945,54 @@ mod abandon_tests {
         }).join();
         assert!(joined.is_err());
         assert_eq!(rx.iter().collect::<Vec<_>>(), [(false, true), (true, true)]);
+    }
+
+    const fn mutation(id: u32) -> MutationMeta {
+        MutationMeta {
+            id, safety: MutationSafety::Safe, op_name: "", display_name: "", display_location: "",
+            reachable_from: EntryPoints::InternalTests(phf::Map::new()), reached_by_truncated_entry_point: false, undetected_diagnostic: "",
+        }
+    }
+
+    static MUTATIONS: [MutationMeta; 2] = [mutation(1), mutation(2)];
+    const ENTERED: [SubstMeta; 3] = [SubstMeta { mutation: &NO_MUTATION }, SubstMeta { mutation: &MUTATIONS[0] }, SubstMeta { mutation: &MUTATIONS[1] }];
+    static GUARD: ActiveMutantHandle<[Option<SubstMeta>; 1]> = ActiveMutantHandle::with([Some(ENTERED[1])]);
+
+    /// Whether the locations of mutations 1 and 2 run them, in a body entered with each of `ENTERED`.
+    fn guarded_locations() -> [[bool; 2]; 3] {
+        ENTERED.map(|entered| [GUARD.runs_mutation_at(entered, 0, 1), GUARD.runs_mutation_at(entered, 0, 2)])
+    }
+
+    #[test]
+    fn a_guarded_location_runs_the_mutation_that_the_slot_holds_now() {
+        assert_eq!(guarded_locations(), [[true, false]; 3]);
+    }
+
+    #[test]
+    fn an_abandoned_test_is_cancelled_where_the_slot_differs_from_what_it_entered_the_body_with() {
+        struct Probe(mpsc::Sender<[[bool; 2]; 3]>);
+        impl Drop for Probe {
+            fn drop(&mut self) {
+                if thread::panicking() { let _ = self.0.send(guarded_locations()); }
+            }
+        }
+        let abandoned = |cancelled_at: Option<(usize, u32)>| {
+            let (tx, rx) = mpsc::channel();
+            let goes_on = thread::spawn(move || {
+                let active_signal = TestThreadSignal::set(Arc::new(AtomicBool::new(true)));
+                abandon_signal(&active_signal.0);
+                let _probe = Probe(tx);
+                if let Some((entered, mutation_id)) = cancelled_at { GUARD.runs_mutation_at(ENTERED[entered], 0, mutation_id); }
+                [GUARD.runs_mutation_at(ENTERED[1], 0, 1), GUARD.runs_mutation_at(ENTERED[1], 0, 2), GUARD.runs_mutation_at(ENTERED[0], 0, 2)]
+            }).join().ok();
+            (goes_on, rx.recv().ok())
+        };
+        assert_eq!(abandoned(None), (Some([true, false, false]), None));
+        // It unwinds with what it entered each body with: mutation 1 does not start, and mutation 2 does not stop.
+        let unwinds_with = Some([[false, false], [true, false], [false, true]]);
+        assert_eq!(abandoned(Some((0, 1))), (None, unwinds_with));
+        assert_eq!(abandoned(Some((2, 1))), (None, unwinds_with));
+        assert_eq!(abandoned(Some((2, 2))), (None, unwinds_with));
     }
 }
 

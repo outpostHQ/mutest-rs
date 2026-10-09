@@ -68,10 +68,10 @@ impl<S: SubstMap> ActiveMutantHandle<S> {
 
     /// Inlined even in unoptimized builds, as every substitution point calls it.
     #[inline(always)]
-    pub fn subst_at(self: &'static Self, subst_loc_idx: SubstLocIdx) -> Option<SubstMeta> {
+    pub(crate) fn subst_map(self: &'static Self) -> &'static S {
         // SAFETY: We are acquiring a reference to the static memory location backing the handle
         //         and the value is allowed to change before the substitution metadata is read.
-        test_runner::active_subst(unsafe { &*self.0.as_ptr() }, subst_loc_idx)
+        unsafe { &*self.0.as_ptr() }
     }
 
     /// # Safety

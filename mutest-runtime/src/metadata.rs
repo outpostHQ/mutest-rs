@@ -143,6 +143,19 @@ impl MutationMeta {
     }
 }
 
+/// Stands for no mutation in the slot of a guard, which is set for a function body to run the code that holds
+/// its mutations. The ids of mutations start at 1.
+pub static NO_MUTATION: MutationMeta = MutationMeta {
+    id: 0,
+    safety: MutationSafety::Safe,
+    op_name: "",
+    display_name: "",
+    display_location: "",
+    reachable_from: EntryPoints::InternalTests(phf::Map::new()),
+    reached_by_truncated_entry_point: false,
+    undetected_diagnostic: "",
+};
+
 #[derive(Debug)]
 pub struct MutationConflictsMeta {
     conflicts: StaticBitMatrixRef<'static>,

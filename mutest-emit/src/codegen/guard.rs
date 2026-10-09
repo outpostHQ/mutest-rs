@@ -7,6 +7,7 @@ use crate::codegen::ast;
 use crate::codegen::ast::mut_visit::MutVisitor;
 use crate::codegen::ast::visit::Visitor;
 use crate::codegen::cancellation;
+use crate::codegen::mutation::MutId;
 use crate::codegen::symbols::{Ident, Span, Symbol, path, sym};
 
 /// What a body holds that a second copy of the body would change the meaning of.
@@ -77,13 +78,31 @@ pub fn mk_subst_lookup_expr(sp: Span, slot: usize) -> Box<ast::Expr> {
     ]))
 }
 
-/// `match $lookup { _ if !$is_test_thread_active => $test_thread_cancel, None => $original, _ => $substituted }`
+/// The name of what a function body with a guard was entered with. The generated code is printed,
+/// so the name alone keeps it apart from the names in the body.
+fn entered_ident(sp: Span) -> Ident {
+    Ident::new(Symbol::intern("mutest_entered"), sp)
+}
+
+/// `crate::mutest_generated::ACTIVE_MUTANT_HANDLE.runs_mutation_at($entered, $slot, $mut_id)`
+pub fn mk_runs_mutation_expr(sp: Span, slot: usize, mut_id: MutId) -> Box<ast::Expr> {
+    let lit = |value: String| ast::mk::expr_lit(sp, ast::token::LitKind::Integer, Symbol::intern(&value), None);
+    let args = thin_vec![ast::mk::expr_ident(sp, entered_ident(sp)), lit(slot.to_string()), lit(mut_id.index().to_string())];
+    ast::mk::expr_method_call_path_ident(sp, path::ACTIVE_MUTANT_HANDLE(sp), Ident::new(sym::runs_mutation_at, sp), args)
+}
+
+/// `match $lookup { _ if !$is_test_thread_active => $test_thread_cancel, None => $original, Some($entered) => $substituted }`
 /// The slot is set for each mutation with a substitution in the body, so the original code runs for any other.
-pub fn mk_guarded_body_expr(sp: Span, slot: usize, original: Box<ast::Expr>, substituted: Box<ast::Expr>) -> Box<ast::Expr> {
+pub fn mk_guarded_body_expr(sp: Span, slot: usize, original: Box<ast::Block>, substituted: Box<ast::Block>) -> Box<ast::Expr> {
+    let [original, substituted] = [original, substituted].map(|body| {
+        let mut body = ast::mk::expr_block(body);
+        LoopCancel { sp }.visit_expr(&mut body);
+        body
+    });
     ast::mk::expr_match(sp, mk_subst_lookup_expr(sp, slot), thin_vec![
         mk_cancel_arm(sp),
         ast::mk::arm(sp, ast::mk::pat_path(sp, path::None(sp)), None, Some(original)),
-        ast::mk::arm(sp, ast::mk::pat_wild(sp), None, Some(substituted)),
+        ast::mk::arm(sp, ast::mk::pat_tuple_struct(sp, path::Some(sp), thin_vec![*ast::mk::pat_ident(sp, entered_ident(sp))]), None, Some(substituted)),
     ])
 }
 
@@ -93,13 +112,13 @@ fn mk_cancel_stmt(sp: Span) -> ast::Stmt {
     ast::mk::stmt(sp, ast::StmtKind::Semi(ast::mk::expr_match(sp, ast::mk::expr_tuple(sp, thin_vec![]), arms)))
 }
 
-/// Prepares the original code of a body: a loop in it has no location left to cancel a test the run gave up,
-/// so it checks. A closure stays as written, as no mutation is in a closure.
-pub struct OriginalBody {
-    pub sp: Span,
+/// Makes each loop of a body cancel a test the run gave up, as a location in the body cancels it only where
+/// it would run the code of another mutant. A closure stays as written, as no mutation is in a closure.
+struct LoopCancel {
+    sp: Span,
 }
 
-impl MutVisitor for OriginalBody {
+impl MutVisitor for LoopCancel {
     fn visit_expr(&mut self, expr: &mut ast::Expr) {
         if let ast::ExprKind::Closure(..) | ast::ExprKind::Gen(..) = &expr.kind { return; }
         ast::mut_visit::walk_expr(self, expr);

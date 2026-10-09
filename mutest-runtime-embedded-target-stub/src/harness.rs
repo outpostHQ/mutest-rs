@@ -51,6 +51,11 @@ impl<S: SubstMap> ActiveMutantHandle<S> {
         subst_map_ref.and_then(|subst| unsafe { subst.subst_at_unchecked(subst_loc_idx) })
     }
 
+    #[inline]
+    pub fn runs_mutation_at(&'static self, _entered: SubstMeta, subst_loc_idx: SubstLocIdx, mutation_id: u32) -> bool {
+        self.subst_at(subst_loc_idx).is_some_and(|subst| subst.mutation.id == mutation_id)
+    }
+
     /// # Safety
     ///
     /// The caller must ensure that no other thread is reading from the handle.
