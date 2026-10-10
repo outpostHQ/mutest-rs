@@ -6,6 +6,7 @@
     "bigfiles",
     "binsize",
     "citations",
+    "claims",
     "codeslop",
     "commits",
     "complexity",
@@ -29,6 +30,7 @@
     "splits",
     "supply",
     "test",
+    "testlint",
     "typos",
     "unsafety",
     "unused",
@@ -41,12 +43,12 @@
   "runner": [
     "bin/test"
   ],
-  "runner_tools": [
-    "cargo",
-    "rustup"
-  ],
   "coverage": [
     "bin/coverage",
     "{lcov}"
+  ],
+  "runner_tools": [
+    "cargo",
+    "rustup"
   ]
 }
