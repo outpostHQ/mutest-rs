@@ -1,7 +1,9 @@
 use std::cell::OnceCell;
 use std::collections::hash_map;
 use std::collections::vec_deque::VecDeque;
+use std::fs;
 use std::num::NonZeroUsize;
+use std::path::PathBuf;
 
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use rustc_data_structures::smallvec::{SmallVec, smallvec};
@@ -38,7 +40,9 @@ impl<'tcx> CrateResolutions<'tcx> {
         let crate_sources = tcx.crates(()).iter()
             .filter_map(|&cnum| {
                 let crate_source = tcx.used_crate_source(cnum);
-                let mut extern_crate_source_paths = crate_source.paths().cloned().peekable();
+                // NOTE: A crate found on a search path keeps that path as given, but the paths of `--extern` are canonical.
+                let canonical = |path: &PathBuf| fs::canonicalize(path).unwrap_or_else(|_| path.clone());
+                let mut extern_crate_source_paths = crate_source.paths().map(canonical).peekable();
                 extern_crate_source_paths.peek()?;
                 Some((cnum, extern_crate_source_paths.collect::<SmallVec<[_; 3]>>()))
             })
