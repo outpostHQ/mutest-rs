@@ -190,6 +190,7 @@ pub struct UnstableFlags {
 
 pub struct Options<'op, 'm> {
     pub crate_kind: CrateKind,
+    pub cargo_package_name: Option<String>,
     pub cargo_target_kind: Option<CargoTargetKind>,
 
     pub outputs: BTreeSet<OutputKind>,

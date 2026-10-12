@@ -69,7 +69,7 @@ fn perform_codegen<'tcx, 'ent, 'trg, 'm>(
     mutest_emit::codegen::substitution::resolve_syntax_ambiguities(tcx, generated_crate_ast);
     mutest_emit::codegen::tool_attr::strip_from_exported_macros(generated_crate_ast);
 
-    let cargo_metadata = match (env::var("CARGO_PKG_NAME").ok(), opts.cargo_target_kind) {
+    let cargo_metadata = match (opts.cargo_package_name.clone(), opts.cargo_target_kind) {
         (Some(cargo_package_name), Some(cargo_target_kind)) => {
             let target_kind = match cargo_target_kind {
                 config::CargoTargetKind::Lib => CargoTargetKind::Lib,

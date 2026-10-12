@@ -82,6 +82,7 @@ fn compile_in_child(config: &Config, record: &invocation::Record, suffix: &str, 
     replay::write(&request_path, &replay::Request {
         targets: replay::Targets::encode(external_targets),
         suffix: suffix.to_owned(),
+        cargo_package_name: config.opts.cargo_package_name.clone(),
         cargo_target_kind: config.opts.cargo_target_kind,
         metadata_directory: config.opts.write_opts.out_dir.clone(),
         result: result_path.clone(),

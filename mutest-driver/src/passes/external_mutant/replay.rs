@@ -151,6 +151,8 @@ impl Targets {
 pub struct Request {
     pub targets: Targets,
     pub suffix: String,
+    /// The package of the tests. The recorded environment names the package of the mutant crate.
+    pub cargo_package_name: Option<String>,
     pub cargo_target_kind: Option<CargoTargetKind>,
     pub metadata_directory: PathBuf,
     pub result: PathBuf,

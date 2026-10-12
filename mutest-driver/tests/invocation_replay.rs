@@ -90,10 +90,17 @@ fn messages(build: &Output) -> Vec<serde_json::Value> {
     String::from_utf8_lossy(&build.stdout).lines().filter_map(|line| serde_json::from_str(line).ok()).collect()
 }
 
-/// What the mutation harness that a Cargo build made of the test target reports.
+/// Where the driver of a Cargo build writes the metadata of each target.
+fn metadata_root(fixture: &Fixture) -> PathBuf {
+    fixture.output.join("runtime").join("json")
+}
+
+/// What the mutation harness that a Cargo build made of the test target reports. It writes its results beside
+/// the metadata of the build.
 fn evaluate(fixture: &Fixture, build: &[serde_json::Value], target: &str) -> Output {
     let executable = build.iter().find_map(|message| (message["target"]["name"] == target).then(|| message["executable"].as_str()).flatten()).unwrap();
-    Command::new(executable).env_clear().env("TMPDIR", &fixture.output).output().unwrap()
+    Command::new(executable).arg(format!("--metadata-out-root-dir={}", metadata_root(fixture).display()))
+        .env_clear().env("TMPDIR", &fixture.output).output().unwrap()
 }
 
 #[test]
@@ -333,6 +340,9 @@ fn a_test_linking_several_candidates_mutates_the_library_of_its_package_or_else_
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(output.status.success() && stdout.contains("2 detected (0 timed out; 0 crashed); 0 undetected; 2 total"), "{target}: {stdout}");
     }
+    // NOTE: The results of a test belong to its package, not to the package of the crate it mutates.
+    assert!(metadata_root(&fixture).join("tool").join("tests").join("names_one").join("evaluation.json").is_file());
+    assert!(metadata_root(&fixture).join("engine").join("tests").join("own").join("evaluation.json").is_file());
     let diagnostics = String::from_utf8_lossy(&build.stdout);
     assert!(diagnostics.contains("integration test `names_both` links no mutant crate, so no mutation can reach its tests"), "{diagnostics}");
     assert!(diagnostics.contains("it is unclear which crate to mutate for it: `engine`, `wire`"), "{diagnostics}");

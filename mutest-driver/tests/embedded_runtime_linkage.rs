@@ -174,6 +174,7 @@ impl Fixture {
             mutest_search_path: Some(self.output.join("debug")),
             opts: Options {
                 crate_kind: CrateKind::MutantWithInternalTests,
+                cargo_package_name: None,
                 cargo_target_kind: None,
                 outputs: Default::default(),
                 verbosity: 0,

@@ -311,6 +311,7 @@ pub fn main() -> process::ExitCode {
 
         // NOTE: A driver started to compile a specialized mutant crate receives its request through a file.
         let replay_request = read_replay_request(&mut compiler_config, &early_dcx);
+        let cargo_package_name = replay_request.as_ref().map_or_else(|| env::var("CARGO_PKG_NAME").ok(), |request| request.cargo_package_name.clone());
         let cargo_target_kind = replay_request.as_ref().map_or_else(|| fetch_cargo_target_kind(&compiler_config.input), |request| request.cargo_target_kind);
 
         let mut package_config = cargo_package_config::fetch_merged_cargo_package_config(&early_dcx);
@@ -746,6 +747,7 @@ pub fn main() -> process::ExitCode {
             mutest_search_path,
             opts: config::Options {
                 crate_kind,
+                cargo_package_name,
                 cargo_target_kind,
 
                 outputs,
