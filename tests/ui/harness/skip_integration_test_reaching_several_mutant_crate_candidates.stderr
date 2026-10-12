@@ -1,7 +1,7 @@
 warning: integration test `mutest_test_$HASH_harness_skip_integration_test_reaching_several_m` links no mutant crate, so no mutation can reach its tests
   |
   = note: it is unclear which crate to mutate for it: `crate_with_generated_mod`, `mutant_crate_candidate`, `other_mutant_crate_candidate`
-  = note: the choice is the library of its package, or else the only candidate that it names itself
+  = note: the choice is the library of its package, or else the only candidate that it names itself and that depends on no other such candidate
   = note: its tests are skipped
 
 warning: 1 warning emitted

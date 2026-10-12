@@ -128,28 +128,40 @@ fn metadata_dependencies(text: &str) -> Result<Vec<String>, String> {
         .collect()
 }
 
+/// The artifact of a crate, and the dependencies that its metadata names, by crate hash.
+fn artifact_and_dependencies<'tcx>(tcx: TyCtxt<'tcx>, cnum: CrateNum) -> Result<(&'tcx PathBuf, Vec<String>), String> {
+    let source = tcx.used_crate_source(cnum);
+    let Some(path) = source.rmeta.as_ref().or(source.rlib.as_ref()).or(source.dylib.as_ref()) else {
+        return Err(format!("crate `{}` has no artifact", tcx.crate_name(cnum)));
+    };
+    let mut metadata = Vec::new();
+    rustc_metadata::locator::list_file_metadata(
+        &tcx.sess.target,
+        path,
+        &rustc_codegen_ssa::back::metadata::DefaultMetadataLoader,
+        &mut metadata,
+        &["root".to_owned()],
+        compiler(),
+    ).map_err(|error| format!("cannot read the metadata of `{}`: {error}", path.display()))?;
+    let text = String::from_utf8(metadata).map_err(|_| format!("the metadata of `{}` is not UTF-8", path.display()))?;
+
+    Ok((path, metadata_dependencies(&text)?))
+}
+
+/// Whether the metadata of `dependent` names `dependency`, which it does for each crate it was built on.
+pub fn depends_on(tcx: TyCtxt<'_>, dependent: CrateNum, dependency: CrateNum) -> bool {
+    let hash = tcx.crate_hash(dependency).to_string();
+    artifact_and_dependencies(tcx, dependent).is_ok_and(|(_, dependencies)| dependencies.contains(&hash))
+}
+
 /// The records of every crate that depends on `mutant`, in dependency order.
 pub fn dependents(tcx: TyCtxt<'_>, mutant: CrateNum) -> Result<Vec<Record>, String> {
     let mut dependencies = BTreeMap::new();
     let mut artifacts = BTreeMap::new();
     for &cnum in tcx.crates(()) {
-        let source = tcx.used_crate_source(cnum);
-        let Some(path) = source.rmeta.as_ref().or(source.rlib.as_ref()).or(source.dylib.as_ref()) else {
-            return Err(format!("crate `{}` has no artifact", tcx.crate_name(cnum)));
-        };
-        let mut metadata = Vec::new();
-        rustc_metadata::locator::list_file_metadata(
-            &tcx.sess.target,
-            path,
-            &rustc_codegen_ssa::back::metadata::DefaultMetadataLoader,
-            &mut metadata,
-            &["root".to_owned()],
-            compiler(),
-        ).map_err(|error| format!("cannot read the metadata of `{}`: {error}", path.display()))?;
-        let text = String::from_utf8(metadata).map_err(|_| format!("the metadata of `{}` is not UTF-8", path.display()))?;
-
+        let (path, crate_dependencies) = artifact_and_dependencies(tcx, cnum)?;
         let hash = tcx.crate_hash(cnum).to_string();
-        dependencies.insert(hash.clone(), metadata_dependencies(&text)?);
+        dependencies.insert(hash.clone(), crate_dependencies);
         artifacts.insert(hash, path);
     }
 

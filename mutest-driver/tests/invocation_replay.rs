@@ -310,32 +310,38 @@ fn diamond(case: Diamond) {
 
 /// Libraries `wire` and `engine`, which builds on `wire`, and a package `tool` without a library that tests them.
 #[test]
-fn a_test_linking_several_candidates_mutates_the_library_of_its_package_or_else_the_only_one_it_names() {
+fn a_test_linking_several_candidates_mutates_the_library_of_its_package_or_else_the_base_one_it_names() {
     let fixture = Fixture::new();
     let workspace = fixture.source.join("several");
-    for directory in ["wire/src", "engine/src", "engine/tests", "tool/src", "tool/tests"] {
+    for directory in ["wire/src", "codec/src", "engine/src", "engine/tests", "tool/src", "tool/tests"] {
         fs::create_dir_all(workspace.join(directory)).unwrap();
     }
-    fs::write(workspace.join("Cargo.toml"), "[workspace]\nmembers=[\"wire\",\"engine\",\"tool\"]\nresolver=\"3\"\n").unwrap();
+    fs::write(workspace.join("Cargo.toml"), "[workspace]\nmembers=[\"wire\",\"codec\",\"engine\",\"tool\"]\nresolver=\"3\"\n").unwrap();
     let manifest = |name: &str, dependencies: &str| format!("[package]\nname=\"{name}\"\nversion=\"0.1.0\"\nedition=\"2024\"\n[dependencies]\n{dependencies}");
     fs::write(workspace.join("wire/Cargo.toml"), manifest("wire", "")).unwrap();
+    fs::write(workspace.join("codec/Cargo.toml"), manifest("codec", "")).unwrap();
     fs::write(workspace.join("engine/Cargo.toml"), manifest("engine", "wire={path=\"../wire\"}\n")).unwrap();
-    fs::write(workspace.join("tool/Cargo.toml"), manifest("tool", "wire={path=\"../wire\"}\nengine={path=\"../engine\"}\n")).unwrap();
+    fs::write(workspace.join("tool/Cargo.toml"), manifest("tool", "wire={path=\"../wire\"}\ncodec={path=\"../codec\"}\nengine={path=\"../engine\"}\n")).unwrap();
     fs::write(workspace.join("wire/src/lib.rs"), "pub fn base()->u8 {40}\n").unwrap();
+    fs::write(workspace.join("codec/src/lib.rs"), "pub fn code()->u8 {7}\n").unwrap();
     fs::write(workspace.join("engine/src/lib.rs"), "pub use wire::base; pub fn answer()->u8 {42}\n").unwrap();
     fs::write(workspace.join("tool/src/main.rs"), "fn main(){}\n").unwrap();
-    // NOTE: No test detects a mutation of `wire`, so every detection shows that `engine` is the mutated crate.
-    let names_engine = "#[test] fn answer(){assert_eq!(engine::answer(),42);}\n";
-    let names_both = "#[test] fn answer(){assert_eq!(engine::answer(),42); let _=wire::base();}\n";
-    fs::write(workspace.join("engine/tests/own.rs"), names_both).unwrap();
-    fs::write(workspace.join("tool/tests/names_one.rs"), names_engine).unwrap();
-    fs::write(workspace.join("tool/tests/names_both.rs"), names_both).unwrap();
+    // NOTE: Each test detects the mutations of one crate only, so a full detection shows that this crate is mutated.
+    let checks_engine = "#[test] fn answer(){assert_eq!(engine::answer(),42);}\n";
+    let checks_engine_names_wire = "#[test] fn answer(){assert_eq!(engine::answer(),42); let _=wire::base();}\n";
+    let checks_wire_names_engine = "#[test] fn base(){assert_eq!(wire::base(),40); let _=engine::answer();}\n";
+    let names_siblings = "#[test] fn answer(){assert_eq!(engine::answer(),42); let _=codec::code();}\n";
+    fs::write(workspace.join("engine/tests/own.rs"), checks_engine_names_wire).unwrap();
+    fs::write(workspace.join("tool/tests/names_one.rs"), checks_engine).unwrap();
+    fs::write(workspace.join("tool/tests/names_both.rs"), checks_wire_names_engine).unwrap();
+    fs::write(workspace.join("tool/tests/names_siblings.rs"), names_siblings).unwrap();
 
     let build = fixture.cargo_test(&workspace, &["--workspace"], "-Zembed-metadata=yes").output().unwrap();
     assert_success(&build);
     let messages = messages(&build);
 
-    for target in ["own", "names_one"] {
+    // NOTE: `engine` depends on `wire`, so a test of `tool` that names both mutates `wire`.
+    for target in ["own", "names_one", "names_both"] {
         let output = evaluate(&fixture, &messages, target);
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(output.status.success() && stdout.contains("2 detected (0 timed out; 0 crashed); 0 undetected; 2 total"), "{target}: {stdout}");
@@ -344,9 +350,11 @@ fn a_test_linking_several_candidates_mutates_the_library_of_its_package_or_else_
     assert!(metadata_root(&fixture).join("tool").join("tests").join("names_one").join("evaluation.json").is_file());
     assert!(metadata_root(&fixture).join("engine").join("tests").join("own").join("evaluation.json").is_file());
     let diagnostics = String::from_utf8_lossy(&build.stdout);
-    assert!(diagnostics.contains("integration test `names_both` links no mutant crate, so no mutation can reach its tests"), "{diagnostics}");
-    assert!(diagnostics.contains("it is unclear which crate to mutate for it: `engine`, `wire`"), "{diagnostics}");
-    assert!(!diagnostics.contains("integration test `names_one` links no mutant crate"), "{diagnostics}");
+    assert!(diagnostics.contains("integration test `names_siblings` links no mutant crate, so no mutation can reach its tests"), "{diagnostics}");
+    assert!(diagnostics.contains("it is unclear which crate to mutate for it: `codec`, `engine`"), "{diagnostics}");
+    for target in ["names_one", "names_both"] {
+        assert!(!diagnostics.contains(&format!("integration test `{target}` links no mutant crate")), "{diagnostics}");
+    }
 }
 
 #[test]

@@ -112,8 +112,15 @@ fn is_of_own_cargo_package(tcx: TyCtxt<'_>, cnum: hir::CrateNum) -> bool {
     })
 }
 
+/// The candidates that depend on no other candidate.
+fn base_candidates<T: Copy + PartialEq>(candidates: &[T], depends_on: impl Fn(T, T) -> bool) -> Vec<T> {
+    candidates.iter().copied()
+        .filter(|&candidate| !candidates.iter().any(|&other| other != candidate && depends_on(candidate, other)))
+        .collect()
+}
+
 /// The candidate to mutate for an integration test: the only one it links, or else the library of its package,
-/// or else the only one that the test names itself.
+/// or else the only one that the test names itself and that depends on no other such candidate.
 fn choose_mutant_crate<T: Copy>(linked: &[T], named: &[T], is_of_own_package: impl Fn(T) -> bool) -> Option<T> {
     let only = |candidates: &[T]| match candidates { &[candidate] => Some(candidate), _ => None };
     only(linked)
@@ -130,6 +137,8 @@ fn mutant_crate_for_tests(tcx: TyCtxt<'_>) -> Option<hir::CrateNum> {
     let named = linked.iter().copied()
         .filter(|&cnum| tcx.extern_crate(cnum).is_some_and(|extern_crate| extern_crate.is_direct()))
         .collect::<Vec<_>>();
+    // NOTE: Nor is a candidate above another named one: the tests reach the lower crate by name and through it.
+    let named = base_candidates(&named, |dependent, dependency| super::external_mutant::invocation::depends_on(tcx, dependent, dependency));
 
     let mutant_crate = choose_mutant_crate(&linked, &named, |cnum| is_of_own_cargo_package(tcx, cnum));
     if mutant_crate.is_some() { return mutant_crate; }
@@ -142,7 +151,7 @@ fn mutant_crate_for_tests(tcx: TyCtxt<'_>) -> Option<hir::CrateNum> {
             .collect::<Vec<_>>();
         candidate_names.sort();
         diagnostic.note(format!("it is unclear which crate to mutate for it: {}", candidate_names.join(", ")));
-        diagnostic.note("the choice is the library of its package, or else the only candidate that it names itself");
+        diagnostic.note("the choice is the library of its package, or else the only candidate that it names itself and that depends on no other such candidate");
     }
     diagnostic.note("its tests are skipped");
     diagnostic.emit();
@@ -752,7 +761,7 @@ pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
 
 #[cfg(test)]
 mod tests {
-    use super::choose_mutant_crate;
+    use super::{base_candidates, choose_mutant_crate};
 
     #[test]
     fn the_only_linked_candidate_is_mutated_even_when_the_test_does_not_name_it() {
@@ -777,6 +786,18 @@ mod tests {
     #[test]
     fn no_candidate_is_mutated_when_the_test_names_none_of_the_several_it_links() {
         assert_eq!(None, choose_mutant_crate(&["ipc", "core"], &[], |_| false));
+    }
+
+    #[test]
+    fn a_candidate_that_depends_on_another_candidate_is_no_base_candidate() {
+        let depends_on = |dependent: &str, dependency: &str| (dependent, dependency) == ("git", "core");
+        assert_eq!(vec!["core"], base_candidates(&["core", "git"], depends_on));
+        assert_eq!(vec!["core", "ipc"], base_candidates(&["core", "git", "ipc"], depends_on));
+    }
+
+    #[test]
+    fn candidates_that_do_not_depend_on_each_other_are_all_base_candidates() {
+        assert_eq!(vec!["core", "ipc"], base_candidates(&["core", "ipc"], |_, _| false));
     }
 
     #[test]
