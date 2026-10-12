@@ -1,3 +1,4 @@
+use rustc_data_structures::thin_vec::thin_vec;
 use rustc_span::span_bug;
 
 use crate::analysis::hir;
@@ -36,7 +37,28 @@ pub(super) fn super_count(segments: &[ast::PathSegment]) -> Option<usize> {
     (!supers.is_empty() && supers.iter().all(|segment| segment.ident.name == kw::Super)).then_some(supers.len())
 }
 
+/// `{self}` as the kind of a use tree, which imports only the module that the path before it names.
+pub(super) fn self_use_tree_kind(rename: Option<Ident>) -> ast::UseTreeKind {
+    let self_use_tree = ast::UseTree { prefix: ast::Path::from_ident(Ident::new(kw::SelfLower, DUMMY_SP)), kind: ast::UseTreeKind::Simple(rename) };
+    ast::UseTreeKind::Nested { items: thin_vec![ast::UseTreeAndId { inner: self_use_tree, id: ast::DUMMY_NODE_ID }], span: DUMMY_SP }
+}
+
 impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
+    /// Whether the import path names a module as a child of another module: through that module, or
+    /// by the bare name of an import in the scope.
+    pub(super) fn import_path_names_mod_child(&self, scope: hir::HirId, path: &ast::Path, res: hir::Res<ast::NodeId>) -> bool {
+        let [parent_path_segments @ .., mod_path_segment] = &path.segments[..] else { return false; };
+        if mod_path_segment.ident.is_path_segment_keyword() { return false; }
+        match parent_path_segments.last() {
+            Some(parent_mod_path_segment) => matches!(self.def_res.node_res(parent_mod_path_segment.id), Some(hir::Res::Def(hir::DefKind::Mod, _))),
+            None => {
+                let mod_scope = self.tcx.parent_module(scope).to_def_id();
+                res::lookup_mod_child(self.tcx, mod_scope, res.expect_non_local(), mod_path_segment.ident.name)
+                    .is_some_and(|mod_child| !mod_child.reexport_chain.is_empty())
+            }
+        }
+    }
+
     /// Whether an item or import of an enclosing block can shadow the module item that starts the local path.
     pub(super) fn is_shadowed_in_block(&self, def_path: &res::DefPath<'tcx>) -> bool {
         let Some(first) = def_path.segments.first() else { return false; };

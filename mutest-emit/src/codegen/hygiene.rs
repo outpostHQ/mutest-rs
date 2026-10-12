@@ -1159,13 +1159,9 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                 // NOTE: Module re-exports (e.g. `pub use alloc::vec` in `std`) point to the underlying module, but
                 //       we want to refer to the re-export by path in case the import this resolution comes from
                 //       is diverging and points to an identically named item in the re-export's scope.
-                // Check if the parent module named in the path diverges from the final resolution's parent module,
-                // indicating that we are dealing with a module re-export resolution.
-                if let [.., parent_mod_path_segment, _] = &path.segments[..]
-                    && let Some(hir::Res::Def(hir::DefKind::Mod, parent_mod_def_id)) = self.def_res.node_res(parent_mod_path_segment.id)
-                    && Some(parent_mod_def_id) != self.tcx.opt_parent(def_id)
-                {
-                    // HACK: Deal with module re-export paths like we do with item paths.
+                // Such a module is dealt with like an item: by the name it has in the module that the path names.
+                // Otherwise, two imports of one module could each resolve through the name of the other.
+                if self.import_path_names_mod_child(scope, path, res) {
                     break 'arm;
                 }
 
@@ -1264,6 +1260,8 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                 /// Namespace in which the name is introduced by this use import.
                 namespace: hir::Namespace,
                 rename: Option<Ident>,
+                /// Whether the import is a `self` of a nested use tree, which takes the name from the type namespace only.
+                of_self: bool,
             }
         }
 
@@ -1282,10 +1280,9 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
             // NOTE: `*::self` paths are only valid when the self appears in a nested use tree, and
             //       refer to the same item as the path segment before.
             //       Since they complicate path segment resolution and printing of valid paths,
-            //       it is easiest to just strip these no-op suffix segments here.
-            if let [.., last_path_segment] = &path_segments[..] && last_path_segment.ident.name == kw::SelfLower {
-                path_segments.pop();
-            }
+            //       it is easiest to just strip these suffix segments here, and to print them again at the end.
+            let of_self = path_segments.last().is_some_and(|segment| segment.ident.name == kw::SelfLower);
+            if of_self { path_segments.pop(); }
 
             match &use_tree.kind {
                 ast::UseTreeKind::Glob(_) => {
@@ -1310,7 +1307,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
 
                     let ident = rename.unwrap_or_else(|| path_segments.last().unwrap().ident);
                     import_res_with_ns
-                        .map(|(namespace, res)| Import { res, path_segments: path_segments.clone(), node_id, use_kind: UseKind::Single { ident, namespace, rename: *rename } })
+                        .map(|(namespace, res)| Import { res, path_segments: path_segments.clone(), node_id, use_kind: UseKind::Single { ident, namespace, rename: *rename, of_self } })
                         .collect_into(imports);
                 }
 
@@ -1384,7 +1381,9 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                     prefix: path,
                     kind: match use_kind {
                         UseKind::Glob => ast::UseTreeKind::Glob(DUMMY_SP),
-                        UseKind::Single { rename, .. } => ast::UseTreeKind::Simple(rename),
+                        UseKind::Single { rename, of_self: false, .. } => ast::UseTreeKind::Simple(rename),
+                        // `$path::{self}`, as `$path` alone would also import a value or a macro of the same name.
+                        UseKind::Single { rename, of_self: true, .. } => scope::self_use_tree_kind(rename),
                     },
                 };
 

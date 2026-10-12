@@ -134,6 +134,9 @@ macro m() {
     mod test_self_mod_imports {
         use self::inner as self_inner;
         use inner::nested_mod::{self, within::{self}};
+        use inner::nested_mod::{self as nested_mod_renamed};
+        use crate::{self as root};
+        use super::{self as parent};
         // NOTE: `self` can only appear as the root or the ending path segment, not in the middle of the path.
 
         mod inner {
@@ -229,6 +232,45 @@ macro m() {
         }
     }
 
+    // TEST: `self` import of a module beside a function of the same name.
+    mod test_self_import_of_mod_beside_fn_of_same_name {
+        use inner::escape::{self, escape};
+
+        mod inner {
+            pub use self::escape::escape;
+            pub mod escape {
+                pub fn escape() {}
+            }
+        }
+    }
+
+    // TEST: Several imports of one module, by its path and by the name of another import.
+    mod test_several_imports_of_one_mod {
+        use nested_mod as first_alias;
+        use nested_mod as second_alias;
+        use inner::nested_mod;
+        use inner::nested_mod as nested_mod_renamed;
+
+        mod inner {
+            pub mod nested_mod {}
+        }
+    }
+
+    // TEST: Re-exports of one module in two modules.
+    mod test_reexports_of_one_mod_in_two_mods {
+        pub use inner::hidden::nested_mod;
+
+        pub mod other {
+            pub use super::inner::hidden::nested_mod as nested_mod_renamed;
+        }
+
+        mod inner {
+            pub mod hidden {
+                pub mod nested_mod {}
+            }
+        }
+    }
+
     // TEST: Overlapping import of re-exported module and direct child item.
     mod test_overlapping_imports_of_reexported_mod_and_child_item {
         use std::vec;
@@ -308,6 +350,9 @@ macro m() {
         use ::dummy_crate as global_dummy_crate;
         use dummy_crate::{foo, bar};
         use ::dummy_crate::{foo as foo_renamed, bar as bar_renamed};
+        use dummy_crate::{self as dummy_crate_self, foo as _};
+        use ::dummy_crate::{self as global_dummy_crate_self};
+        use std::fmt::{self, Debug};
     }
 
     // TEST: Re-export of local macro_rules macro item.
