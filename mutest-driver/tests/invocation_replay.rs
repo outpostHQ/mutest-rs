@@ -48,6 +48,26 @@ impl Fixture {
             .unwrap()
     }
 
+    /// Cargo, building tests of `workspace` with the driver as the compiler of its members, without running them.
+    fn cargo_test(&self, workspace: &Path, selection: &[&str], rustflags: &str) -> Command {
+        let mut cargo = Command::new("cargo");
+        cargo.env_clear().current_dir(workspace)
+            .args(["test", "--offline", "--no-run", "--message-format=json"]).args(selection)
+            .env("RUSTC_WORKSPACE_WRAPPER", env!("CARGO_BIN_EXE_mutest-driver"))
+            .env("MUTEST_ENCODED_ARGS", "--emit=test-bin")
+            .env("MUTEST_TARGET_DIR_ROOT", self.output.join("runtime"))
+            .env("CARGO_TARGET_DIR", self.output.join("target"))
+            .env("CARGO_BUILD_JOBS", "2")
+            .env("TMPDIR", &self.output)
+            .env("RUSTFLAGS", rustflags);
+        for name in ["PATH", "HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN", "CARGO_HOME", "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH", "LLVM_PROFILE_FILE"] {
+            if let Some(value) = env::var_os(name) {
+                cargo.env(name, value);
+            }
+        }
+        cargo
+    }
+
     fn record(&self, artifact: &str) -> serde_json::Value {
         let path = self.output.join(".mutest-invocations").join(format!("{artifact}.json"));
         serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
@@ -63,6 +83,17 @@ impl Drop for Fixture {
 
 fn assert_success(output: &Output) {
     assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+}
+
+/// The JSON messages of a Cargo build.
+fn messages(build: &Output) -> Vec<serde_json::Value> {
+    String::from_utf8_lossy(&build.stdout).lines().filter_map(|line| serde_json::from_str(line).ok()).collect()
+}
+
+/// What the mutation harness that a Cargo build made of the test target reports.
+fn evaluate(fixture: &Fixture, build: &[serde_json::Value], target: &str) -> Output {
+    let executable = build.iter().find_map(|message| (message["target"]["name"] == target).then(|| message["executable"].as_str()).flatten()).unwrap();
+    Command::new(executable).env_clear().env("TMPDIR", &fixture.output).output().unwrap()
 }
 
 #[test]
@@ -231,24 +262,11 @@ fn diamond(case: Diamond) {
     fs::write(workspace.join("b/src/lib.rs"), b).unwrap();
     fs::write(workspace.join("a/tests/indirect.rs"), test).unwrap();
 
-    let mut cargo = Command::new("cargo");
-    cargo.env_clear().current_dir(&workspace)
-        .args(["test", "--offline", "-p", "diamond-a", "--test", "indirect", "--no-run", "--message-format=json"])
-        .env("RUSTC_WORKSPACE_WRAPPER", env!("CARGO_BIN_EXE_mutest-driver"))
-        .env("MUTEST_ENCODED_ARGS", "--emit=test-bin")
-        .env("MUTEST_TARGET_DIR_ROOT", fixture.output.join("runtime"))
-        .env("CARGO_TARGET_DIR", fixture.output.join("target"))
-        .env("CARGO_BUILD_JOBS", "2")
-        .env("TMPDIR", &fixture.output)
-        .env("RUSTFLAGS", if case.split_metadata { "-Zembed-metadata=no" } else { "-Zembed-metadata=yes" });
-    for name in ["PATH", "HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN", "CARGO_HOME", "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH", "LLVM_PROFILE_FILE"] {
-        if let Some(value) = env::var_os(name) {
-            cargo.env(name, value);
-        }
-    }
+    let rustflags = if case.split_metadata { "-Zembed-metadata=no" } else { "-Zembed-metadata=yes" };
+    let mut cargo = fixture.cargo_test(&workspace, &["-p", "diamond-a", "--test", "indirect"], rustflags);
     let clean = cargo.output().unwrap();
     assert_success(&clean);
-    let messages = String::from_utf8_lossy(&clean.stdout).lines().filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok()).collect::<Vec<_>>();
+    let messages = messages(&clean);
     let filenames = |target: &str| {
         let artifact = messages.iter().find(|message| message["target"]["name"] == target).unwrap();
         artifact["filenames"].as_array().unwrap().iter().map(|filename| PathBuf::from(filename.as_str().unwrap())).collect::<Vec<_>>()
@@ -275,13 +293,50 @@ fn diamond(case: Diamond) {
     }
     assert_success(&warm);
 
-    let executable = messages.iter().find_map(|message| (message["target"]["name"] == "indirect").then(|| message["executable"].as_str()).flatten()).unwrap();
-    let output = Command::new(executable).env_clear().env("TMPDIR", &fixture.output).output().unwrap();
+    let output = evaluate(&fixture, &messages, "indirect");
     assert_success(&output);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("2 detected (0 timed out; 0 crashed); 0 undetected; 2 total"), "{stdout}");
     assert!(stdout.contains("[fn_return_default] return `0` without evaluating the function body"), "{stdout}");
     assert!(stdout.contains("[fn_return_default] return `1` without evaluating the function body"), "{stdout}");
+}
+
+/// Libraries `wire` and `engine`, which builds on `wire`, and a package `tool` without a library that tests them.
+#[test]
+fn a_test_linking_several_candidates_mutates_the_library_of_its_package_or_else_the_only_one_it_names() {
+    let fixture = Fixture::new();
+    let workspace = fixture.source.join("several");
+    for directory in ["wire/src", "engine/src", "engine/tests", "tool/src", "tool/tests"] {
+        fs::create_dir_all(workspace.join(directory)).unwrap();
+    }
+    fs::write(workspace.join("Cargo.toml"), "[workspace]\nmembers=[\"wire\",\"engine\",\"tool\"]\nresolver=\"3\"\n").unwrap();
+    let manifest = |name: &str, dependencies: &str| format!("[package]\nname=\"{name}\"\nversion=\"0.1.0\"\nedition=\"2024\"\n[dependencies]\n{dependencies}");
+    fs::write(workspace.join("wire/Cargo.toml"), manifest("wire", "")).unwrap();
+    fs::write(workspace.join("engine/Cargo.toml"), manifest("engine", "wire={path=\"../wire\"}\n")).unwrap();
+    fs::write(workspace.join("tool/Cargo.toml"), manifest("tool", "wire={path=\"../wire\"}\nengine={path=\"../engine\"}\n")).unwrap();
+    fs::write(workspace.join("wire/src/lib.rs"), "pub fn base()->u8 {40}\n").unwrap();
+    fs::write(workspace.join("engine/src/lib.rs"), "pub use wire::base; pub fn answer()->u8 {42}\n").unwrap();
+    fs::write(workspace.join("tool/src/main.rs"), "fn main(){}\n").unwrap();
+    // NOTE: No test detects a mutation of `wire`, so every detection shows that `engine` is the mutated crate.
+    let names_engine = "#[test] fn answer(){assert_eq!(engine::answer(),42);}\n";
+    let names_both = "#[test] fn answer(){assert_eq!(engine::answer(),42); let _=wire::base();}\n";
+    fs::write(workspace.join("engine/tests/own.rs"), names_both).unwrap();
+    fs::write(workspace.join("tool/tests/names_one.rs"), names_engine).unwrap();
+    fs::write(workspace.join("tool/tests/names_both.rs"), names_both).unwrap();
+
+    let build = fixture.cargo_test(&workspace, &["--workspace"], "-Zembed-metadata=yes").output().unwrap();
+    assert_success(&build);
+    let messages = messages(&build);
+
+    for target in ["own", "names_one"] {
+        let output = evaluate(&fixture, &messages, target);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(output.status.success() && stdout.contains("2 detected (0 timed out; 0 crashed); 0 undetected; 2 total"), "{target}: {stdout}");
+    }
+    let diagnostics = String::from_utf8_lossy(&build.stdout);
+    assert!(diagnostics.contains("integration test `names_both` links no mutant crate, so no mutation can reach its tests"), "{diagnostics}");
+    assert!(diagnostics.contains("it is unclear which crate to mutate for it: `engine`, `wire`"), "{diagnostics}");
+    assert!(!diagnostics.contains("integration test `names_one` links no mutant crate"), "{diagnostics}");
 }
 
 #[test]
@@ -334,7 +389,8 @@ fn rebuild_case(spelling: ExternSpelling, repeated_suffix: bool) {
 
     let library = fixture.source.join("fixture.rs");
     fs::write(&library, "pub struct Shared(pub u8); pub fn answer() -> u8 { 42 }\n").unwrap();
-    assert_success(&driver().arg(&library).args(["--crate-name=fixture", "--crate-type=lib"]).arg(format!("-Cextra-filename={original_extra}")).output().unwrap());
+    // NOTE: The test and the library share a package directory, which makes the library the crate to mutate.
+    assert_success(&driver().arg(&library).args(["--crate-name=fixture", "--crate-type=lib"]).arg(format!("-Cextra-filename={original_extra}")).env("CARGO_MANIFEST_DIR", &fixture.source).output().unwrap());
     let original_bytes = fs::read(&original).unwrap();
 
     let dependent = fixture.source.join("dependent.rs");
@@ -363,7 +419,7 @@ fn rebuild_case(spelling: ExternSpelling, repeated_suffix: bool) {
         .arg("-L").arg(format!("dependency={}", output_dir.display()))
         .env("MUTEST_ENCODED_ARGS", "--crate-kind=integration-tests\u{1f}--emit=test-bin\u{1f}--mutation-operators=fn_return_default")
         .env("MUTEST_TARGET_DIR_ROOT", fixture.output.join("runtime"))
-        .env("CARGO_PKG_NAME", "fixture").env("CARGO_CRATE_NAME", "integration")
+        .env("CARGO_MANIFEST_DIR", &fixture.source)
         .output().unwrap();
     assert_success(&output);
     assert_eq!(fs::read(&original).unwrap(), original_bytes);

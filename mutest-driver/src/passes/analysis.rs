@@ -6,7 +6,7 @@ use mutest_emit::analysis::hir;
 use mutest_emit::analysis::tests::Test;
 use mutest_emit::codegen::ast;
 use mutest_emit::codegen::harness::{CargoMetadata, CargoTargetKind, MetaMutant};
-use mutest_emit::codegen::symbols::{Symbol, span_diagnostic_ord};
+use mutest_emit::codegen::symbols::span_diagnostic_ord;
 use rustc_data_structures::fx::{FxHashSet, FxHashMap};
 use rustc_interface::{create_and_enter_global_ctxt, passes, run_compiler};
 use rustc_interface::interface::Result as CompilerResult;
@@ -101,6 +101,52 @@ fn perform_codegen<'tcx, 'ent, 'trg, 'm>(
             &tcx.sess.psess.attr_id_generator,
         ),
     );
+}
+
+/// Whether Cargo built the extern crate from the package of the crate under compilation.
+fn is_of_own_cargo_package(tcx: TyCtxt<'_>, cnum: hir::CrateNum) -> bool {
+    let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") else { return false; };
+    // NOTE: An unusable record only stops the build once its crate is the one to compile again.
+    crate_const_storage::load_replay_record(tcx, cnum).and_then(Result::ok).is_some_and(|record| {
+        record.invocation.env_vars.iter().any(|(name, value)| name == "CARGO_MANIFEST_DIR" && value.as_deref() == Some(manifest_dir.as_str()))
+    })
+}
+
+/// The candidate to mutate for an integration test: the only one it links, or else the library of its package,
+/// or else the only one that the test names itself.
+fn choose_mutant_crate<T: Copy>(linked: &[T], named: &[T], is_of_own_package: impl Fn(T) -> bool) -> Option<T> {
+    let only = |candidates: &[T]| match candidates { &[candidate] => Some(candidate), _ => None };
+    only(linked)
+        .or_else(|| linked.iter().copied().find(|&candidate| is_of_own_package(candidate)))
+        .or_else(|| only(named))
+}
+
+/// The crate mutated for an integration test. Without a clear choice, its tests are skipped with a warning.
+fn mutant_crate_for_tests(tcx: TyCtxt<'_>) -> Option<hir::CrateNum> {
+    let linked = tcx.crates(()).iter().copied()
+        .filter(|&cnum| mutest_emit::codegen::harness::find_harness_in_extern_crate(tcx, cnum).is_some())
+        .collect::<Vec<_>>();
+    // NOTE: A candidate that only another crate depends on is not what the tests are written against.
+    let named = linked.iter().copied()
+        .filter(|&cnum| tcx.extern_crate(cnum).is_some_and(|extern_crate| extern_crate.is_direct()))
+        .collect::<Vec<_>>();
+
+    let mutant_crate = choose_mutant_crate(&linked, &named, |cnum| is_of_own_cargo_package(tcx, cnum));
+    if mutant_crate.is_some() { return mutant_crate; }
+
+    // Tests with no mutant crate should not stop mutation analysis of other targets.
+    let mut diagnostic = tcx.dcx().struct_warn(format!("integration test `{}` links no mutant crate, so no mutation can reach its tests", tcx.crate_name(hir::LOCAL_CRATE)));
+    if !linked.is_empty() {
+        let mut candidate_names = if named.is_empty() { &linked } else { &named }.iter()
+            .map(|&cnum| format!("`{}`", tcx.crate_name(cnum)))
+            .collect::<Vec<_>>();
+        candidate_names.sort();
+        diagnostic.note(format!("it is unclear which crate to mutate for it: {}", candidate_names.join(", ")));
+        diagnostic.note("the choice is the library of its package, or else the only candidate that it names itself");
+    }
+    diagnostic.note("its tests are skipped");
+    diagnostic.emit();
+    None
 }
 
 /// The tests mutations can reach, and how the harness keeps its test cases. A test linking no mutant crate is
@@ -253,44 +299,7 @@ pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
 
             let crate_res = mutest_emit::analysis::res::CrateResolutions::from_post_analysis_tcx(tcx);
 
-            let external_meta_mutant_crate = (!opts.crate_kind.produces_mutations()).then(|| {
-                let extern_crates_with_mutest_harnesses = tcx.crates(()).iter().copied()
-                    .filter(|&cnum| mutest_emit::codegen::harness::find_harness_in_extern_crate(tcx, cnum).is_some())
-                    .collect::<Vec<_>>();
-
-                match &extern_crates_with_mutest_harnesses[..] {
-                    &[cnum] => Some(cnum),
-
-                    // Tests linking no mutant crate should not stop mutation analysis of other targets.
-                    [] => {
-                        let mut diagnostic = tcx.dcx().struct_warn(format!("integration test `{}` links no mutant crate, so no mutation can reach its tests", tcx.crate_name(hir::LOCAL_CRATE)));
-                        diagnostic.note("its tests are skipped");
-                        diagnostic.emit();
-                        None
-                    }
-                    cnums => {
-                        let mut diagnostic = tcx.dcx().struct_fatal("found multiple extern mutant crate candidates");
-
-                        if let Some(cargo_package_name) = env::var("CARGO_PKG_NAME").ok() {
-                            let crate_matching_cargo_package_name = cnums.iter()
-                                .map(|&cnum| (cnum, tcx.crate_name(cnum)))
-                                .find(|&(_, crate_name)| crate_name == Symbol::intern(&cargo_package_name.replace("-", "_")));
-
-                            if let Some((cnum, _crate_name)) = crate_matching_cargo_package_name {
-                                diagnostic.cancel();
-                                return Some(cnum);
-                            }
-
-                            diagnostic.note("the `CARGO_PKG_NAME` environment variable does not match any of the crate candidates");
-                        }
-
-                        for &cnum in cnums {
-                            diagnostic.note(format!("crate candidate: `{}`", tcx.crate_name(cnum)));
-                        }
-                        diagnostic.emit_fatal();
-                    }
-                }
-            }).flatten();
+            let external_meta_mutant_crate = (!opts.crate_kind.produces_mutations()).then(|| mutant_crate_for_tests(tcx)).flatten();
             let (reached_tests, finish_test_cases) = reached_tests(&opts.crate_kind, external_meta_mutant_crate, &tests);
 
             let all_mutable_fns_count = mutest_emit::analysis::call_graph::all_mutable_fns(tcx, external_meta_mutant_crate, &tests).count();
@@ -739,4 +748,39 @@ pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
     })?;
 
     Ok(analysis_pass)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::choose_mutant_crate;
+
+    #[test]
+    fn the_only_linked_candidate_is_mutated_even_when_the_test_does_not_name_it() {
+        assert_eq!(Some("core"), choose_mutant_crate(&["core"], &[], |_| false));
+    }
+
+    #[test]
+    fn the_library_of_the_package_is_mutated_before_another_candidate_the_test_names() {
+        assert_eq!(Some("core"), choose_mutant_crate(&["ipc", "core"], &["ipc"], |candidate| candidate == "core"));
+    }
+
+    #[test]
+    fn the_only_named_candidate_is_mutated_when_the_package_has_no_library() {
+        assert_eq!(Some("core"), choose_mutant_crate(&["ipc", "core"], &["core"], |_| false));
+    }
+
+    #[test]
+    fn no_candidate_is_mutated_when_the_test_names_several_and_the_package_has_no_library() {
+        assert_eq!(None, choose_mutant_crate(&["ipc", "core", "git"], &["core", "git"], |_| false));
+    }
+
+    #[test]
+    fn no_candidate_is_mutated_when_the_test_names_none_of_the_several_it_links() {
+        assert_eq!(None, choose_mutant_crate(&["ipc", "core"], &[], |_| false));
+    }
+
+    #[test]
+    fn no_candidate_is_mutated_when_none_is_linked() {
+        assert_eq!(None, choose_mutant_crate::<&str>(&[], &[], |_| true));
+    }
 }

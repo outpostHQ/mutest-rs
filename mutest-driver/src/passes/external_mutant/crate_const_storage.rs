@@ -22,9 +22,14 @@ pub fn embed_candidate_marker(krate: &mut ast::Crate) {
     krate.items.push(mutest_generated_mod);
 }
 
-/// The recorded invocation of an extern crate, if it has an artifact to read it from.
-pub fn extract_replay_record(tcx: TyCtxt<'_>, cnum: hir::CrateNum) -> Option<invocation::Record> {
+/// The recorded invocation of an extern crate, or why it is unusable, if it has an artifact to read it from.
+pub fn load_replay_record(tcx: TyCtxt<'_>, cnum: hir::CrateNum) -> Option<Result<invocation::Record, String>> {
     let source = tcx.used_crate_source(cnum);
     let artifact = source.rmeta.as_ref().or(source.rlib.as_ref())?;
-    Some(invocation::load(artifact).unwrap_or_else(|error| tcx.dcx().fatal(error)))
+    Some(invocation::load(artifact))
+}
+
+/// The recorded invocation of an extern crate, if it has an artifact to read it from.
+pub fn extract_replay_record(tcx: TyCtxt<'_>, cnum: hir::CrateNum) -> Option<invocation::Record> {
+    load_replay_record(tcx, cnum).map(|record| record.unwrap_or_else(|error| tcx.dcx().fatal(error)))
 }
