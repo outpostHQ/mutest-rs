@@ -638,6 +638,8 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
                     aux_directives.edition = Some(edition_str);
                 }
 
+                _ if directive.starts_with("rustc-flags:") => {}
+
                 _ if directive.starts_with("build-env:") => {
                     if !directive.contains('=') {
                         log_test(&name, TestResult::Ignored, Some(&format!("invalid directive in `{aux_build}` aux file: each compile-time environment variable must be specified one `build-env: KEY=value` at a time")));
@@ -666,6 +668,8 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         cmd.args(["--out-dir", AUX_OUT_DIR]);
 
         cmd.args(["-L", AUX_OUT_DIR]);
+
+        cmd.args(raw_aux_directives.iter().filter_map(|d| d.strip_prefix("rustc-flags:").map(str::trim)).flat_map(parse_args));
 
         let build_env = raw_aux_directives.iter().filter_map(|d| d.strip_prefix("build-env:").map(str::trim))
             .flat_map(|env| {

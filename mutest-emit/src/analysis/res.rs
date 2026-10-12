@@ -20,7 +20,8 @@ use crate::codegen::ast;
 
 pub struct CrateResolutions<'tcx> {
     tcx: TyCtxt<'tcx>,
-    extern_crate_name_to_cnum: FxHashMap<Symbol, Option<hir::CrateNum>>,
+    /// The loaded crate that each name of the extern prelude stands for.
+    extern_crate_name_to_cnum: FxHashMap<Symbol, hir::CrateNum>,
     cnum_to_extern_crate_name: FxHashMap<hir::CrateNum, Symbol>,
 }
 
@@ -43,43 +44,41 @@ impl<'tcx> CrateResolutions<'tcx> {
             })
             .collect::<FxHashMap<_, _>>();
 
+        let crate_by_name = |name: Symbol| tcx.crates(()).iter().copied().find(|&cnum| tcx.crate_name(cnum) == name);
+
         let mut extern_crate_name_to_cnum = tcx.sess.opts.externs.iter()
             .filter(|(_, entry)| entry.add_prelude)
-            .map(|(name, entry)| {
-                let renamed_cnum = match &entry.location {
+            .filter_map(|(name, entry)| {
+                let name = Symbol::intern(name);
+                let cnum = match &entry.location {
                     // --extern name
-                    ExternLocation::FoundInLibrarySearchDirectories => None,
+                    ExternLocation::FoundInLibrarySearchDirectories => crate_by_name(name),
 
                     // --extern name=file.rlib
-                    ExternLocation::ExactPaths(possible_paths) => 'arm: {
-                        // HACK: Find crate with sources matching this --extern flag.
-                        let Some((&cnum, _)) = crate_sources.iter().find(|(_, source_paths)| {
+                    // HACK: Find crate with sources matching this --extern flag.
+                    // NOTE: An unused crate is not loaded and has no sources. Its name stands for no loaded crate,
+                    //       not even for another crate of the same name, such as another version of it.
+                    ExternLocation::ExactPaths(possible_paths) => crate_sources.iter()
+                        .find(|(_, source_paths)| {
                             source_paths.iter().any(|source_path| possible_paths.iter().any(|possible_path| {
                                 possible_path.canonicalized() == source_path
                             }))
-                        }) else {
-                            // NOTE: We can only fetch the crate sources for actually used crates,
-                            //       so we can safely discard unused crates without used sources.
-                            // TODO: It might be better to remove such crates entirely from the
-                            //       apparent extern prelude, as that is what rustc seems to do.
-                            break 'arm None;
-                        };
-                        Some(cnum)
-                    }
+                        })
+                        .map(|(&cnum, _)| cnum),
                 };
 
-                (Symbol::intern(name), renamed_cnum)
+                Some((name, cnum?))
             })
             .collect::<FxHashMap<_, _>>();
         if !hir::find_attr!(tcx, crate, NoCore) {
-            extern_crate_name_to_cnum.insert(sym::core, None);
+            extern_crate_name_to_cnum.extend(crate_by_name(sym::core).map(|cnum| (sym::core, cnum)));
             if !hir::find_attr!(tcx, crate, NoStd) {
-                extern_crate_name_to_cnum.insert(sym::std, None);
+                extern_crate_name_to_cnum.extend(crate_by_name(sym::std).map(|cnum| (sym::std, cnum)));
             }
         }
 
         let cnum_to_extern_crate_name = extern_crate_name_to_cnum.iter()
-            .filter_map(|(crate_name, cnum)| cnum.map(|cnum| (cnum, *crate_name)))
+            .map(|(&crate_name, &cnum)| (cnum, crate_name))
             .collect::<FxHashMap<_, _>>();
 
         Self {
@@ -90,7 +89,7 @@ impl<'tcx> CrateResolutions<'tcx> {
     }
 
     pub fn crate_by_visible_name(&self, symbol: Symbol) -> Option<hir::CrateNum> {
-        self.extern_crate_name_to_cnum.get(&symbol).copied().flatten().or_else(|| {
+        self.extern_crate_name_to_cnum.get(&symbol).copied().or_else(|| {
             self.tcx.crates(()).into_iter().find(|&&cnum| self.tcx.crate_name(cnum) == symbol).copied()
         })
     }
@@ -99,8 +98,10 @@ impl<'tcx> CrateResolutions<'tcx> {
         self.cnum_to_extern_crate_name.get(&cnum).copied().unwrap_or_else(|| self.tcx.crate_name(cnum))
     }
 
-    pub fn is_in_extern_prelude(&self, symbol: Symbol) -> bool {
-        self.extern_crate_name_to_cnum.contains_key(&symbol)
+    /// Whether a name of the extern prelude stands for this crate. The name of the crate alone does not tell:
+    /// a dependency of a dependency can be another version of a crate that the extern prelude names.
+    pub fn is_in_extern_prelude(&self, cnum: hir::CrateNum) -> bool {
+        self.cnum_to_extern_crate_name.contains_key(&cnum)
     }
 }
 
@@ -684,7 +685,7 @@ fn absolute_def_paths<'tcx>(
             let root_def_path = DefPath::new(DefPathRootKind::Global(LOCAL_CRATE), vec![]);
             (root_def_id, root_def_path)
         }
-        None if let crate_name = crate_res.visible_crate_name(def_id.krate) && crate_res.is_in_extern_prelude(crate_name) => {
+        None if crate_res.is_in_extern_prelude(def_id.krate) => {
             let root_def_id = def_id.krate.as_def_id();
             let root_def_path = DefPath::new(DefPathRootKind::Global(def_id.krate), vec![]);
             (root_def_id, root_def_path)
@@ -694,8 +695,7 @@ fn absolute_def_paths<'tcx>(
             let visible_extern_crate_defs = OnceCell::new();
             let crate_to_def_path = |cnum| {
                 // First, check if the crate is in the extern prelude through an `--extern` option.
-                let crate_name = crate_res.visible_crate_name(cnum);
-                if crate_res.is_in_extern_prelude(crate_name) {
+                if crate_res.is_in_extern_prelude(cnum) {
                     let root_def_path = DefPath::new(DefPathRootKind::Global(cnum), vec![]);
                     return Some(Some(root_def_path));
                 }
