@@ -627,7 +627,8 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         let mut aux_directives = AuxDirectives {
             edition: None,
         };
-        for directive in &raw_aux_directives {
+        // NOTE: The `rustc-flags` directives need no check, they go to rustc as they are.
+        for directive in raw_aux_directives.iter().filter(|directive| !directive.starts_with("rustc-flags:")) {
             match directive.as_str() {
                 _ if let Some(edition_str) = directive.strip_prefix("edition:").map(str::trim) => {
                     if let Some(_previous_edition) = aux_directives.edition {
@@ -637,8 +638,6 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
                     }
                     aux_directives.edition = Some(edition_str);
                 }
-
-                _ if directive.starts_with("rustc-flags:") => {}
 
                 _ if directive.starts_with("build-env:") => {
                     if !directive.contains('=') {
