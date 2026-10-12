@@ -160,8 +160,11 @@ impl<'tcx, 'tst> ast::mut_visit::MutVisitor for TestCaseCleaner<'tcx, 'tst> {
             let g = &self.sess.psess.attr_id_generator;
 
             let replacement_attr = match self.keep_tests {
-                // #[test]
-                true => ast::mk::attr_outer(g, item.span, ast::Safety::Default, Ident::new(sym::test, item.span), ast::AttrArgs::Empty),
+                // #[::core::prelude::v1::test], as the scope of the test may give the name `test` to another macro.
+                true => {
+                    let path = [sym::core, sym::prelude, sym::v1, sym::test].map(|name| Ident::new(name, item.span));
+                    ast::mk::attr_outer_path(g, item.span, ast::mk::path_global(item.span, path.to_vec()), ast::AttrArgs::Empty)
+                }
                 // #[allow(dead_code)]
                 false => ast::mk::attr_outer(g, item.span, ast::Safety::Default, Ident::new(sym::allow, item.span),
                     ast::mk::attr_args_delimited(item.span, ast::token::Delimiter::Parenthesis, ast::mk::token_stream(vec![
