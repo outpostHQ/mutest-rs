@@ -417,6 +417,8 @@ fn __rust_begin_short_backtrace<T, F: FnOnce() -> T>(f: F) -> T {
     test::black_box(result)
 }
 
+/// A test that runs in this process on a thread of its own begins when the returned sender drops, which the runner
+/// drops after it reported the start of the test.
 fn run_test(
     id: test::TestId,
     test: Test,
@@ -425,9 +427,10 @@ fn run_test(
     test_run_strategy: TestRunStrategy,
     active_signal: Option<Arc<AtomicBool>>,
     no_capture: bool,
-) -> Option<ThreadHandle> {
+) -> (Option<ThreadHandle>, mpsc::Sender<()>) {
     progress::start(id, &test, matches!(&test_run_strategy, TestRunStrategy::InIsolatedChildProcess(_)));
     let Test { desc, test_fn, timeout, .. } = test;
+    let (start, start_rx) = mpsc::channel();
 
     let ignore_because_no_process_support = match desc.should_panic {
         test::ShouldPanic::Yes | test::ShouldPanic::YesWithMessage(_) => {
@@ -440,7 +443,7 @@ fn run_test(
     if desc.ignore || ignore_because_no_process_support {
         let message = CompletedTest { id, desc, result: TestResult::Ignored, exec_time: None, stdout: Vec::new() };
         monitor_ch.send(MonitorMessage::Completed(message)).unwrap();
-        return None;
+        return (None, start);
     }
 
     fn run_test_impl(
@@ -453,11 +456,14 @@ fn run_test(
         test_timeout: Option<Duration>,
         active_signal: Option<Arc<AtomicBool>>,
         no_capture: bool,
+        start: mpsc::Receiver<()>,
     ) -> Option<ThreadHandle> {
         let thread_pool = match &test_run_strategy {
             TestRunStrategy::InProcess(thread_pool) => thread_pool.clone(),
             TestRunStrategy::InIsolatedChildProcess(_) => None,
         };
+        // NOTE: A test that ends this process must not begin before the runner reported its start.
+        let start = matches!(&test_run_strategy, TestRunStrategy::InProcess(_)).then_some(start);
 
         let name = desc.name.clone();
         let run_test = move || {
@@ -475,7 +481,7 @@ fn run_test(
         if supports_threads {
             let mut run_test = Arc::new(Mutex::new(Some(run_test)));
             let run_test_on_thread = run_test.clone();
-            let job = move || run_test_on_thread.lock().unwrap().take().unwrap()();
+            let job = move || { let _ = start.map(|start| start.recv()); run_test_on_thread.lock().unwrap().take().unwrap()() };
 
             match thread_pool {
                 Some(thread_pool) => {
@@ -505,7 +511,7 @@ fn run_test(
     match test_fn {
         test::TestFn::StaticTestFn(f) => {
             let test_fn = Box::new(move || __rust_begin_short_backtrace(f));
-            run_test_impl(id, desc, test_fn, test_run_strategy, control_ch, monitor_ch, timeout, active_signal, no_capture)
+            (run_test_impl(id, desc, test_fn, test_run_strategy, control_ch, monitor_ch, timeout, active_signal, no_capture, start_rx), start)
         }
 
         test::TestFn::DynTestFn(_) => {
@@ -792,8 +798,9 @@ where
             let Flow::Continue = self.emit(TestEvent::Queue(1, self.remaining.len()))? else { return Ok(Flow::Stop) };
 
             let desc = test.desc.clone();
-            let join_handle = run_test(id, test, None, self.sender.clone(), self.strategy.clone(), None, self.no_capture);
+            let (join_handle, start) = run_test(id, test, None, self.sender.clone(), self.strategy.clone(), None, self.no_capture);
             let Flow::Continue = self.emit(TestEvent::Wait(desc, join_handle.as_ref().map(|h| h.thread_id())))? else { return Ok(Flow::Stop) };
+            drop(start);
             let MonitorMessage::Completed(mut completed_test) = self.receiver.recv().unwrap() else { unreachable!() };
 
             if let Some(join_handle) = join_handle {
@@ -844,7 +851,8 @@ where
                 TestRunStrategy::InProcess(_) => Some(Arc::new(AtomicBool::new(true))),
                 TestRunStrategy::InIsolatedChildProcess(_) => None,
             };
-            let join_handle = run_test(id, test, Some(control_rx), self.sender.clone(), self.strategy.clone(), active_signal.clone(), self.no_capture);
+            // NOTE: `_start` drops at the end of this iteration, after the start of the test is reported.
+            let (join_handle, _start) = run_test(id, test, Some(control_rx), self.sender.clone(), self.strategy.clone(), active_signal.clone(), self.no_capture);
             let thread_id = join_handle.as_ref().map(|handle| handle.thread_id());
             self.running.insert(id, RunningTest { desc: desc.clone(), timeout, start_time: Instant::now(), control_tx, join_handle, active_signal });
             let Flow::Continue = self.emit(TestEvent::Wait(desc, thread_id))? else { return Ok(Flow::Stop) };
@@ -925,6 +933,27 @@ mod abandon_tests {
         RELEASE.store(true, atomic::Ordering::SeqCst);
         let [lingering] = &lingering[..] else { panic!("the blocked test must linger") };
         assert!(!lingering.active_signal.as_ref().unwrap().load(atomic::Ordering::SeqCst));
+    }
+
+    static START_REPORTED: AtomicBool = AtomicBool::new(false);
+
+    #[test]
+    fn a_test_begins_after_the_runner_reported_its_start() {
+        let checks = || if START_REPORTED.load(atomic::Ordering::SeqCst) { Ok(()) } else { Err(String::from("began before its start was reported")) };
+        for concurrency in [1, 2] {
+            START_REPORTED.store(false, atomic::Ordering::SeqCst);
+            let mut results = Vec::new();
+            run_tests_with_concurrency(vec![named_test("checks", checks)], |event, _| -> Result<Flow, ()> {
+                match event {
+                    // A slow report gives a test that does not wait for it the time to begin.
+                    TestEvent::Wait(_, _) => { thread::sleep(Duration::from_millis(50)); START_REPORTED.store(true, atomic::Ordering::SeqCst); }
+                    TestEvent::Result(test) => results.push(test.result),
+                    _ => {}
+                }
+                Ok(Flow::Continue)
+            }, TestRunStrategy::InProcess(None), false, concurrency).unwrap();
+            assert_eq!(results, [TestResult::Ok], "concurrency {concurrency}");
+        }
     }
 
     #[test]
