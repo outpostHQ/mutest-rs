@@ -70,12 +70,11 @@ impl<'tcx> CrateResolutions<'tcx> {
                 Some((name, cnum?))
             })
             .collect::<FxHashMap<_, _>>();
-        if !hir::find_attr!(tcx, crate, NoCore) {
-            extern_crate_name_to_cnum.extend(crate_by_name(sym::core).map(|cnum| (sym::core, cnum)));
-            if !hir::find_attr!(tcx, crate, NoStd) {
-                extern_crate_name_to_cnum.extend(crate_by_name(sym::std).map(|cnum| (sym::std, cnum)));
-            }
-        }
+        // NOTE: Like the resolver, a crate names `core` unless it is `no_core`, and then `std` unless it is `no_std`.
+        let no_core = hir::find_attr!(tcx, crate, NoCore);
+        let no_std = no_core || hir::find_attr!(tcx, crate, NoStd);
+        let implied_crate_names = [(sym::core, no_core), (sym::std, no_std)].into_iter().filter_map(|(name, off)| (!off).then_some(name));
+        extern_crate_name_to_cnum.extend(implied_crate_names.filter_map(|name| Some((name, crate_by_name(name)?))));
 
         let cnum_to_extern_crate_name = extern_crate_name_to_cnum.iter()
             .map(|(&crate_name, &cnum)| (cnum, crate_name))
@@ -89,9 +88,7 @@ impl<'tcx> CrateResolutions<'tcx> {
     }
 
     pub fn crate_by_visible_name(&self, symbol: Symbol) -> Option<hir::CrateNum> {
-        self.extern_crate_name_to_cnum.get(&symbol).copied().or_else(|| {
-            self.tcx.crates(()).into_iter().find(|&&cnum| self.tcx.crate_name(cnum) == symbol).copied()
-        })
+        self.extern_crate_name_to_cnum.get(&symbol).copied()
     }
 
     pub fn visible_crate_name(&self, cnum: hir::CrateNum) -> Symbol {
