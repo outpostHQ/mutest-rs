@@ -141,7 +141,7 @@ fn reference() -> Result<(), String> {
 
 /// The result of the reference test without mutations, which fails in the `baseline-fails` scenario.
 fn baseline(scenario: &str) -> Result<(), String> {
-    if scenario == "baseline-fails" { Err(String::from("the reference test fails")) } else { Ok(()) }
+    if scenario == "baseline-fails" { panic!("the reference test fails") } else { Ok(()) }
 }
 
 fn completed_mutation() -> Result<(), String> {

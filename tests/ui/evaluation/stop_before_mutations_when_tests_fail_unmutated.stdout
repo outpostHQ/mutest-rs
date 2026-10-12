@@ -1,3 +1,6 @@
 profiling reference test run
+---- test stdout ----
+Error: "expected 42, got 41"
+
   test test ... fail
 not all tests passed, cannot continue

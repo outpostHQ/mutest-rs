@@ -120,6 +120,11 @@ fn make_owned_test_def(test: &test::TestDescAndFn) -> test::TestDescAndFn {
     }
 }
 
+/// The tests to run, without a time limit.
+fn runnable_tests(tests: &[test::TestDescAndFn]) -> Vec<test_runner::Test> {
+    tests.iter().map(|test| test_runner::Test { desc: test.desc.clone(), test_fn: make_owned_test_fn(&test.testfn), timeout: None, unrepeatable: false }).collect()
+}
+
 fn clone_tests<'a>(tests: impl IntoIterator<Item = &'a test_runner::Test>) -> Vec<test_runner::Test> {
     tests.into_iter()
         .map(|test| {
@@ -142,47 +147,8 @@ struct ProfiledTest {
     pub result: test_runner::TestResult,
     pub exec_time: Option<Duration>,
     pub unrepeatable: bool,
-}
-
-fn profile_tests(tests: Vec<test::TestDescAndFn>) -> Result<Vec<ProfiledTest>, Infallible> {
-    let tests_to_run = tests.iter()
-        .map(|test| {
-            test_runner::Test {
-                desc: test.desc.clone(),
-                test_fn: make_owned_test_fn(&test.testfn),
-                timeout: None,
-                unrepeatable: false,
-            }
-        })
-        .collect::<Vec<_>>();
-
-    let mut profiled_tests = Vec::<ProfiledTest>::with_capacity(tests.len());
-    let mut remaining_tests = tests;
-
-    let on_test_event = |event, _remaining_tests: &mut Vec<(test::TestId, test_runner::Test)>| -> Result<_, Infallible> {
-        match event {
-            test_runner::TestEvent::Result(test) => {
-                let test_desc_and_fn = remaining_tests
-                    .extract_if(.., |t| t.desc.name == test.desc.name)
-                    .next().expect("completed test not found among remaining tests");
-
-                profiled_tests.push(ProfiledTest {
-                    test: test_desc_and_fn,
-                    result: test.result,
-                    exec_time: test.exec_time,
-                    unrepeatable: false,
-                });
-            }
-            _ => {}
-        }
-
-        Ok(test_runner::Flow::Continue)
-    };
-
-    test_runner::run_tests_with_progress(tests_to_run, on_test_event, test_runner::TestRunStrategy::InProcess(None), false,
-        test_runner::progress::Context { phase: "reference", mutation_ids: &|_| Vec::new() }, None)?;
-
-    Ok(profiled_tests)
+    /// What a failed test printed; empty for a test that passed.
+    pub failure_output: Vec<u8>,
 }
 
 fn sort_profiled_tests_by_exec_time(profiled_tests: &mut Vec<ProfiledTest>) {
@@ -1180,16 +1146,7 @@ fn mutest_simulate_main<S: SubstMap>(args: &[&str], tests: Vec<test::TestDescAnd
     // SAFETY: No other thread is running yet, no one else is reading from the handle yet.
     unsafe { active_mutant_handle.replace(Some(S::with(mutant.substitutions))); }
 
-    let tests_to_run = tests.iter()
-        .map(|test| {
-            test_runner::Test {
-                desc: test.desc.clone(),
-                test_fn: make_owned_test_fn(&test.testfn),
-                timeout: None,
-                unrepeatable: false,
-            }
-        })
-        .collect::<Vec<_>>();
+    let tests_to_run = runnable_tests(&tests);
 
     let on_test_event = |event, _remaining_tests: &mut Vec<(test::TestId, test_runner::Test)>| -> Result<_, Infallible> {
         match event {

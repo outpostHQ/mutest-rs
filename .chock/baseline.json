@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/outpostHQ/chock/main/schema/baseline-v1.json",
   "version": 1,
-  "chock": "0.5.1",
+  "chock": "0.5.2",
   "gates": {
     "assertions": {},
     "bigfiles": {
@@ -10,7 +10,7 @@
       "mutest-emit/src/codegen/hygiene.rs": 2073,
       "mutest-emit/src/codegen/mutation.rs": 1145,
       "mutest-inspector/src/server.rs": 1226,
-      "mutest-runtime/src/harness.rs": 1325
+      "mutest-runtime/src/harness.rs": 1282
     },
     "binsize": {
       "cargo-mutest": 1895552,
@@ -279,7 +279,7 @@
       "mutest-runtime-embedded-host-driver/src/main.rs": 2,
       "mutest-runtime/src/detections.rs": 8,
       "mutest-runtime/src/flakiness.rs": 8,
-      "mutest-runtime/src/harness.rs": 13,
+      "mutest-runtime/src/harness.rs": 7,
       "mutest-runtime/src/subsumption.rs": 23,
       "tests/src/main.rs": 31,
       "tests/ui/mutation/ops/bool_expr_negate/negate_bool_exprs.rs": 5,

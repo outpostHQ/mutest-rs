@@ -1403,6 +1403,8 @@ mod tests {
             fixture.admit_worker();
             assert_eq!(fixture.wait().code(), Some(mutest_exit_code::BASELINE_FAILED), "{}", fixture.output());
             assert!(fixture.output().contains("  test reference ... fail\nnot all tests passed, cannot continue\n"), "{}", fixture.output());
+            assert!(fixture.output().contains("---- reference stdout ----\n"), "{}", fixture.output());
+            assert!(fixture.output().contains("the reference test fails"), "{}", fixture.output());
             assert!(!fixture.output().contains("journal retained"), "{}", fixture.output());
         }
 
