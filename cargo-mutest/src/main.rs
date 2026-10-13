@@ -536,9 +536,7 @@ impl RunReports {
         }
 
         let code = run_exit_code(cargo_exit_code, &failed_builds, &exit_code::read(&exit_code_log));
-        if let Some(summary_path) = summary_path && let Err(error) = summary::write(summary_path, &summary::run_summary(code, &failed_builds, &summary_log)) {
-            color_print::ceprintln!("<yellow,bold>warning</>: cannot write the summary of the run to `{}`: {error}", summary_path.display());
-        }
+        summary::write_run(summary_path, code, &failed_builds, &summary_log);
         code
     }
 }
