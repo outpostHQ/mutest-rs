@@ -78,7 +78,7 @@ impl EvaluationStreamWriter {
     }
 }
 
-fn detection_stats(stats: MutationOpStats) -> mutest_json::evaluation::MutationDetectionStats {
+pub(crate) fn detection_stats(stats: MutationOpStats) -> mutest_json::evaluation::MutationDetectionStats {
     mutest_json::evaluation::MutationDetectionStats {
         mutation_score: stats.mutation_score(),
         total_mutations_count: stats.total_mutations_count,

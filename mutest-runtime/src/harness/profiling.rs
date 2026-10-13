@@ -74,12 +74,13 @@ pub(super) fn auto_test_timeout(exec_time: Duration) -> Duration {
 fn exit_unless_all_pass(profiled_tests: &[ProfiledTest]) {
     let failed_profiled_tests = profiled_tests.iter().filter(|test| !matches!(test.result, TestResult::Ignored | TestResult::Ok)).collect::<Vec<_>>();
     if !failed_profiled_tests.is_empty() {
-        for failed_profiled_test in failed_profiled_tests {
+        for failed_profiled_test in &failed_profiled_tests {
             let name = failed_profiled_test.test.desc.name.as_slice();
             print!("{}", failure_report(name, &failed_profiled_test.result, &failed_profiled_test.failure_output));
             println!("  test {name} ... fail");
         }
         println!("not all tests passed, cannot continue");
+        crate::summary::record_reference_failure(failed_profiled_tests.iter().map(|test| test.test.desc.name.as_slice().to_owned()).collect());
         test_runner::progress::exit_incomplete(exit_code::BASELINE_FAILED);
     }
 }

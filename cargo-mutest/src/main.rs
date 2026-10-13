@@ -8,6 +8,8 @@ use std::process::{self, Command};
 use mutest_driver_cli::{UnstableFlag, UnstableOption};
 use mutest_exit_code as exit_code;
 
+mod summary;
+
 pub mod build {
     pub const RUST_TOOLCHAIN_VERSION: &str = env!("RUST_TOOLCHAIN_VERSION");
 }
@@ -500,6 +502,8 @@ struct RunReports {
     build_failure_marker: PathBuf,
     /// Each harness's exit code, as Cargo only says whether any of them failed.
     exit_code_log: PathBuf,
+    /// The summary of each evaluation, for the summary of the run.
+    summary_log: PathBuf,
 }
 
 impl RunReports {
@@ -507,27 +511,35 @@ impl RunReports {
         Self {
             build_failure_marker: target_dir.join(format!("build-failure-{run_id}")),
             exit_code_log: target_dir.join(format!("exit-codes-{run_id}")),
+            summary_log: target_dir.join(format!("summaries-{run_id}")),
         }
     }
 
     fn pass_to(&self, cmd: &mut Command) {
         let _ = fs::remove_file(&self.build_failure_marker);
         let _ = fs::remove_file(&self.exit_code_log);
+        let _ = fs::remove_file(&self.summary_log);
         cmd.env("MUTEST_BUILD_FAILURE_MARKER", &self.build_failure_marker);
         cmd.env(exit_code::LOG_VAR, &self.exit_code_log);
+        cmd.env(summary::LOG_VAR, &self.summary_log);
     }
 
-    /// Reads and removes both reports, naming every build that failed.
-    fn exit_code(self, cargo_exit_code: Option<i32>) -> i32 {
+    /// Reads and removes the reports, naming every build that failed, and writes the summary of the run to `summary_path`.
+    fn exit_code(self, cargo_exit_code: Option<i32>, summary_path: Option<&Path>) -> i32 {
         let marker_contents = take_file(&self.build_failure_marker);
         let exit_code_log = take_file(&self.exit_code_log);
+        let summary_log = take_file(&self.summary_log);
 
         let failed_builds = failed_builds_named_in(&marker_contents);
         for failed_build in &failed_builds {
             color_print::ceprintln!("<red,bold>error</>: {} did not build, so none of its mutations were evaluated", failed_build);
         }
 
-        run_exit_code(cargo_exit_code, &failed_builds, &exit_code::read(&exit_code_log))
+        let code = run_exit_code(cargo_exit_code, &failed_builds, &exit_code::read(&exit_code_log));
+        if let Some(summary_path) = summary_path && let Err(error) = summary::write(summary_path, &summary::run_summary(code, &failed_builds, &summary_log)) {
+            color_print::ceprintln!("<yellow,bold>warning</>: cannot write the summary of the run to `{}`: {error}", summary_path.display());
+        }
+        code
     }
 }
 
@@ -778,7 +790,7 @@ fn run_cargo_with_mutest_driver(cargo_invocation: &CargoInvocation, matches: &cl
         cmd.args((0..matches.get_count("verbose")).map(|_| "-v"));
         if matches.get_flag("timings") { cmd.arg("--timings"); }
         if !matches.get_flag("no-emit-metadata") {
-            let out_dir = matches.get_one::<PathBuf>("metadata-out-root-dir").cloned().unwrap_or_else(|| cargo_invocation.target_dir.join("json"));
+            let out_dir = metadata_root_dir(matches, cargo_invocation);
             fs::create_dir_all(&out_dir).expect(&format!("cannot create JSON metadata output directory at `{}`", out_dir.display()));
             // NOTE: The out dir path passed to the generated test binary must be canonicalized,
             //       as it will likely be run under a different cwd.
@@ -799,7 +811,13 @@ fn run_cargo_with_mutest_driver(cargo_invocation: &CargoInvocation, matches: &cl
         .spawn().expect("failed to run Cargo")
         .wait().expect("failed to run Cargo");
 
-    run_reports.exit_code(exit_status.code())
+    let summary_path = (!matches.get_flag("no-emit-metadata")).then(|| metadata_root_dir(matches, cargo_invocation).join("summary.json"));
+    run_reports.exit_code(exit_status.code(), summary_path.as_deref())
+}
+
+/// The root directory of the JSON metadata of every target.
+fn metadata_root_dir(matches: &clap::ArgMatches, cargo_invocation: &CargoInvocation) -> PathBuf {
+    matches.get_one::<PathBuf>("metadata-out-root-dir").cloned().unwrap_or_else(|| cargo_invocation.target_dir.join("json"))
 }
 
 fn failed_builds_named_in(marker_contents: &str) -> Vec<&str> {
@@ -884,7 +902,7 @@ fn run_mutest_inspector_from_cargo_invocation(open: bool, port: Option<u16>, car
     // NOTE: This replicates Cargo's action message styling, including the color and justification.
     color_print::ceprintln!("<green,bold>{:>12}</> inspector", "Running");
 
-    let metadata_root_dir = matches.get_one::<PathBuf>("metadata-out-root-dir").cloned().unwrap_or_else(|| cargo_invocation.target_dir.join("json"));
+    let metadata_root_dir = metadata_root_dir(matches, cargo_invocation);
 
     let mut path = env::current_exe().expect("current executable path invalid");
     path.set_file_name("mutest-inspector");

@@ -90,3 +90,4 @@ pub mod evaluation_stream;
 pub mod tests;
 pub mod timings;
 pub mod mutations;
+pub mod summary;

@@ -6,7 +6,7 @@ use std::env;
 use std::fmt::{self, Debug};
 use std::io;
 use std::iter;
-use std::path::PathBuf;
+use std::path::Path;
 use std::process;
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -18,9 +18,10 @@ use mutest_exit_code as exit_code;
 use crate::config::{self, Options};
 use crate::detections::{MutationDetectionMatrix, print_mutation_detection_matrix};
 use crate::flakiness::{MutationFlakinessMatrix, print_mutation_flakiness_epilogue, print_mutation_flakiness_matrix};
-use crate::metadata::{self, CargoTargetKind, ExternalTestsExtra, MetaMutant, Mutant, MutationMeta, MutationParallelism, MutationSafety, StandaloneMutantMeta, SubstLocIdx, SubstMap, SubstMeta, TestSuite};
+use crate::metadata::{self, ExternalTestsExtra, MetaMutant, Mutant, MutationMeta, MutationParallelism, MutationSafety, StandaloneMutantMeta, SubstLocIdx, SubstMap, SubstMeta, TestSuite};
 use crate::journal::{self, WorkerJournal};
 use crate::subsumption::{MutationSubsumptionMatrix, print_mutation_subsumption_matrix};
+use crate::summary;
 use crate::supervisor;
 use crate::test_runner;
 use crate::thread_pool::ThreadPool;
@@ -841,6 +842,7 @@ fn print_mutation_analysis_epilogue(results: &MutationAnalysisResults, verbosity
     }
 
     results.timeout_reruns.print();
+    summary::record_evaluation(results);
 }
 
 pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_tests_extra: Option<&'static ExternalTestsExtra>, meta_mutant: &'static MetaMutant<impl SubstMap + Sync>) {
@@ -856,6 +858,7 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
         _ => config::Mode::Evaluate,
     };
 
+    let harness = summary::Harness::new(meta_mutant.cargo_package_name, meta_mutant.cargo_target_kind, meta_mutant.crate_name, external_tests_extra.map(|extra| extra.test_crate_name));
     let opts = Options {
         mode,
         verbosity: args.iter().filter(|&arg| *arg == "-v").count() as u8,
@@ -864,38 +867,9 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
             detection_matrix: args.contains(&"--print=detection-matrix").then_some(()),
             subsumption_matrix: args.contains(&"--print=subsumption-matrix").then_some(()),
         },
-        write_opts: args.iter().flat_map(|arg| arg.strip_prefix("--metadata-out-root-dir=")).next().map(|out_dir_str| {
-            let mut out_dir = PathBuf::from(out_dir_str);
-
-            if let Some(cargo_package_name) = meta_mutant.cargo_package_name {
-                out_dir.push(cargo_package_name);
-
-                match meta_mutant.cargo_target_kind {
-                    None => {}
-
-                    Some(CargoTargetKind::Lib) => out_dir.push("lib"),
-                    Some(CargoTargetKind::MainBin) => out_dir.push("bin"),
-
-                    Some(CargoTargetKind::Bin) => {
-                        out_dir.push("bins");
-                        out_dir.push(meta_mutant.crate_name);
-                    }
-                    Some(CargoTargetKind::Example) => {
-                        out_dir.push("examples");
-                        out_dir.push(meta_mutant.crate_name);
-                    }
-                    Some(CargoTargetKind::Test) => {
-                        out_dir.push("tests");
-                        // An integration test that links no mutant crate is built as its own, empty meta-mutant.
-                        out_dir.push(external_tests_extra.map_or(meta_mutant.crate_name, |extra| extra.test_crate_name));
-                    }
-                }
-            }
-
-            config::WriteOptions {
-                out_dir,
-                eval_stream: args.contains(&"--Zwrite-json-eval-stream").then_some(()),
-            }
+        write_opts: args.iter().flat_map(|arg| arg.strip_prefix("--metadata-out-root-dir=")).next().map(|out_dir_str| config::WriteOptions {
+            out_dir: harness.metadata_dir_under(Path::new(out_dir_str)),
+            eval_stream: args.contains(&"--Zwrite-json-eval-stream").then_some(()),
         }),
         exhaustive: args.contains(&"--exhaustive"),
         test_timeout: config::TestTimeout::Auto,
@@ -910,6 +884,7 @@ pub fn mutest_main(args: &[&str], tests: Vec<test::TestDescAndFn>, external_test
         },
         use_thread_pool: args.contains(&"--use-thread-pool"),
     };
+    summary::start(harness);
 
     let t_start = supervisor::run_start();
     let mut write_duration = Duration::ZERO;

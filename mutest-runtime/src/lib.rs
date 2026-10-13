@@ -45,6 +45,7 @@ pub use mutest_edition_2021::block as edition_2021_block;
 mod journal;
 mod json;
 mod completion;
+mod summary;
 mod supervisor;
 #[cfg(target_os = "linux")]
 #[doc(hidden)]
