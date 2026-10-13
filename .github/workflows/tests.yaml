@@ -8,6 +8,11 @@ on:
     branches:
       - "main"
   workflow_dispatch:
+    inputs:
+      records:
+        description: "Take the first macOS and Windows records of coverage, crap and binsize"
+        type: boolean
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -34,46 +39,113 @@ jobs:
       - name: Run clippy
         run: cargo clippy --workspace --all-targets
 
-  tests:
+  # Every enabled gate: bin/test, bin/coverage, and the `commands` of .chock/config.json.
+  chock:
+    name: chock (${{ matrix.os }})
+    if: ${{ !inputs.records }}
+
     strategy:
       fail-fast: false
       matrix:
-        os: ["ubuntu-latest", "macos-latest", "windows-latest"]
+        include:
+          - { os: "ubuntu-latest" }
+          # These gates keep a record for each system, and the `records` run writes the first one.
+          - { os: "macos-latest", skip: "--skip=coverage,crap,binsize" }
+          - { os: "windows-latest", skip: "--skip=coverage,crap,binsize" }
 
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+
+    env:
+      # bin/test and bin/coverage each build the driver, which can take longer than chock's default of 30 minutes.
+      CHOCK_TIMEOUT: 5400
+
+    defaults:
+      run:
+        shell: bash
 
     steps:
+      # The gates that read the commit compare HEAD with its parent.
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
 
       # Install Rust toolchain specified in rust-toolchain.toml.
       - name: Install Rust toolchain
         run: rustc --version
 
-      - name: Build mutest-json (without rustc options, as a public consumer)
-        run: cargo build -p mutest-json
+      # bin/test, bin/coverage and the gates that build each keep a target directory of their own.
+      - name: Free disk space
+        if: runner.os == 'Linux'
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
 
-      - name: Build mutest-runtime
-        run: cargo build --release -p mutest-runtime
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
 
-      - name: Build mutest-runtime-embedded-target-stub and test-metadata-shim for aarch64-unknown-none
+      # Only the tools of the enabled gates: `chock init --global` also builds cargo-mutest, which bin/test builds from here.
+      - name: Install chock and the tools of the enabled gates
         run: |
-          rustup target add aarch64-unknown-none
-          cargo build --release --target aarch64-unknown-none -p test-metadata-shim
-          cargo build --release --target aarch64-unknown-none -p mutest-runtime-embedded-target-stub
+          . ./tool-versions.env
+          cargo binstall -y --locked chock@"$CHOCK_VERSION" cargo-llvm-cov@"$CARGO_LLVM_COV_VERSION" cargo-crap@"$CARGO_CRAP_VERSION" \
+            cargo-deny@"$CARGO_DENY_VERSION" cargo-sort@"$CARGO_SORT_VERSION" cargo-machete@"$CARGO_MACHETE_VERSION" \
+            cargo-bsize@"$CARGO_BSIZE_VERSION" typos-cli@"$TYPOS_CLI_VERSION"
 
-      - name: Build mutest-driver with runtime embedding
-        run: cargo build --release -p mutest-driver --features embed-runtime
+      - name: Run every enabled gate
+        run: chock run --ci ${{ matrix.skip }}
 
-      - name: Install mutest-driver and cargo-mutest
-        run: |
-          cargo install --force --path mutest-driver
-          cargo install --force --path cargo-mutest
+  # Run by hand to take the first macOS and Windows records of the gates that keep one for each system.
+  records:
+    name: records (${{ matrix.os }})
+    if: ${{ inputs.records }}
 
-      - name: Install mutest-inspector
-        run: cargo install --force --path mutest-inspector
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: "macos-latest", system: "macos" }
+          - { os: "windows-latest", system: "windows" }
 
-      # Bash on every runner: PowerShell would report only the last command's exit code.
-      - name: Run unit and UI tests
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+
+    env:
+      CHOCK_TIMEOUT: 5400
+
+    defaults:
+      run:
         shell: bash
-        run: bash bin/test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      # Install Rust toolchain specified in rust-toolchain.toml.
+      - name: Install Rust toolchain
+        run: rustc --version
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: Install chock and the tools of the recorded gates
+        run: |
+          . ./tool-versions.env
+          cargo binstall -y --locked chock@"$CHOCK_VERSION" cargo-llvm-cov@"$CARGO_LLVM_COV_VERSION" cargo-crap@"$CARGO_CRAP_VERSION" \
+            cargo-bsize@"$CARGO_BSIZE_VERSION"
+
+      # Outside CI, a run writes the first record of each gate that has none.
+      - name: Take the first records
+        run: chock run coverage crap binsize
+
+      - name: Upload the records
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: chock-records-${{ matrix.system }}
+          path: |
+            .chock/baseline.json
+            .chock/crap-baseline@${{ matrix.system }}.json
+          if-no-files-found: error
+          retention-days: 7

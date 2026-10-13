@@ -1,16 +1,16 @@
 {
   "$schema": "https://raw.githubusercontent.com/outpostHQ/chock/main/schema/baseline-v1.json",
   "version": 1,
-  "chock": "0.5.3",
+  "chock": "0.5.4",
   "gates": {
     "assertions": {},
     "bigfiles": {
       "mutest-emit/src/analysis/ast_lowering.rs": 2841,
       "mutest-emit/src/codegen/ast.rs": 1205,
       "mutest-emit/src/codegen/hygiene.rs": 2035,
-      "mutest-emit/src/codegen/mutation.rs": 1145,
+      "mutest-emit/src/codegen/mutation.rs": 1127,
       "mutest-inspector/src/server.rs": 1226,
-      "mutest-runtime/src/harness.rs": 1282
+      "mutest-runtime/src/harness.rs": 1257
     },
     "binsize": {
       "cargo-mutest": 1895552,
@@ -81,6 +81,7 @@
       "clippy::while_let_on_iterator": 6,
       "clippy::wrong_self_convention": 1
     },
+    "commands-build": {},
     "complexity": {
       "cargo-mutest/src/main.rs#main": 26,
       "cargo-mutest/src/main.rs#process_cargo_args": 34,
@@ -126,7 +127,7 @@
       "mutest-inspector/src/server.rs#handle_trace_request": 62,
       "mutest-inspector/src/syntax_highlight.rs#highlight_lines_html": 40,
       "mutest-operators/src/call_ignore.rs#non_default_call": 17,
-      "mutest-runtime/src/harness.rs#mutest_main": 54,
+      "mutest-runtime/src/harness.rs#mutest_main": 49,
       "mutest-runtime/src/harness.rs#run_mutation_analysis": 43,
       "mutest-runtime/src/harness.rs#run_tests": 38,
       "mutest-runtime/src/subsumption.rs#print_mutation_subsumption_matrix": 24,
@@ -512,6 +513,7 @@
     "citations": "stale citation(s)",
     "claims": "stale claim(s)",
     "codeslop": "findings",
+    "commands-build": "declared finding(s)",
     "complexity": "cognitive",
     "coverage": "uncovered line(s)",
     "dupdeps": "duplicate crate build(s)",

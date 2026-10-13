@@ -8,6 +8,7 @@
     "citations",
     "claims",
     "codeslop",
+    "commands-build",
     "commits",
     "complexity",
     "coverage",
@@ -41,14 +42,42 @@
     "msrv": "off: mutest-rs builds only on the nightly rust-toolchain.toml pins, so it promises no minimum Rust version"
   },
   "runner": [
-    "bin/test"
+    "sh",
+    "-c",
+    "exec bash bin/test"
   ],
   "coverage": [
-    "bin/coverage",
+    "sh",
+    "-c",
+    "exec bash bin/coverage \"$0\"",
     "{lcov}"
   ],
   "runner_tools": [
     "cargo",
     "rustup"
+  ],
+  "commands": [
+    {
+      "name": "mutest-json-alone",
+      "run": [
+        "cargo",
+        "build",
+        "-p",
+        "mutest-json"
+      ],
+      "builds": true
+    },
+    {
+      "name": "corpus",
+      "run": [
+        "sh",
+        "-c",
+        "exec bash bin/corpus \"$@\"",
+        "sh",
+        "itoa",
+        "anyhow"
+      ],
+      "builds": true
+    }
   ]
 }
