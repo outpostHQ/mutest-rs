@@ -743,6 +743,8 @@ fn run_cargo_with_mutest_driver(cargo_invocation: &CargoInvocation, matches: &cl
     // NOTE: Cargo does not rebuild after the compiler wrapper changes, so each crate depends on the driver's stamp.
     cmd.env("MUTEST_DRIVER_STAMP", driver_stamp(&path));
     cmd.env("RUSTC_WORKSPACE_WRAPPER", path);
+    // NOTE: Incremental caches of a mutated crate cost more time and disk space than they save, so they are off by default.
+    cmd.env("CARGO_INCREMENTAL", env::var_os("CARGO_INCREMENTAL").unwrap_or("0".into()));
 
     if matches.get_flag("no-emit-metadata") {
         strip_arg(&mut mutest_args, false, None, Some("no-emit-metadata"));
