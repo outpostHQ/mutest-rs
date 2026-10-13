@@ -649,12 +649,6 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
         ty_ast
     }
 
-    fn sanitize_ty_with(&self, ty: Ty<'tcx>, binding_item_def_id: hir::DefId, infer_higher_ranked_tys: bool, span: Span) -> Box<ast::Ty> {
-        let opaque_ty_handling = ty::print::OpaqueTyHandling::Infer;
-        let ty_ast = ty::print::ty_ast(self.tcx, self.crate_res, self.def_res, self.current_scope, span, ty, opaque_ty_handling, infer_higher_ranked_tys, binding_item_def_id);
-        ty_ast.unwrap_or_else(|| span_bug!(span, "cannot construct AST representation of type `{ty:?}`"))
-    }
-
     fn try_sanitize_const(&self, ct: ty::Const<'tcx>, binding_item_def_id: hir::DefId, span: Span) -> Option<ast::AnonConst> {
         ty::print::const_ast(self.tcx, self.crate_res, self.def_res, self.current_scope, span, ct, binding_item_def_id)
     }
@@ -890,12 +884,12 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                         match self.tcx.def_kind(parent_def_id) {
                             // A sealed trait that no path names here can only be reached through a type-relative path (e.g. `T::f` through a supertrait bound).
                             hir::DefKind::Trait | hir::DefKind::TraitAlias if !self.is_nameable_here(qres.def_id()) => {
-                                let qself_ty_ast = self.sanitize_ty(qself_ty, node_hir_id.owner.to_def_id(), qself_ty_hir.span);
+                                let qself_ty_ast = self.written_alias_ty(qself, path, qself_ty_hir.hir_id).unwrap_or_else(|| self.sanitize_ty(qself_ty, node_hir_id.owner.to_def_id(), qself_ty_hir.span));
                                 self.make_type_relative(qself, path, qres.def_id(), qself_ty_ast);
                                 return qres.expect_non_local();
                             }
                             hir::DefKind::Trait | hir::DefKind::TraitAlias => {
-                                let qself_ty_ast = self.sanitize_ty(qself_ty, node_hir_id.owner.to_def_id(), qself_ty_hir.span);
+                                let qself_ty_ast = self.written_alias_ty(qself, path, qself_ty_hir.hir_id).unwrap_or_else(|| self.sanitize_ty(qself_ty, node_hir_id.owner.to_def_id(), qself_ty_hir.span));
 
                                 let parent_path_segment_res = match &path.segments[..] {
                                     [.., parent_path_segment, _] => self.def_res.node_res(parent_path_segment.id),
@@ -1044,43 +1038,11 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                                 }
                             }
 
-                            hir::DefKind::Impl { of_trait: false } => {
-                                let infer_higher_ranked_tys = self.infers_self_ty_args(qself, path, qself_ty_hir.hir_id);
-                                let qself_ty_ast = self.sanitize_ty_with(qself_ty, node_hir_id.owner.to_def_id(), infer_higher_ranked_tys, qself_ty_hir.span);
-
-                                // Discard self ty generic args in the original path.
-                                // NOTE: The parent path segment corresponds to the self ty, which we replace entirely after path sanitization.
-                                if let [parent_path_segments @ .., _] = &mut path.segments[..] {
-                                    for parent_path_segment in parent_path_segments {
-                                        parent_path_segment.args = None;
-                                    }
-                                }
-
-                                // NOTE: We always add a qualified self type, so we can safely ignore the indicator return value.
-                                let _ = self.sanitize_path(path, qres.expect_non_local(), None);
-
-                                // Remove the non-assoc part of the path and replace it with
-                                // a "dummy" qualified self using the type derived from the type system
-                                // corresponding to the HIR self type, like so:
-                                // `<$ty>::$assoc` (note the lack of the `as` qualifier).
-                                path.segments.splice(0..(path.segments.len() - 1), []);
-                                *qself = Some(Box::new(ast::QSelf {
-                                    ty: qself_ty_ast,
-                                    path_span: DUMMY_SP,
-                                    position: 0,
-                                }));
-                            }
+                            hir::DefKind::Impl { of_trait: false } => self.sanitize_inherent_assoc_path(qself, path, qres.expect_non_local(), qself_ty, qself_ty_hir, node_hir_id.owner.to_def_id()),
 
                             // If the portion of the path within the qself does not refer to a trait or impl,
                             // then the resolved path no longer needs a qualified self.
-                            _ => {
-                                let variant_args = self.enum_args_of_variant_path(qself, path, qself_ty, typeck_node_hir_id, qself_ty_hir.span);
-                                let None = self.sanitize_path(path, qres.expect_non_local(), None) else {
-                                    span_bug!(path.span, "produced unexpected type-relative path for non-assoc path")
-                                };
-                                *qself = None;
-                                self_ty::write_variant_args(path, variant_args);
-                            }
+                            _ => self.sanitize_non_assoc_path(qself, path, qres.expect_non_local(), qself_ty, typeck_node_hir_id, qself_ty_hir.span),
                         }
 
                         qres.expect_non_local()
