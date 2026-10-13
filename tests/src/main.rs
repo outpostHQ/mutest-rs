@@ -162,6 +162,20 @@ impl Expectation {
     }
 }
 
+/// Whether each output that must be empty is, which `--bless` cannot make so, as it writes no file for such an output.
+fn empty_outputs_met(expectations: &BTreeSet<Expectation>, path: &Path, outputs: &Outputs<'_>) -> bool {
+    expectations.iter().all(|expectation| !expectation.output(path, outputs).2 || matches!(expectation.check(path, outputs), ExpectationVerdict::Met))
+}
+
+#[test]
+fn bless_cannot_make_an_output_empty() {
+    let path = Path::new("tests/ui/test.rs");
+    let outputs = Outputs { stdout: "", stderr: "warning: unused", eval_stream: "" };
+
+    assert!(!empty_outputs_met(&BTreeSet::from([Expectation::StdErr { empty: true }]), path, &outputs));
+    assert!(empty_outputs_met(&BTreeSet::from([Expectation::StdOut { empty: true }, Expectation::StdErr { empty: false }]), path, &outputs));
+}
+
 /// Remove the fields of evaluation stream events that differ from run to run.
 fn normalize_eval_stream(stream: &str) -> String {
     stream.lines()
@@ -967,7 +981,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
     let stderr = normalize_std_source_paths(&stderr.replace(&crate_hash, "$HASH"));
     let outputs = Outputs { stdout: &stdout, stderr: &stderr, eval_stream: &eval_stream };
 
-    if opts.bless {
+    if opts.bless && empty_outputs_met(&test_directives.expectations, &path, &outputs) {
         let bless_verdicts = test_directives.expectations.iter()
             .map(|expectation| expectation.bless(&path, &outputs, opts.dry_run))
             .collect::<Vec<_>>();
@@ -979,18 +993,12 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         }
 
         results.blessed_tests_count += 1;
-        if bless_verdicts.iter().all(|v| matches!(v, BlessVerdict::New)) {
-            results.new_tests_count += 1;
-        }
+        results.new_tests_count += usize::from(bless_verdicts.iter().all(|v| matches!(v, BlessVerdict::New)));
         log_test(&name, TestResult::Blessed, None);
 
         for (expectation, bless_verdict) in iter::zip(&test_directives.expectations, &bless_verdicts) {
-            match bless_verdict {
-                BlessVerdict::New => {}
-                BlessVerdict::Changed(change) => {
-                    eprintln!("{}:\n{change}", expectation.display_name());
-                }
-                BlessVerdict::UpToDate => {}
+            if let BlessVerdict::Changed(change) = bless_verdict {
+                eprintln!("{}:\n{change}", expectation.display_name());
             }
         }
     } else {
