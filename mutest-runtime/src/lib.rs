@@ -1,13 +1,10 @@
 #![feature(deadline_api)]
 #![feature(decl_macro)]
-#![feature(generic_const_exprs)]
 #![feature(iter_array_chunks)]
 #![feature(thread_id_value)]
 
 #![feature(test)]
 #![feature(internal_output_capture)]
-
-#![allow(incomplete_features, reason = "`generic_const_exprs` is incomplete, and the static bit matrix is sized by it")]
 
 extern crate test;
 
@@ -22,7 +19,6 @@ pub mod test_runner;
 pub mod thread_pool;
 
 pub mod data_structures;
-pub use data_structures::StaticBitMatrix;
 
 pub mod detections;
 pub mod flakiness;

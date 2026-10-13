@@ -18,13 +18,15 @@ use crate::analysis::res;
 use crate::codegen::ast;
 use crate::codegen::ast::visit::Visitor;
 use crate::codegen::expansion::TcxExpansionExt;
-use crate::codegen::substitution::conflicting_substs;
 use crate::codegen::symbols::{DUMMY_SP, Ident, Span, Symbol, sym};
 use crate::codegen::symbols::hygiene::AstPass;
 use crate::codegen::tool_attr;
 use crate::session::Options;
 
 mod borrows;
+mod conflicts;
+
+use conflicts::{TriangleBits, pairs_count};
 
 #[derive(Clone, Copy)]
 pub enum MutLoc<'ast, 'a> {
@@ -226,7 +228,7 @@ pub type Operators<'op, 'm> = &'op [OperatorRef<'op, 'm>];
 
 pub type BoxedMutation<'m> = Box<dyn Mutation + 'm>;
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MutId(u32);
 
 impl MutId {
@@ -744,39 +746,24 @@ pub enum MutationParallelism<'trg, 'm> {
     DynamicallyScheduled(&'m MutationConflictGraph<'m>),
 }
 
-pub fn conflicting_targets(a: &Target, b: &Target) -> bool {
-    a.complete_reachable_from().zip(b.complete_reachable_from()).is_none_or(|(a, b)| a.shares_entry_point_with(b))
-}
-
 pub struct MutationConflictGraph<'m> {
     n_mutations: u32,
     unsafes: FxHashSet<MutId>,
-    /// Mutations that conflict with every other: unsafe ones, and those that truncated entry points reach.
-    isolated: FxHashSet<MutId>,
-    /// Conflicts between the other mutations, whose tests may run in one process.
-    conflicts: FxHashSet<(MutId, MutId)>,
+    /// The mutations whose tests may run in one process, in ascending order. Every other mutation conflicts with all.
+    in_process: Vec<MutId>,
+    /// Conflicts between the mutations of `in_process`, by their position in it.
+    conflicts: TriangleBits,
     phantom: PhantomData<&'m MutId>,
 }
 
 impl<'m> MutationConflictGraph<'m> {
-    pub fn total_mutations_count(&self) -> usize {
-        self.n_mutations as usize
-    }
-
     pub fn is_unsafe(&self, v: MutId) -> bool {
         self.unsafes.contains(&v)
     }
 
     pub fn conflicting_mutations(&self, a: MutId, b: MutId) -> bool {
-        self.isolates_either(a, b) || self.conflicts_in_process(a, b)
-    }
-
-    fn isolates_either(&self, a: MutId, b: MutId) -> bool {
-        self.isolated.contains(&a) || self.isolated.contains(&b)
-    }
-
-    fn conflicts_in_process(&self, a: MutId, b: MutId) -> bool {
-        self.conflicts.contains(&(a, b)) || self.conflicts.contains(&(b, a))
+        let position = |id| self.in_process.binary_search(&id).ok();
+        position(a).zip(position(b)).is_none_or(|(a, b)| self.conflicts.contains(a, b))
     }
 
     pub fn compatible_mutations(&self, a: MutId, b: MutId) -> bool {
@@ -796,9 +783,27 @@ impl<'m> MutationConflictGraph<'m> {
         self.iter_conflicts().filter(|&(a, b)| !self.is_unsafe(a) && !self.is_unsafe(b))
     }
 
-    /// The conflicts between mutations whose tests run in one process, alongside each other.
-    pub fn iter_in_process_conflicts(&self) -> impl Iterator<Item = (MutId, MutId)> + '_ {
-        self.conflicts.iter().copied()
+    /// The mutations whose tests may run in one process, in ascending order.
+    pub fn in_process_mutations(&self) -> &[MutId] {
+        &self.in_process
+    }
+
+    /// The conflicts between `in_process_mutations`, as `mutest_runtime::TriangleBitMatrixRef` reads them.
+    pub fn in_process_conflict_bytes(&self) -> &[u8] {
+        self.conflicts.bytes()
+    }
+
+    /// The pairs that `iter_conflicts` yields: every pair with an isolated mutation, and the in-process conflicts.
+    pub fn conflicts_count(&self) -> usize {
+        pairs_count(self.n_mutations as usize) - pairs_count(self.in_process.len()) + self.conflicts.bytes().iter().map(|byte| byte.count_ones() as usize).sum::<usize>()
+    }
+
+    pub fn conflicts_count_excluding_unsafe(&self) -> usize {
+        self.conflicts_count() + pairs_count(self.n_mutations as usize - self.unsafes.len()) - pairs_count(self.n_mutations as usize)
+    }
+
+    pub fn compatibilities_count(&self) -> usize {
+        pairs_count(self.n_mutations as usize) - self.conflicts_count()
     }
 
     pub fn iter_compatibilities(&self) -> impl Iterator<Item = (MutId, MutId)> + '_ {
@@ -808,29 +813,15 @@ impl<'m> MutationConflictGraph<'m> {
 
 pub fn generate_mutation_conflict_graph<'trg, 'm>(mutations: &[Mut<'trg, 'm>], unsafe_targeting: UnsafeTargeting) -> MutationConflictGraph<'m> {
     let unsafes = mutations.iter().filter(|m| m.is_unsafe(unsafe_targeting)).map(|m| m.id).collect::<FxHashSet<_>>();
-    // Unsafe mutations cannot be batched with any other mutation, nor can those that tests may reach past call graph limits.
-    let isolated = mutations.iter().filter(|m| unsafes.contains(&m.id) || m.target.reached_by_truncated_entry_point).map(|m| m.id).collect::<FxHashSet<_>>();
-    let mut conflicts: FxHashSet<(MutId, MutId)> = Default::default();
-
-    let in_process = mutations.iter().filter(|m| !isolated.contains(&m.id)).collect::<Vec<_>>();
-    let mut iterator = in_process.iter();
-    while let Some(mutation) = iterator.next() {
-        for other in iterator.clone() {
-            let is_conflicting = false
-                // To discern results related to the various concurrent mutations, they have to have distinct entry points.
-                || conflicting_targets(&mutation.target, &other.target)
-                // The substitutions that make up each mutation cannot conflict with each other.
-                || mutation.substs.iter().any(|s| other.substs.iter().any(|s_other| conflicting_substs(s, s_other)));
-
-            if is_conflicting {
-                conflicts.insert((mutation.id, other.id));
-            }
-        }
-    }
-
     let n_mutations = mutations.iter().map(|m| m.id.index()).max().unwrap_or(0);
 
-    MutationConflictGraph { n_mutations, unsafes, isolated, conflicts, phantom: PhantomData }
+    // Unsafe mutations cannot be batched with any other mutation, nor can those that tests may reach past call graph limits.
+    let mut in_process = mutations.iter().filter(|m| !unsafes.contains(&m.id) && !m.target.reached_by_truncated_entry_point).collect::<Vec<_>>();
+    in_process.sort_by_key(|m| m.id);
+    let conflicts = conflicts::in_process_conflicts(&in_process);
+    let in_process = in_process.into_iter().map(|m| m.id).collect();
+
+    MutationConflictGraph { n_mutations, unsafes, in_process, conflicts, phantom: PhantomData }
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]

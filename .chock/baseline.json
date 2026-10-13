@@ -8,7 +8,7 @@
       "mutest-emit/src/analysis/ast_lowering.rs": 2841,
       "mutest-emit/src/codegen/ast.rs": 1205,
       "mutest-emit/src/codegen/hygiene.rs": 2035,
-      "mutest-emit/src/codegen/mutation.rs": 1127,
+      "mutest-emit/src/codegen/mutation.rs": 1118,
       "mutest-inspector/src/server.rs": 1226,
       "mutest-runtime/src/harness.rs": 1257
     },
@@ -212,7 +212,6 @@
       "mutest-operators/src/unary_op_delete.rs": 5,
       "mutest-runtime/src/completion.rs": 29,
       "mutest-runtime/src/config.rs": 7,
-      "mutest-runtime/src/data_structures/static_bit_matrix.rs": 59,
       "mutest-runtime/src/data_structures/test_array.rs": 15,
       "mutest-runtime/src/detections.rs": 68,
       "mutest-runtime/src/flakiness.rs": 94,
@@ -386,10 +385,9 @@
       "mutest-runtime-embedded-target-stub/src/lib.rs": 1,
       "mutest-runtime-embedded-target-stub/src/metadata.rs": 1,
       "mutest-runtime/Cargo.toml": 1,
-      "mutest-runtime/src/data_structures/static_bit_matrix.rs": 1,
       "mutest-runtime/src/harness.rs": 4,
       "mutest-runtime/src/lib.rs": 1,
-      "mutest-runtime/src/metadata.rs": 2,
+      "mutest-runtime/src/metadata.rs": 1,
       "mutest-runtime/src/test_runner.rs": 1,
       "tests/src/main.rs": 1,
       "tests/ui/call_graph/auxiliary/crate_with_calls.rs": 1,
@@ -431,9 +429,7 @@
       "mutest-runtime-embedded-host-driver": 1,
       "tests": 1
     },
-    "source": {
-      "mutest-runtime/src/lib.rs#crate_level_allow": 1
-    },
+    "source": {},
     "splits": {
       "cargo-mutest/src/main.rs": 1,
       "mutest-driver/src/cargo_package_config.rs": 1,

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::data_structures::static_bit_matrix::{self, StaticBitMatrix, StaticBitMatrixRef};
+use crate::data_structures::TriangleBitMatrixRef;
 use crate::harness::ActiveMutantHandle;
 
 pub macro static_map($($input:tt)*) {
@@ -158,23 +158,21 @@ pub static NO_MUTATION: MutationMeta = MutationMeta {
 
 #[derive(Debug)]
 pub struct MutationConflictsMeta {
-    conflicts: StaticBitMatrixRef<'static>,
+    /// The ids of the mutations whose tests may run in one process, in ascending order.
+    in_process: &'static [u32],
+    /// The conflicts between the mutations of `in_process`, by their position in it.
+    conflicts: TriangleBitMatrixRef<'static>,
 }
 
 impl MutationConflictsMeta {
-    // HACK: Clone bound added because of an issue with `feature(generic_const_exprs)`
-    //       when the suggested empty bounds are evaluated across crate-boundaries,
-    //       see https://github.com/rust-lang/rust/issues/145069#issuecomment-3754163634.
-    #[expect(private_bounds, reason = "the bound is sized by `words_count`, which stays crate-private")]
-    pub const fn from_static<const N: u32>(data: &'static StaticBitMatrix<N>) -> Self
-    where
-        [(); static_bit_matrix::words_count(N)]: Clone,
-    {
-        Self { conflicts: data.as_ref() }
+    pub const fn from_upper_triangle(in_process: &'static [u32], bytes: &'static [u8]) -> Self {
+        Self { in_process, conflicts: TriangleBitMatrixRef::from_bytes(in_process.len() as u32, bytes) }
     }
 
+    /// Whether the two mutations conflict in one process; the scheduler isolates mutations outside `in_process` itself.
     pub fn conflicting_mutations(&self, a: u32, b: u32) -> bool {
-        self.conflicts.contains(a, b)
+        let position = |id| self.in_process.binary_search(&id).ok();
+        position(a).zip(position(b)).is_some_and(|(a, b)| self.conflicts.contains(a as u32, b as u32))
     }
 }
 

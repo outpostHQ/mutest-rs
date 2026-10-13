@@ -302,58 +302,28 @@ fn mk_active_mutant_handle_static(sp: Span, subst_slots: &[SubstSlot]) -> Box<as
     ast::mk::item_static(sp, vis, mutbl, ident, ty, expr)
 }
 
-pub fn bake_mutation_conflicts(sp: Span, mutation_conflict_graph: &MutationConflictGraph) -> Box<ast::Expr> {
-    let n = mutation_conflict_graph.total_mutations_count() + 1;
-    const WORD_BYTES: usize = size_of::<u64>();
-    const WORD_BITS: usize = WORD_BYTES * 8;
-    let words_per_row = n.div_ceil(WORD_BITS);
-
-    let mut words = vec![0_u64; n * words_per_row];
-    for (a, b) in mutation_conflict_graph.iter_in_process_conflicts() {
-        let a = a.index() as usize;
-        let b = b.index() as usize;
-
-        let mut set_bit_in_words = |row: usize, column: usize| {
-            let row_first_word_idx = row * words_per_row;
-            let word_idx_offset = column / WORD_BITS;
-            let word_mask = 1 << (column % WORD_BITS);
-            let word = &mut words[row_first_word_idx + word_idx_offset];
-            *word |= word_mask;
-        };
-
-        set_bit_in_words(a, b);
-        set_bit_in_words(b, a);
-    }
-
-    let word_exprs = words.into_iter().map(|word| ast::mk::expr_lit(sp, ast::token::LitKind::Integer, Symbol::intern(&word.to_string()), None)).collect::<ThinVec<_>>();
-    let words_expr = ast::mk::expr_slice(sp, word_exprs);
-
-    // StaticBitMatrix::from_raw_words(&[ ... ])
-    ast::mk::expr_call_path(sp, ast::mk::path_local(path::static_bit_matrix_from_raw_words(sp)), thin_vec![words_expr])
+/// The source of a byte string literal of the bytes, in which a zero byte takes 2 characters.
+fn byte_str_source(bytes: &[u8]) -> String {
+    bytes.iter().fold(String::with_capacity(bytes.len() * 2), |mut source, &byte| {
+        match byte {
+            0 => source.push_str("\\0"),
+            _ => source.extend(byte.escape_ascii().map(char::from)),
+        }
+        source
+    })
 }
 
-fn mk_mutation_conflict_matrix_const<'trg, 'm>(sp: Span, mutation_conflict_graph: &MutationConflictGraph) -> Box<ast::Item> {
-    let matrix_size_expr = ast::mk::expr_u32(sp, mutation_conflict_graph.total_mutations_count() as u32 + 1);
+fn mk_mutation_conflicts_const(sp: Span, mutation_conflict_graph: &MutationConflictGraph) -> Box<ast::Item> {
+    let in_process = mutation_conflict_graph.in_process_mutations().iter().map(|id| ast::mk::expr_u32(sp, id.index())).collect();
+    let conflicts = byte_str_source(mutation_conflict_graph.in_process_conflict_bytes());
 
-    // const MUTATION_CONFLICT_MATRIX: mutest_runtime::StaticBitMatrix<{ N + 1 }> = mutest_runtime::StaticBitMatrix::from_symmetric_pairs(&[ ... ]);
-    let vis = ast::mk::vis_default(sp);
-    let ident = Ident::new(sym::MUTATION_CONFLICT_MATRIX, sp);
-    let ty = ast::mk::ty_path(None, ast::mk::pathx_args(sp,
-        ast::mk::path_local(path::StaticBitMatrix(sp)),
-        vec![],
-        vec![ast::GenericArg::Const(ast::mk::anon_const(sp, matrix_size_expr.kind))],
-    ));
-    let expr = bake_mutation_conflicts(sp, mutation_conflict_graph);
-    ast::mk::item_const(sp, vis, ident, ty, expr)
-}
-
-fn mk_mutation_conflicts_const<'trg, 'm>(sp: Span) -> Box<ast::Item> {
-    // const MUTATION_CONFLICTS: mutest_runtime::MutationConflictsMeta = MutationConflictsMeta::from_static(&MUTATION_CONFLICT_MATRIX);
+    // const MUTATION_CONFLICTS: mutest_runtime::MutationConflictsMeta = MutationConflictsMeta::from_upper_triangle(&[ ... ], b"...");
     let vis = ast::mk::vis_default(sp);
     let ident = Ident::new(sym::MUTATION_CONFLICTS, sp);
     let ty = ast::mk::ty_path(None, ast::mk::path_local(path::MutationConflictsMeta(sp)));
-    let expr = ast::mk::expr_call_path(sp, ast::mk::path_local(path::mutation_conflicts_meta_from_static(sp)), thin_vec![
-        ast::mk::expr_ref(sp, ast::mk::expr_path(path::MUTATION_CONFLICT_MATRIX(sp))),
+    let expr = ast::mk::expr_call_path(sp, ast::mk::path_local(path::mutation_conflicts_meta_from_upper_triangle(sp)), thin_vec![
+        ast::mk::expr_slice(sp, in_process),
+        ast::mk::expr_lit(sp, ast::token::LitKind::ByteStr, Symbol::intern(&conflicts), None),
     ]);
     ast::mk::item_const(sp, vis, ident, ty, expr)
 }
@@ -632,8 +602,7 @@ pub fn generate_harness<'tcx, 'ent, 'trg, 'm>(
 
             if let Some(MutationParallelism::DynamicallyScheduled(mutation_conflict_graph)) = mutation_parallelism {
                 mutest_generated_mod_items.extend([
-                    mk_mutation_conflict_matrix_const(def_site, mutation_conflict_graph),
-                    mk_mutation_conflicts_const(def_site),
+                    mk_mutation_conflicts_const(def_site, mutation_conflict_graph),
                 ]);
             }
 

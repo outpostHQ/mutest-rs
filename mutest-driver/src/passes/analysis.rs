@@ -610,9 +610,9 @@ pub fn run(config: &mut Config) -> CompilerResult<Option<AnalysisPassResult>> {
 
             if opts.verbosity >= 1 {
                 println!("found {conflicts} conflicts ({conflicts_excluding_unsafe} excluding unsafe mutations), {compatibilities} compatibilities",
-                    conflicts = mutation_conflict_graph.iter_conflicts().count(),
-                    conflicts_excluding_unsafe = mutation_conflict_graph.iter_conflicts_excluding_unsafe().count(),
-                    compatibilities = mutation_conflict_graph.iter_compatibilities().count(),
+                    conflicts = mutation_conflict_graph.conflicts_count(),
+                    conflicts_excluding_unsafe = mutation_conflict_graph.conflicts_count_excluding_unsafe(),
+                    compatibilities = mutation_conflict_graph.compatibilities_count(),
                 );
             }
 

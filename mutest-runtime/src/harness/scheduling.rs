@@ -38,7 +38,6 @@ pub(super) fn in_process_substitutions<S: SubstMap>(scheduled: impl IntoIterator
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::StaticBitMatrix;
     use crate::metadata::{EntryPoints, MutationMeta, MutationSafety, SubstMeta};
 
     macro fixture($name:ident, $mutant:ident, $id:literal, $safety:ident, $truncated:literal) {
@@ -53,8 +52,7 @@ mod tests {
     fixture!(UNSAFE, UNSAFE_MUTANT, 2, Unsafe, false);
     fixture!(TRUNCATED, TRUNCATED_MUTANT, 3, Safe, true);
     // Every pair shares the test "shared", so every pair conflicts.
-    static CONFLICT_MATRIX: StaticBitMatrix<4> = StaticBitMatrix::from_symmetric_pairs(&[(1, 2), (1, 3), (2, 3)]);
-    static CONFLICTS: MutationConflictsMeta = MutationConflictsMeta::from_static(&CONFLICT_MATRIX);
+    static CONFLICTS: MutationConflictsMeta = MutationConflictsMeta::from_upper_triangle(&[1, 2, 3], &[0b0000_0111]);
 
     fn schedule(mutant: &'static StandaloneMutantMeta) -> ScheduledMutant {
         ScheduledMutant::new(mutant, None, MutationIsolation::Unsafe)
@@ -75,6 +73,13 @@ mod tests {
         let substitutions = in_process_substitutions::<[Option<SubstMeta>; 3]>([schedule(&SAFE_MUTANT), schedule(&UNSAFE_MUTANT)]);
         assert!(substitutions.subst_at(0).is_some_and(|subst| subst.mutation.id == 1));
         assert!(substitutions.subst_at(1).is_none());
+    }
+
+    #[test]
+    fn mutation_outside_the_in_process_ids_conflicts_with_none() {
+        static IN_PROCESS_PAIR: MutationConflictsMeta = MutationConflictsMeta::from_upper_triangle(&[1, 2], &[0b0000_0001]);
+        assert!(IN_PROCESS_PAIR.conflicting_mutations(2, 1));
+        assert!(!IN_PROCESS_PAIR.conflicting_mutations(1, 3) && !IN_PROCESS_PAIR.conflicting_mutations(3, 2));
     }
 
     #[test]
