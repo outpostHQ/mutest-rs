@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# Runs mutest on real crates, each pinned to a release commit: builds the mutated test harness of each, and runs the
+# analysis of the small ones. A gap in printing the mutated crate shows as a crate that does not build.
+# Usage: bin/corpus [CRATE...], with no crate for each crate this system builds. Exits 1 if any crate fails.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+root=$PWD
+
+# crate|release|repository|commit|systems, if not all|build arguments|analysis arguments, if analyzed
+corpus='tokio|tokio-1.53.2|tokio-rs/tokio|ff0c4068a4ba5f3af0fe3c5657ba42879b6ea599||-p tokio --lib --features full|
+serde|v1.0.229|serde-rs/serde|7fc3b4c30c94f73a96ebd1553f2b090d928fc3a8||-p serde --lib|
+pest|v2.9.2|pest-parser/pest|67e5acbbe622fab0771cf9d515e4ea7744f482d5||-p pest_grammars --lib|-p pest --lib
+libp2p|libp2p-v0.56.0|libp2p/rust-libp2p|70082df7e6181722630eabc5de5373733aac9a21||-p libp2p-swarm --lib|
+iroh|v0.98.2|n0-computer/iroh|7867f7164a5c902f6ea17f1a1a5430c0e02526d7||-p iroh --lib|
+quinn|quinn-0.11.12|quinn-rs/quinn|eaec0db4bcb698f76df736d89938743c88a2ad5f||-p quinn-proto --lib|
+hyper|v1.12.0|hyperium/hyper|7f67699ce32d717081deb7018b4da7d679277ac0||--lib --features full|
+tonic|v0.14.5|hyperium/tonic|3f7caf3171393734ef19e12d010bd9c945c9e242||-p tonic --lib|
+block2|block2-0.6.2|madsmtm/objc2|b4167b582b2f75f9a1be75495c41b765344fd03c|macos|-p block2 --lib|
+windows-core|0.62.0|microsoft/windows-rs|50e85cbbc063b2d67c931ba0f6dd96bf8b466373|windows|-p windows-core --lib|
+progenitor|v0.15.0|oxidecomputer/progenitor|76a3b70f0eb11e044b52ee15bd07bcc370c8adb5||-p progenitor-impl|
+itoa|1.0.18|dtolnay/itoa|af77385d0daf4d0e949e81f2588be2e44f69f086||--test test|--test test
+base64|v0.23.1|marshallpierce/rust-base64|069bf7067b949f5c0a92b6ceb82492920502f2c2||--lib|--lib
+anyhow|1.0.104|dtolnay/anyhow|1dbe1862aae650423e3361fbd20b7d17c5109cc3||--test test_context --test test_fmt|--test test_context --test test_fmt'
+
+case $(uname -s) in
+    Linux) system=linux ;;
+    Darwin) system=macos ;;
+    MINGW* | MSYS* | CYGWIN*) system=windows ;;
+    *) echo "error: bin/corpus does not know the system $(uname -s)" >&2; exit 1 ;;
+esac
+
+# In GitHub Actions, each line is also an annotation of the run.
+say() {
+    if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::$1::$2"; else echo "$1: $2" >&2; fi
+}
+
+# Each evaluated test harness must detect mutations, and a skipped one is an integration test that links no mutant crate.
+sound='.failed_builds == [] and any(.harnesses[]; .outcome.result == "evaluated")
+    and all(.harnesses[]; .outcome.result == "skipped" or (.outcome.result == "evaluated" and .outcome.all_mutations_detection_stats.detected_mutations_count > 0))'
+totals='.harnesses[] | .outcome as $outcome | "\(.metadata_dir): \($outcome.result)" + if $outcome.result != "evaluated" then "" else
+    ($outcome.all_mutations_detection_stats | ", \(.total_mutations_count) mutations, \(.detected_mutations_count) detected, \(.undetected_mutations_count) undetected, \(.timed_out_mutations_count) timed out, \(.crashed_mutations_count) crashed") end'
+
+fetch() {
+    local dir=$1 repo=$2 rev=$3
+    [ "$(git -C "$dir" rev-parse -q --verify HEAD 2> /dev/null)" = "$rev" ] && return 0
+    git init -q "$dir" \
+        && git -C "$dir" fetch -q --depth 1 "https://github.com/$repo" "$rev" \
+        && git -C "$dir" checkout -q --force FETCH_HEAD \
+        && git -C "$dir" submodule update -q --init --depth 1
+}
+
+analyze() {
+    local crate=$1 dir=$2 code
+    shift 2
+    local log=$dir/analysis.log summary=$dir/target/mutest/json/summary.json
+    rm -f "$summary"
+    # Each line of the log starts with the seconds since the analysis began.
+    SECONDS=0
+    (cd "$dir" && "$cargo_mutest" mutest run "$@") 2>&1 | while IFS= read -r line; do printf '%5d %s\n' "$SECONDS" "$line"; done > "$log"
+    code=${PIPESTATUS[0]}
+    case $code in
+        0 | 2 | 3) ;;
+        *) say error "$crate analysis did not complete (exit $code)"; tail -n 60 "$log" >&2; return 1 ;;
+    esac
+    if [ ! -f "$summary" ]; then say error "$crate analysis wrote no $summary"; return 1; fi
+    jq -r "$totals" "$summary" | while IFS= read -r line; do say notice "$crate (exit $code) $line"; done
+    if ! jq -e "$sound" "$summary" > /dev/null; then
+        say error "$crate analysis detected no mutations in a test harness, or evaluated none: $(jq -c . "$summary")"
+        tail -n 60 "$log" >&2
+        return 1
+    fi
+}
+
+run_crate() {
+    local crate=$1 row release repo rev systems build_args analysis_args
+    row=$(awk -F '|' -v crate="$crate" '$1 == crate' <<< "$corpus")
+    if [ -z "$row" ]; then say error "the corpus holds no crate \`$crate\`"; return 1; fi
+    IFS='|' read -r _ release repo rev systems build_args analysis_args <<< "$row"
+    if [ -n "$systems" ] && [[ ",$systems," != *",$system,"* ]]; then
+        say error "$crate builds only on $systems"
+        return 1
+    fi
+    local dir=$root/target/corpus/$crate
+    echo "corpus: $crate $release ($repo $rev)" >&2
+    fetch "$dir" "$repo" "$rev" || { say error "cannot fetch $repo $rev"; return 1; }
+    # shellcheck disable=SC2086 # The arguments split into words.
+    (cd "$dir" && "$cargo_mutest" mutest run --no-run $build_args) || { say error "$crate: the mutated test harness did not build"; return 1; }
+    # shellcheck disable=SC2086
+    [ -z "$analysis_args" ] || analyze "$crate" "$dir" $analysis_args
+}
+
+if [ $# -eq 0 ]; then
+    set -- $(awk -F '|' -v system="$system" '$5 == "" || index("," $5 ",", "," system ",") { print $1 }' <<< "$corpus")
+fi
+
+cargo build --release -p mutest-runtime || exit 1
+cargo build --release -p mutest-driver -p cargo-mutest || exit 1
+cargo_mutest=$root/target/release/cargo-mutest
+# The crate's own toolchain file must not replace the nightly that mutest-driver is linked against.
+RUSTUP_TOOLCHAIN=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)
+export RUSTUP_TOOLCHAIN
+
+status=0
+for crate in "$@"; do
+    run_crate "$crate" || status=1
+done
+exit $status
