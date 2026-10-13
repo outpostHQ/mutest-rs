@@ -102,8 +102,12 @@ pub(crate) fn record_reference_failure(failed_tests: Vec<String>) {
 
 /// Appends the summary to the log that `cargo mutest` names, if it names one.
 fn record(outcome: impl FnOnce(&Harness) -> HarnessOutcome) {
-    let (Some(log), Some(harness)) = (env::var_os(LOG_VAR), HARNESS.get()) else { return; };
-    if let Err(error) = append_line(Path::new(&log), &harness.summary(outcome(harness))) {
+    record_in(env::var_os(LOG_VAR).as_deref().map(Path::new), HARNESS.get(), outcome);
+}
+
+fn record_in(log: Option<&Path>, harness: Option<&Harness>, outcome: impl FnOnce(&Harness) -> HarnessOutcome) {
+    let (Some(log), Some(harness)) = (log, harness) else { return; };
+    if let Err(error) = append_line(log, &harness.summary(outcome(harness))) {
         eprintln!("warning: cannot record the summary of this test harness: {error}");
     }
 }
@@ -123,9 +127,9 @@ mod tests {
     use std::process;
     use std::time::Duration;
 
-    use mutest_json::summary::{HarnessOutcome, HarnessSummary};
+    use mutest_json::summary::{HarnessOutcome, HarnessSummary, TargetKind};
 
-    use super::{Harness, append_line};
+    use super::{Harness, append_line, record_in};
     use crate::detections::MutationDetectionMatrix;
     use crate::harness::MutationAnalysisResults;
     use crate::json;
@@ -204,5 +208,39 @@ mod tests {
         ));
         let unlinked = Harness::new(Some("pkg"), Some(CargoTargetKind::Test), "cli", None);
         assert_eq!(unlinked.evaluation(&results), HarnessOutcome::Skipped);
+    }
+
+    #[test]
+    fn each_cargo_target_kind_is_named_in_the_summary() {
+        let kinds = [CargoTargetKind::Lib, CargoTargetKind::MainBin, CargoTargetKind::Bin, CargoTargetKind::Example, CargoTargetKind::Test]
+            .map(|kind| Harness::new(Some("pkg"), Some(kind), "pkg", None).summary(HarnessOutcome::Skipped).target_kind);
+
+        assert_eq!(kinds, [TargetKind::Lib, TargetKind::MainBin, TargetKind::Bin, TargetKind::Example, TargetKind::Test].map(Some));
+    }
+
+    #[test]
+    fn a_harness_records_its_summary_only_once_started_and_given_a_log() {
+        let log = env::current_exe().unwrap().with_file_name(format!("mutest-harness-summary-{}", process::id()));
+        let _ = fs::remove_file(&log);
+        let harness = Harness::new(Some("pkg"), Some(CargoTargetKind::Lib), "pkg", None);
+
+        record_in(None, Some(&harness), |_| HarnessOutcome::Skipped);
+        record_in(Some(&log), None, |_| HarnessOutcome::Skipped);
+        let recorded_early = log.exists();
+        record_in(Some(&log), Some(&harness), |_| HarnessOutcome::Skipped);
+
+        let written = fs::read_to_string(&log);
+        fs::remove_file(&log).unwrap();
+        assert!(!recorded_early);
+        assert_eq!(serde_json::from_str::<HarnessSummary>(written.unwrap().trim_end()).unwrap().outcome, HarnessOutcome::Skipped);
+    }
+
+    #[test]
+    fn a_log_in_a_missing_directory_gets_no_summary() {
+        let log = env::current_exe().unwrap().with_file_name(format!("mutest-no-such-dir-{}", process::id())).join("log");
+
+        record_in(Some(&log), Some(&Harness::new(None, None, "krate", None)), |_| HarnessOutcome::Skipped);
+
+        assert!(!log.exists());
     }
 }
