@@ -153,16 +153,22 @@ mod tests {
         run_tests_in_spawned_subprocess(tests.collect(), report);
     }
 
-    /// Runs `tests` in mutation children, stopping or removing tests as `on_result` asks, and returns the results,
-    /// the tests left in the queue, and how many children started.
-    fn run(tests: Vec<Test>, mut on_result: impl FnMut(&str, &mut Vec<(test::TestId, Test)>) -> Flow) -> (Vec<(String, TestResult)>, usize, usize) {
+    type CmdHook = Arc<dyn Fn(&mut Command) + Send + Sync>;
+
+    /// A new folder that the fixture children count their starts in, and the command hook that starts them.
+    pub(super) fn fixture_children() -> (PathBuf, CmdHook) {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../test-scratch")
             .join(format!("mutation-child-{}-{}", process::id(), NEXT_LIST.fetch_add(1, atomic::Ordering::Relaxed)));
         fs::create_dir_all(&root).unwrap();
         let child_root = root.clone();
-        let strategy = TestRunStrategy::InIsolatedChildProcess(Arc::new(move |command| {
-            command.args(["--exact", ENTRY, "--test-threads=1", "--nocapture"]).env("MUTEST_MUTATION_CHILD", &child_root);
-        }));
+        (root, Arc::new(move |command| { command.args(["--exact", ENTRY, "--test-threads=1", "--nocapture"]).env("MUTEST_MUTATION_CHILD", &child_root); }))
+    }
+
+    /// Runs `tests` in mutation children, stopping or removing tests as `on_result` asks, and returns the results,
+    /// the tests left in the queue, and how many children started.
+    fn run(tests: Vec<Test>, mut on_result: impl FnMut(&str, &mut Vec<(test::TestId, Test)>) -> Flow) -> (Vec<(String, TestResult)>, usize, usize) {
+        let (root, cmd_hook) = fixture_children();
+        let strategy = TestRunStrategy::InIsolatedChildProcess(cmd_hook);
         let mut results = Vec::new();
         let (remaining, lingering) = run_tests_with_concurrency(tests, |event, queue| -> Result<Flow, ()> {
             let TestEvent::Result(test) = event else { return Ok(Flow::Continue) };

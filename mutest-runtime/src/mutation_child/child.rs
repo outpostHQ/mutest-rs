@@ -16,7 +16,7 @@ use super::super::{ControlMsg, TestResult, incomplete_isolation, isolated_comman
 use super::NEXT_LIST;
 
 type Outcome = io::Result<(TestResult, Duration, Vec<u8>)>;
-/// The result, run time and output of a test, and whether its child still runs.
+/// The result, run time and output of a test, and whether its child still runs or has exited with the result of a later test.
 pub(super) type Ran = (TestResult, Duration, Vec<u8>, bool);
 
 /// A child process that runs the listed tests in turn, and the passes it has reported that are not yet given out.
@@ -87,15 +87,22 @@ impl Child {
         (result, output)
     }
 
-    /// The result, run time and output of the next test, which started at `started`, and whether the child still runs.
+    /// The result, run time and output of the next test, which started at `started`, and whether the child
+    /// still runs or has exited with the result of a later test.
     pub(super) fn next_result(&mut self, timeout: Option<Duration>, started: Instant) -> Ran {
         self.tests.pop_front();
         loop {
-            if let Some(exec_time) = self.passed.pop_front() { return (within(exec_time, timeout), exec_time, Vec::new(), !self.done); }
+            if let Some(ran) = self.pass_result(timeout) { return ran; }
             if self.exited.is_some() { return self.exit_result(timeout, started); }
             if timeout.is_some_and(|timeout| started.elapsed() > timeout) { return self.kill_timed_out(timeout, started); }
             self.wait(subprocess::POLL_INTERVAL);
         }
+    }
+
+    /// The pass that the child reported for the test, if any, and whether the child still runs or has exited with the result of a later test.
+    fn pass_result(&mut self, timeout: Option<Duration>) -> Option<Ran> {
+        let exec_time = self.passed.pop_front()?;
+        Some((within(exec_time, timeout), exec_time, Vec::new(), !self.done || self.exited.is_some()))
     }
 
     /// The exit of the child, as the result of the test that did not report a pass.
@@ -125,5 +132,25 @@ impl Drop for Child {
         if let Some(Err(error)) = &self.exited { incomplete_isolation(&error.to_string()); }
         let _ = fs::remove_file(&self.list);
         let _ = fs::remove_file(self.list.with_extension("passed"));
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+    use super::super::tests::fixture_children;
+
+    /// A child that exits right after it reported a pass, before the parent read the pass, still gives its exit
+    /// as the result of the next test.
+    #[test]
+    fn a_child_that_exited_after_a_pass_gives_its_exit_to_the_next_test() {
+        let (root, cmd_hook) = fixture_children();
+        let names = [test::StaticTestName("pass-0"), test::StaticTestName("fail")];
+        let mut child = Child::spawn(cmd_hook, &[(test::TestId(0), &names[0]), (test::TestId(1), &names[1])], false).unwrap();
+        while !child.done { child.wait(subprocess::POLL_INTERVAL); }
+        let results = [(); 2].map(|()| { let (result, _, _, alive) = child.next_result(None, Instant::now()); (result, alive) });
+        drop(child);
+        fs::remove_dir_all(&root).unwrap();
+        assert_eq!(results, [(TestResult::Ok, true), (TestResult::Failed, false)]);
     }
 }
