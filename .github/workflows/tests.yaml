@@ -75,6 +75,9 @@ jobs:
       - name: Install Rust toolchain
         run: rustc --version
 
+      - name: Install clippy
+        run: rustup component add clippy
+
       # bin/test, bin/coverage and the gates that build each keep a target directory of their own.
       - name: Free disk space
         if: runner.os == 'Linux'
