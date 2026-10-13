@@ -76,9 +76,6 @@ fn specialized_mutant_crate_paths(metadata_file_path: &Path, exists: impl Fn(&Pa
 }
 
 pub fn inject_runtime_crate_and_deps(config: &Config, compiler_config: &mut CompilerConfig, specialized_external_mutant_crate: Option<&(String, SpecializedMutantCrateCompilationResult)>) {
-    // Generated harnesses need the old solver for the runtime's `generic_const_exprs` types.
-    compiler_config.opts.unstable_opts.next_solver.globally = false;
-
     let early_dcx = EarlyDiagCtxt::new(compiler_config.opts.error_format);
 
     let host_triple = host_tuple();
