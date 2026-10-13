@@ -4,6 +4,7 @@ use rustc_middle::ty::TyCtxt;
 use rustc_session::Session;
 
 use crate::codegen::ast;
+use crate::codegen::ast::util::classify;
 use crate::codegen::ast::mut_visit::MutVisitor;
 use crate::codegen::expansion::TcxExpansionExt;
 use crate::codegen::guard;
@@ -58,7 +59,7 @@ fn mk_subst_match_expr(sp: Span, read: SubstRead, default: Option<Box<ast::Expr>
     }));
 
     let scrutinee = mk_subst_scrutinee_expr(sp, read, &mut arms);
-    ast::mk::expr_paren(sp, ast::mk::expr_match(sp, scrutinee, arms))
+    ast::mk::expr_match(sp, scrutinee, arms)
 }
 
 /// The scrutinee of the match of a location. A location that reads its own slot gets the arm that cancels a test first.
@@ -336,14 +337,55 @@ impl<'tcx> ast::mut_visit::MutVisitor for SyntaxAmbiguityResolver<'tcx> {
     fn visit_expr(&mut self, expr: &mut ast::Expr) {
         ast::mut_visit::walk_expr(self, expr);
 
-        match &expr.kind {
-            // Expressions compared with a cast expression may be misinterpreted as type arguments for the type in the
-            // cast expression. To avoid this, we simply parenthesize every cast expression.
-            ast::ExprKind::Cast(_, _) => {
-                *expr = *ast::mk::expr_paren(expr.span, Box::new(expr.clone()))
-            }
-            _ => {}
+        if let Some(ambiguous) = ambiguous_operand(expr) {
+            parenthesize(ambiguous);
         }
+    }
+}
+
+/// The operand of `expr` that the parser reads differently from the printed text, unless it has parentheses.
+fn ambiguous_operand(expr: &mut ast::Expr) -> Option<&mut ast::Expr> {
+    match &mut expr.kind {
+        // A cast that ends the left operand of `<` or `<<` reads as generic arguments (`len as u32 < 8` as `u32<8>`).
+        // The printer parenthesizes only a cast that is itself the left operand.
+        ast::ExprKind::Binary(op, lhs, _) if matches!(op.node, ast::BinOpKind::Lt | ast::BinOpKind::Shl) => match &mut lhs.kind {
+            ast::ExprKind::Binary(_, _, rhs) => trailing_cast(rhs),
+            _ => None,
+        },
+        // In a statement or a match arm, the parser ends a range at a block-like start of its end
+        // (`a..match x {} as T`). The printer does not parenthesize it.
+        ast::ExprKind::Range(_, Some(end), _) if !classify::expr_is_complete(end) && classify::expr_is_complete(first_operand(end)) => Some(end),
+        _ => None,
+    }
+}
+
+fn parenthesize(expr: &mut ast::Expr) {
+    *expr = *ast::mk::expr_paren(expr.span, Box::new(expr.clone()));
+}
+
+fn trailing_cast(expr: &mut ast::Expr) -> Option<&mut ast::Expr> {
+    match expr.kind {
+        ast::ExprKind::Binary(_, _, ref mut rhs) => trailing_cast(rhs),
+        ast::ExprKind::Cast(_, _) => Some(expr),
+        _ => None,
+    }
+}
+
+/// The operand that the parser reads first in a chain of operators and postfix expressions.
+fn first_operand(expr: &ast::Expr) -> &ast::Expr {
+    match &expr.kind {
+        | ast::ExprKind::Assign(operand, _, _)
+        | ast::ExprKind::AssignOp(_, operand, _)
+        | ast::ExprKind::Await(operand, _)
+        | ast::ExprKind::Binary(_, operand, _)
+        | ast::ExprKind::Call(operand, _)
+        | ast::ExprKind::Cast(operand, _)
+        | ast::ExprKind::Field(operand, _)
+        | ast::ExprKind::Index(operand, _, _)
+        | ast::ExprKind::Range(Some(operand), _, _)
+        | ast::ExprKind::Try(operand) => first_operand(operand),
+        ast::ExprKind::MethodCall(call) => first_operand(&call.receiver),
+        _ => expr,
     }
 }
 
