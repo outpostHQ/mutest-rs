@@ -24,6 +24,8 @@ use crate::codegen::symbols::hygiene::AstPass;
 use crate::codegen::tool_attr;
 use crate::session::Options;
 
+mod borrows;
+
 #[derive(Clone, Copy)]
 pub enum MutLoc<'ast, 'a> {
     Fn(&'a ast::FnItem<'ast>),
@@ -393,31 +395,21 @@ fn report_unmatched_ast_node<'tcx>(tcx: TyCtxt<'tcx>, node_kind: &str, def_id: h
 }
 
 impl<'tcx, 'ast, 'op, 'trg, 'm> MutationCollector<'tcx, 'ast, 'op, 'trg, 'm> {
-    /// Visit an expression the parent reads through, so it is not replaced by an owned temporary:
-    /// temporary lifetime extension is syntactic, and a receiver or base is not an extending position.
-    fn visit_borrowed_expr(&mut self, expr: &'ast ast::Expr) {
-        use ast::visit::Visitor as _;
-        self.value_is_borrowed = true;
-        self.visit_expr(expr);
-        self.value_is_borrowed = false;
-    }
+    fn register_expr_mutations(&mut self, expr: &'ast ast::Expr, expr_hir: &hir::Expr<'tcx>) {
+        let Some((fn_ast, fn_hir)) = &self.current_fn else { return; };
+        if fn_hir.body.is_some_and(|body_hir| self.is_mutably_borrowed_place(body_hir, expr_hir)) { return; }
 
-    /// Walk an expression, visiting the receiver or base it reads through as borrowed.
-    fn walk_expr_marking_borrows(&mut self, expr: &'ast ast::Expr) {
-        use ast::visit::Visitor as _;
-        match &expr.kind {
-            ast::ExprKind::MethodCall(call) => {
-                self.visit_borrowed_expr(&call.receiver);
-                for arg in &call.args { self.visit_expr(arg); }
-            }
-            ast::ExprKind::Field(base, _) => self.visit_borrowed_expr(base),
-            ast::ExprKind::Index(base, index, _) => {
-                self.visit_borrowed_expr(base);
-                self.visit_expr(index);
-            }
-            ast::ExprKind::AddrOf(_, _, inner) => self.visit_borrowed_expr(inner),
-            _ => ast::visit::walk_expr(self, expr),
-        }
+        register_mutations!(self, MutCtxt {
+            opts: self.opts,
+            tcx: self.tcx,
+            crate_res: self.crate_res,
+            def_res: self.def_res,
+            body_res: self.body_res,
+            def_site: self.def_site,
+            item_hir: fn_hir,
+            location: MutLoc::FnBodyExpr(expr, fn_ast),
+            value_is_borrowed: self.value_is_borrowed,
+        });
     }
 }
 
@@ -544,7 +536,7 @@ impl<'tcx, 'ast, 'op, 'trg, 'm> ast::visit::Visitor<'ast> for MutationCollector<
             _ => {}
         }
 
-        let Some((fn_ast, fn_hir)) = &self.current_fn else { return; };
+        let Some((_, fn_hir)) = &self.current_fn else { return; };
         let Some(expr_hir) = self.body_res.hir_expr(expr) else {
             if self.opts.verbosity >= 1 {
                 report_unmatched_ast_node(self.tcx, "expression", fn_hir.owner_id.def_id, expr.span);
@@ -591,17 +583,7 @@ impl<'tcx, 'ast, 'op, 'trg, 'm> ast::visit::Visitor<'ast> for MutationCollector<
             return inner_visit_let_chain_bin_expr(self, expr);
         }
 
-        register_mutations!(self, MutCtxt {
-            opts: self.opts,
-            tcx: self.tcx,
-            crate_res: self.crate_res,
-            def_res: self.def_res,
-            body_res: self.body_res,
-            def_site: self.def_site,
-            item_hir: fn_hir,
-            location: MutLoc::FnBodyExpr(expr, fn_ast),
-            value_is_borrowed: self.value_is_borrowed,
-        });
+        self.register_expr_mutations(expr, expr_hir);
 
         let current_closure = self.current_closure;
         if let hir::ExprKind::Closure(&hir::Closure { body, .. }) = expr_hir.kind { self.current_closure = Some(body); }
