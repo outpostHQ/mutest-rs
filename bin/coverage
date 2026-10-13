@@ -18,16 +18,18 @@ eval "$env_script"
 export LLVM_PROFILE_FILE=$CARGO_TARGET_DIR/mutest-rs-%8m.profraw
 cargo llvm-cov clean --workspace --profraw-only || exit 1
 
-status=0
+failed=""
+log=$CARGO_TARGET_DIR/test-output.log
+: > "$log"
 built=$CARGO_TARGET_DIR/built-executables
 : > "$built"
 executables() { sed -n 's/.*"executable":"\([^"]*\)".*/\1/p' >> "$built"; }
 for package in cargo-mutest mutest-driver mutest-emit mutest-exit-code mutest-runtime mutest-inspector mutest-tests; do
-    cargo test --release -p "$package" --no-run --message-format=json-render-diagnostics | executables || status=1
-    cargo test --release -p "$package" --no-fail-fast || status=1
+    cargo test --release -p "$package" --no-run --message-format=json-render-diagnostics | executables || failed+=" build:$package"
+    cargo test --release -p "$package" --no-fail-fast 2>&1 | tee -a "$log" || failed+=" test:$package"
 done
-cargo build --release -p mutest-tests --message-format=json-render-diagnostics | executables || status=1
-cargo run --release -p mutest-tests || status=1
+cargo build --release -p mutest-tests --message-format=json-render-diagnostics | executables || failed+=" build:mutest-tests"
+cargo run --release -p mutest-tests 2>&1 | tee -a "$log" || failed+=" ui-test"
 # Test children that run with a cleared environment write their profiles to their working directory.
 find . -path ./target -prune -o -name "default_*.profraw" -exec mv {} "$CARGO_TARGET_DIR" \;
 # cargo-llvm-cov reads every executable in the target directory, and one an earlier build left holds old line numbers.
@@ -36,4 +38,5 @@ find . -path ./target -prune -o -name "default_*.profraw" -exec mv {} "$CARGO_TA
     | awk 'NR == FNR { keep[$1]; next } !($1 in keep) { print $2 }' \
         <(xargs ls -di < "$built"; find "$CARGO_TARGET_DIR/release" -maxdepth 1 -type f -exec ls -di {} +) - | xargs rm -f
 cargo llvm-cov report --release --lcov --output-path "$lcov" || exit 1
-exit $status
+# chock shows only the end of a failed run, so it repeats each failure there.
+[ -z "$failed" ] || { grep -E "panicked at|FAILED|^---- " "$log" | tail -40 >&2; echo "bin/coverage: these steps failed:$failed" >&2; exit 1; }
