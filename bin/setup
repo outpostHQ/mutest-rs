@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Installs what work on mutest-rs needs, at the versions tool-versions.env pins. Safe to run again.
+# `bin/setup gates` installs what `chock run` needs, as CI does; `bin/setup dev` adds the developer tools.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+say() { printf '==> %s\n' "$*"; }
+has() { command -v "$1" >/dev/null 2>&1; }
+windows() { case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac; return 1; }
+
+# shellcheck source=/dev/null
+. ./tool-versions.env
+# Not a gate tool, so not in tool-versions.env: `chock doctor` would fail a machine without it.
+JUST_VERSION=1.58.0
+
+gates() {
+    if ! has rustup; then
+        windows && { echo "bin/setup: install rustup from https://rustup.rs, then run this again" >&2; exit 1; }
+        say "rustup"
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+        # shellcheck source=/dev/null
+        . "${CARGO_HOME:-$HOME/.cargo}/env"
+    fi
+    say "the nightly of rust-toolchain.toml, clippy, and the bare-metal target bin/test builds for"
+    rustup toolchain install
+    rustup component add clippy
+    rustup target add aarch64-unknown-none
+    say "cargo-binstall, so each tool after it installs a prebuilt release"
+    has cargo-binstall || cargo install --locked cargo-binstall --version "$CARGO_BINSTALL_VERSION"
+    say "chock and the tools of the enabled gates"
+    cargo binstall -y --locked chock@"$CHOCK_VERSION" cargo-llvm-cov@"$CARGO_LLVM_COV_VERSION" \
+        cargo-crap@"$CARGO_CRAP_VERSION" cargo-deny@"$CARGO_DENY_VERSION" cargo-sort@"$CARGO_SORT_VERSION" \
+        cargo-machete@"$CARGO_MACHETE_VERSION" cargo-bsize@"$CARGO_BSIZE_VERSION" typos-cli@"$TYPOS_CLI_VERSION"
+}
+
+dev() {
+    gates
+    say "just, which runs the recipes of the justfile"
+    has just || cargo binstall -y --locked just@"$JUST_VERSION"
+    if has claude; then
+        :
+    elif windows; then
+        echo "bin/setup: install Claude Code as https://code.claude.com/docs tells" >&2
+    else
+        say "Claude Code, which reads the chock editor hook in .claude/settings.json"
+        curl -fsSL https://claude.ai/install.sh | bash
+    fi
+    say "the chock git hooks of this clone"
+    chock init --local
+    if has tova; then
+        say "the tova hooks of this clone, and a first background check"
+        tova init
+    else
+        say "tova is not installed: it is private to Outpost, and optional here"
+    fi
+    has outpost || say "outpost is not installed: it is private to Outpost, and optional here"
+    say "done. Check with: chock doctor"
+}
+
+case "${1:-}" in
+    gates) gates ;;
+    dev) dev ;;
+    *) echo "usage: bin/setup gates|dev" >&2; exit 2 ;;
+esac
