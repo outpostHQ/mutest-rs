@@ -358,12 +358,11 @@ pub(crate) mod job {
             fn RaiseException(code: u32, flags: u32, argument_count: u32, arguments: *const usize);
         }
 
-        /// Prints the limits of its job once its stdin closes, then crashes; when not started by the test below, it returns at once.
+        /// Prints the limits of its job once its stdin closes, then crashes; only the test below starts it.
         #[test]
+        #[ignore = "a child process of other tests runs it"]
         fn crash_fixture() {
-            if std::env::var_os(CRASH_VAR).is_none() {
-                return;
-            }
+            assert!(std::env::var_os(CRASH_VAR).is_some(), "only the test below starts this fixture");
             let _ = std::io::stdin().read_line(&mut String::new());
             let mut limits = ExtendedLimits::default();
             let length = u32::try_from(size_of::<ExtendedLimits>()).unwrap();
@@ -379,7 +378,7 @@ pub(crate) mod job {
         #[test]
         fn a_process_in_the_job_shows_no_crash_dialog() {
             let mut child = Command::new(std::env::current_exe().unwrap())
-                .args(["--exact", "test_runner::subprocess::job::tests::crash_fixture", "--nocapture", "--test-threads=1"])
+                .args(["--ignored", "--exact", "test_runner::subprocess::job::tests::crash_fixture", "--nocapture", "--test-threads=1"])
                 .env(CRASH_VAR, "1").creation_flags(CREATE_DEFAULT_ERROR_MODE)
                 .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null())
                 .spawn().unwrap();

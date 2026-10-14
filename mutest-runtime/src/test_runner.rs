@@ -1063,9 +1063,10 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "a child process of other tests runs it"]
     fn isolated_serial_child() {
         dispatch_subprocess_owner();
-        let Some(marker) = env::var_os("MUTEST_SERIAL_CHILD") else { return; };
+        let marker = env::var_os("MUTEST_SERIAL_CHILD").expect("only a test of this module starts this fixture");
         let marker = PathBuf::from(marker);
         let pending = marker.with_extension("pending");
         fs::write(&pending, process::id().to_string()).unwrap();
@@ -1100,7 +1101,7 @@ mod tests {
             let marker = scratch.0.join(case);
             let child_marker = marker.clone();
             let strategy = TestRunStrategy::InIsolatedChildProcess(Arc::new(move |command| {
-                command.env_clear().args(["--exact", "test_runner::tests::isolated_serial_child", "--test-threads=1", "--nocapture"])
+                command.env_clear().args(["--ignored", "--exact", "test_runner::tests::isolated_serial_child", "--test-threads=1", "--nocapture"])
                     .env("MUTEST_SERIAL_CHILD", &child_marker);
                 match case {
                     "success" => {}
@@ -1147,7 +1148,7 @@ mod tests {
 
     fn fixture_command(root: &Path, role: &str, scenario: &str) -> Command {
         let mut command = Command::new(env::current_exe().unwrap());
-        command.args(["--exact", LIFECYCLE_ENTRY, "--test-threads=1", "--nocapture"])
+        command.args(["--ignored", "--exact", LIFECYCLE_ENTRY, "--test-threads=1", "--nocapture"])
             .env_clear().env("MUTEST_LIFECYCLE_ROOT", root).env("MUTEST_LIFECYCLE_ROLE", role)
             .env("MUTEST_LIFECYCLE_SCENARIO", scenario).stdin(process::Stdio::null());
         keep_loader_environment(&mut command);
@@ -1292,9 +1293,10 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "a child process of other tests runs it"]
     fn isolated_lifecycle_fixture() {
         dispatch_subprocess_owner();
-        let Ok(role) = env::var("MUTEST_LIFECYCLE_ROLE") else { return; };
+        let role = env::var("MUTEST_LIFECYCLE_ROLE").expect("only a test of this module starts this fixture");
         let root = PathBuf::from(env::var_os("MUTEST_LIFECYCLE_ROOT").unwrap());
         let scenario = env::var("MUTEST_LIFECYCLE_SCENARIO").unwrap();
         match role.as_str() {

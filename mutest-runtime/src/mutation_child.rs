@@ -142,9 +142,10 @@ mod tests {
 
     /// Runs the tests the parent listed, as the harness of an analyzed crate does, and counts each child start.
     #[test]
+    #[ignore = "a child process of other tests runs it"]
     fn mutation_child_fixture() {
         dispatch_subprocess_owner();
-        let Some(root) = env::var_os("MUTEST_MUTATION_CHILD") else { return; };
+        let root = env::var_os("MUTEST_MUTATION_CHILD").expect("only a test of this module starts this fixture");
         fs::OpenOptions::new().append(true).create(true).open(Path::new(&root).join("starts")).unwrap().write_all(b"started\n").unwrap();
         let names = ["pass-0", "fail", "pass-1", "crash", "pass-2", "hang", "should-panic", "pass-3", "once"];
         let fixtures = names.map(|name| { let test = fixture(name, false); test::TestDescAndFn { desc: test.desc, testfn: test.test_fn } });
@@ -161,7 +162,7 @@ mod tests {
             .join(format!("mutation-child-{}-{}", process::id(), NEXT_LIST.fetch_add(1, atomic::Ordering::Relaxed)));
         fs::create_dir_all(&root).unwrap();
         let child_root = root.clone();
-        (root, Arc::new(move |command| { command.args(["--exact", ENTRY, "--test-threads=1", "--nocapture"]).env("MUTEST_MUTATION_CHILD", &child_root); }))
+        (root, Arc::new(move |command| { command.args(["--ignored", "--exact", ENTRY, "--test-threads=1", "--nocapture"]).env("MUTEST_MUTATION_CHILD", &child_root); }))
     }
 
     /// Runs `tests` in mutation children, stopping or removing tests as `on_result` asks, and returns the results,

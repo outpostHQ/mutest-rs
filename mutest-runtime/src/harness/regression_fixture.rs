@@ -100,7 +100,7 @@ fn replace_completion_with_fifo() -> ! {
 
 fn leave_an_orphan() -> ! {
     let mut command = process::Command::new(env::current_exe().unwrap());
-    command.args(["--exact", "supervisor::tests::regressions::runtime_fixture_entry", "--test-threads=1"])
+    command.args(["--ignored", "--exact", "supervisor::tests::regressions::runtime_fixture_entry", "--test-threads=1"])
         .env("MUTEST_REGRESSION_ORPHAN_PARENT", "1");
     let mut child = command.spawn().unwrap();
     assert!(child.wait().unwrap().success());
@@ -173,7 +173,7 @@ pub(crate) fn isolated_entry() {
 /// Makes the isolated child of a fixture worker run only the fixture entry, not every test of this binary.
 pub(crate) fn run_fixture_entry_only(cmd: &mut process::Command) {
     if env::var_os("MUTEST_REGRESSION_SCENARIO").is_some() {
-        cmd.args(["--exact", "supervisor::tests::regressions::runtime_fixture_entry", "--test-threads=1", "--nocapture"]);
+        cmd.args(["--ignored", "--exact", "supervisor::tests::regressions::runtime_fixture_entry", "--test-threads=1", "--nocapture"]);
     }
 }
 

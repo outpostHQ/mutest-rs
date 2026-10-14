@@ -824,12 +824,11 @@ mod sys {
 
         const WATCHING_VAR: &str = "__MUTEST_WATCHING_FIXTURE";
 
-        /// Arms `die_with` for its parent, then waits; when not started by the test below, it returns at once.
+        /// Arms `die_with` for its parent, then waits; only the test below starts it.
         #[test]
+        #[ignore = "a child process of other tests runs it"]
         fn watching_fixture() {
-            if std::env::var_os(WATCHING_VAR).is_none() {
-                return;
-            }
+            assert!(std::env::var_os(WATCHING_VAR).is_some(), "only the test below starts this fixture");
             die_with(Some(std::os::unix::process::parent_id())).unwrap();
             println!("watching");
             thread::sleep(Duration::from_secs(60));
@@ -841,7 +840,7 @@ mod sys {
             use std::io::BufRead;
 
             let _turn = STARTING_PROCESSES.lock().unwrap_or_else(|e| e.into_inner());
-            let script = "\"$0\" --exact supervisor::sys::tests::watching_fixture --nocapture --test-threads=1 & wait";
+            let script = "\"$0\" --ignored --exact supervisor::sys::tests::watching_fixture --nocapture --test-threads=1 & wait";
             let mut shell = Command::new("sh").args(["-c", script]).arg(std::env::current_exe().unwrap())
                 .env(WATCHING_VAR, "1").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null())
                 .spawn().unwrap();
@@ -1042,7 +1041,7 @@ mod tests {
                 let output = fs::File::create(root.join("output")).unwrap();
                 let mut command = Command::new(env::current_exe().unwrap());
                 command
-                    .args(["--exact", ENTRY, "--nocapture", "--test-threads=1"])
+                    .args(["--ignored", "--exact", ENTRY, "--nocapture", "--test-threads=1"])
                     // Nothing of the outer run, such as its journal or progress settings, reaches the fixture.
                     .env_clear()
                     .env("PATH", "/usr/bin:/bin")
@@ -1145,7 +1144,7 @@ mod tests {
 
         fn orphan_parent_entry() -> ! {
             let _orphan = Command::new(env::current_exe().unwrap())
-                .args(["--exact", ENTRY, "--test-threads=1"])
+                .args(["--ignored", "--exact", ENTRY, "--test-threads=1"])
                 .env("MUTEST_REGRESSION_ORPHAN", "1")
                 .spawn()
                 .unwrap();
@@ -1188,11 +1187,10 @@ mod tests {
         }
 
         #[test]
+        #[ignore = "a child process of other tests runs it"]
         fn runtime_fixture_entry() {
             crate::test_runner::dispatch_subprocess_owner();
-            let Ok(scenario) = env::var(SCENARIO) else {
-                return;
-            };
+            let scenario = env::var(SCENARIO).expect("only a test of this module starts this fixture");
             let root = PathBuf::from(env::var_os(ROOT).unwrap());
             if env::var_os("MUTEST_REGRESSION_ORPHAN").is_some() {
                 orphan_entry(&root);
