@@ -1,8 +1,9 @@
 {
   "$schema": "https://raw.githubusercontent.com/outpostHQ/chock/main/schema/baseline-v1.json",
   "version": 1,
-  "chock": "0.5.4",
+  "chock": "0.9.0",
   "gates": {
+    "admits": {},
     "assertions": {},
     "bigfiles": {
       "mutest-emit/src/analysis/ast_lowering.rs": 2841,
@@ -727,6 +728,7 @@
     "unused": {}
   },
   "units": {
+    "admits": "unchecked proof step(s)",
     "assertions": "length assertion(s)",
     "bigfiles": "production lines",
     "binsize": "byte(s)",

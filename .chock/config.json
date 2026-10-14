@@ -2,6 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/outpostHQ/chock/main/schema/config-v1.json",
   "version": 1,
   "enabled": [
+    "admits",
     "assertions",
     "bigfiles",
     "binsize",
@@ -39,7 +40,6 @@
     "wiring"
   ],
   "left_off": {
-    "admits": "no Lean proof files here",
     "lint": "off by the owner's choice: upstream mutest-rs is not rustfmt-formatted or clippy-clean, and reformatting it would conflict every upstream merge",
     "msrv": "off: mutest-rs builds only on the nightly rust-toolchain.toml pins, so it promises no minimum Rust version"
   },

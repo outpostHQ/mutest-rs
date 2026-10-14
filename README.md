@@ -209,8 +209,6 @@ bin/setup dev
 
 Run the unit tests and the UI tests with `bin/test`, and every gate with `chock run`.
 
-On a new clone, `chock doctor` shows the editor hook as `SILENT` until Claude Code makes its first edit.
-
 ## License
 
 The mutest-rs project is dual-licensed under Apache 2.0 and MIT terms.
