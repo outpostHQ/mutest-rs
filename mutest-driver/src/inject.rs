@@ -142,9 +142,8 @@ pub fn inject_runtime_crate_and_deps(config: &Config, compiler_config: &mut Comp
     } else {
         let rlib_path = mutest_target_artifacts_dir_path.join("libmutest_runtime_embedded_target_stub.rlib");
         match fs::exists(&rlib_path) {
-            Ok(true) => {}
             // NOTE: We let the compiler emit its usual error message upon being unable to read an rlib file path.
-            Err(_) => {}
+            Ok(true) | Err(_) => {}
 
             Ok(false) => {
                 let profile = mutest_host_artifacts_dir_path.file_name().expect("invalid mutest search path");
@@ -265,9 +264,8 @@ pub fn inject_test_crate_shim_if_no_target_std(config: &Config, compiler_config:
 
     let rlib_path = mutest_target_artifacts_dir_path.join("libtest_metadata_shim.rlib");
     match fs::exists(&rlib_path) {
-        Ok(true) => {}
         // NOTE: We let the compiler emit its usual error message upon being unable to read an rlib file path.
-        Err(_) => {}
+        Ok(true) | Err(_) => {}
 
         Ok(false) => {
             let profile = mutest_host_artifacts_dir_path.file_name().expect("invalid mutest search path");

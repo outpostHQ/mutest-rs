@@ -622,12 +622,9 @@ impl<'tcx, 'ast, 'op, 'trg, 'm> ast::visit::Visitor<'ast> for MutationCollector<
 
     fn visit_pat(&mut self, pat: &'ast ast::Pat) {
         match &pat.kind {
-            // NOTE: We do not want to visit pattern expressions (i.e. literal, const block, path), since
+            // NOTE: We do not want to visit pattern expressions (i.e. literal, const block, path) or range patterns, since
             //       we cannot introduce dynamic mutations in them.
-            ast::PatKind::Expr(_) => {}
-            // NOTE: We do not want to visit range patterns, since
-            //       we cannot introduce dynamic mutations in them.
-            ast::PatKind::Range(_, _, _) => {}
+            ast::PatKind::Expr(_) | ast::PatKind::Range(_, _, _) => {}
             _ => ast::visit::walk_pat(self, pat),
         }
     }

@@ -323,14 +323,9 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                         segment.args = Some(args);
                     }
 
-                    // Corresponding segment in the original path has no generic args, leave as-is.
-                    Some((_, None)) => {}
-
-                    // No corresponding segment in the original path, which can only occur for intermediate path components.
-                    // NOTE: We used to add dummy generics with type inference holes for the non-synthetic generics of the def, but
-                    //       this is not needed for intermediate path components, and
-                    //       the final path component, which needed this, is now guaranteed to have its relevant args.
-                    None => {}
+                    // Leave the segment as-is when the corresponding segment in the original path has no generic args, or when
+                    // there is none, which can only occur for intermediate path components.
+                    Some((_, None)) | None => {}
                 }
 
                 Some(segment)

@@ -126,12 +126,12 @@ pub(crate) fn pass_to(worker: &mut Command, staging: &Path) {
     worker.env(LOG_VAR, staging);
 }
 
-/// Appends the whole lines of the last worker's `staging` log to the log that `cargo mutest` names, so that a test
-/// harness whose worker restarted logs its summary once.
-pub(crate) fn hand_over(staging: &Path) {
-    let (Some(log), Ok(mut lines)) = (env::var_os(LOG_VAR), fs::read(staging)) else { return };
+/// Appends the whole lines of the last worker's `staging` log to `log`, so that a test harness whose worker restarted
+/// logs its summary once.
+pub(crate) fn hand_over(log: Option<&Path>, staging: &Path) {
+    let (Some(log), Ok(mut lines)) = (log, fs::read(staging)) else { return };
     lines.truncate(crate::journal::whole_rows(&lines));
-    append(Path::new(&log), Ok(lines));
+    append(log, Ok(lines));
 }
 
 #[cfg(test)]
@@ -139,12 +139,12 @@ mod tests {
     use std::env;
     use std::fs;
     use std::path::Path;
-    use std::process;
+    use std::process::{self, Command};
     use std::time::Duration;
 
-    use mutest_json::summary::{HarnessOutcome, HarnessSummary, TargetKind};
+    use mutest_json::summary::{HarnessOutcome, HarnessSummary, LOG_VAR, TargetKind};
 
-    use super::{Harness, record_in};
+    use super::{Harness, append, hand_over, pass_to, record_in};
     use crate::detections::MutationDetectionMatrix;
     use crate::harness::MutationAnalysisResults;
     use crate::json;
@@ -176,16 +176,24 @@ mod tests {
     #[test]
     fn each_summary_is_one_line_of_the_json_that_cargo_mutest_reads() {
         let log = env::current_exe().unwrap().with_file_name(format!("mutest-summary-{}", process::id()));
+        let staging = log.with_extension("staging");
         let _ = fs::remove_file(&log);
         let harness = Harness::new(Some("pkg"), Some(CargoTargetKind::Test), "pkg", Some("cli"));
         let krate = Harness::new(None, None, "krate", None);
         let failed = || HarnessOutcome::ReferenceFailed { failed_tests: vec!["a::b".to_owned()] };
+        fs::write(&staging, "a stale line of an earlier worker\n").unwrap();
+        let mut worker = Command::new("worker");
 
-        record_in(Some(&log), Some(&harness), |_| failed());
-        record_in(Some(&log), Some(&krate), |_| HarnessOutcome::Skipped);
+        pass_to(&mut worker, &staging);
+        record_in(Some(&staging), Some(&harness), |_| failed());
+        record_in(Some(&staging), Some(&krate), |_| HarnessOutcome::Skipped);
+        append(&staging, Ok(b"{\"cut short by a crash".to_vec()));
+        hand_over(Some(&log), &staging);
 
+        assert!(worker.get_envs().eq([(std::ffi::OsStr::new(LOG_VAR), Some(staging.as_os_str()))]));
         let written = fs::read_to_string(&log).unwrap();
         fs::remove_file(&log).unwrap();
+        fs::remove_file(&staging).unwrap();
         assert_eq!(written, concat!(
             "\n", r#"{"package":"pkg","target_kind":"test","target":"cli","metadata_dir":"pkg/tests/cli","outcome":{"result":"reference_failed","failed_tests":["a::b"]}}"#, "\n",
             "\n", r#"{"package":null,"target_kind":null,"target":"krate","metadata_dir":"","outcome":{"result":"skipped"}}"#, "\n",

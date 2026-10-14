@@ -679,9 +679,8 @@ fn run_cargo_with_mutest_driver(cargo_invocation: &CargoInvocation, matches: &cl
         if cfg!(windows) { runner_path.set_extension("exe"); }
 
         match fs::exists(&runner_path) {
-            Ok(true) => {}
             // NOTE: We let Cargo emit its usual error message upon being unable to run the runner executable.
-            Err(_) => {}
+            Ok(true) | Err(_) => {}
 
             Ok(false) => {
                 color_print::ceprintln!("<red,bold>error</>: cannot find mutest-rs embedded runtime host driver");

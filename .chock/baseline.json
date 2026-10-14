@@ -7,8 +7,8 @@
     "assertions": {},
     "bigfiles": {
       "mutest-emit/src/analysis/ast_lowering.rs": 2758,
-      "mutest-emit/src/codegen/hygiene.rs": 2007,
-      "mutest-emit/src/codegen/mutation.rs": 1095,
+      "mutest-emit/src/codegen/hygiene.rs": 2002,
+      "mutest-emit/src/codegen/mutation.rs": 1092,
       "mutest-inspector/src/server.rs": 1226,
       "mutest-runtime/src/harness.rs": 1250
     },
@@ -504,7 +504,7 @@
       "tests/ui/mutation/ops/relational_op_invert/invert_relational_checks.rs": 5
     },
     "lines": {
-      "total": 58217
+      "total": 58213
     },
     "manifest": {},
     "modcheck": {},
@@ -583,7 +583,7 @@
       "mutest-emit/src/analysis/tests.rs": 1,
       "mutest-emit/src/codegen/ast.rs": 1,
       "mutest-emit/src/codegen/harness.rs": 1,
-      "mutest-emit/src/codegen/hygiene.rs": 32,
+      "mutest-emit/src/codegen/hygiene.rs": 31,
       "mutest-emit/src/codegen/mutation.rs": 4,
       "mutest-emit/src/codegen/substitution.rs": 2,
       "mutest-emit/src/codegen/symbols.rs": 1,

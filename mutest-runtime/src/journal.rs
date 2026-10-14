@@ -204,12 +204,11 @@ impl Journal {
     }
 
     pub fn pass_to(&self, worker: &mut process::Command) {
-        worker.env(JOURNAL_VAR, &self.path);
-        crate::summary::pass_to(worker, &self.summary_staging());
+        crate::summary::pass_to(worker.env(JOURNAL_VAR, &self.path), &self.summary_staging());
     }
 
     /// The log of the summary of the test harness that the worker that runs now writes.
-    pub(crate) fn summary_staging(&self) -> PathBuf {
+    fn summary_staging(&self) -> PathBuf {
         let mut path = self.path.clone().into_os_string();
         path.push(".summary");
         path.into()
@@ -247,6 +246,7 @@ impl Journal {
 
 impl Drop for Journal {
     fn drop(&mut self) {
+        crate::summary::hand_over(env::var_os(mutest_json::summary::LOG_VAR).as_deref().map(Path::new), &self.summary_staging());
         let _ = fs::remove_file(self.summary_staging());
         if !self.retained {
             let _ = fs::remove_file(&self.path);

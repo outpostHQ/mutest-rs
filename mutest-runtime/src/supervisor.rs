@@ -118,7 +118,6 @@ pub fn supervise() -> ! {
     }
     let mut status = after_cleanup(worker_status, cleanup);
     if let Some(journal) = journal {
-        crate::summary::hand_over(&journal.summary_staging());
         match journal.unfinished() {
             Ok(unfinished) if unfinished.is_empty() => {}
             Ok(unfinished) => {
