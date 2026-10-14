@@ -13,6 +13,7 @@ export MUTEST_RUNTIME_TARGET_DIR=$PWD/target
 
 # cargo-llvm-cov reports one profile, so every test runs in release, in a target directory of its own.
 export CARGO_TARGET_DIR=$PWD/target/release/coverage
+mkdir -p "$CARGO_TARGET_DIR" || exit 1
 env_script=$(cargo llvm-cov show-env --sh) || exit 1
 eval "$env_script"
 export LLVM_PROFILE_FILE=$CARGO_TARGET_DIR/mutest-rs-%8m.profraw
