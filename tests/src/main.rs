@@ -423,6 +423,19 @@ fn read_mutations_count(dir: &Path) -> Result<u64, String> {
     mutations_info["stats"]["total_mutations_count"].as_u64().ok_or_else(|| format!("`{}` has no mutation count", path.display()))
 }
 
+fn without_cargo_vars(cmd: &mut Command, opts: &Opts) {
+    // NOTE: Avoid passing on the `CARGO_*` environment variables from the test runner.
+    for (var, _) in env::vars() {
+        if var.starts_with("CARGO_") {
+            cmd.env_remove(var);
+        }
+    }
+
+    if opts.verbosity >= 1 {
+        eprintln!("running {cmd:?}");
+    }
+}
+
 fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, results: &mut TestRunResults) {
     if !path.is_file() { return; }
     if !path.extension().is_some_and(|v| v == "rs") { return; }
@@ -604,12 +617,6 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
             _ if directive.starts_with("aux-build:") => {}
 
             _ if directive.starts_with("rustc-flags:") => {}
-            _ if directive.starts_with("build-env:") => {
-                if !directive.contains('=') {
-                    log_test(&name, TestResult::Ignored, Some("invalid directive: each compile-time environment variable must be specified one `build-env: KEY=value` at a time"));
-                    return;
-                }
-            }
             _ if directive.starts_with("run-flags:") => {}
             _ if directive.starts_with("run-env:") => {
                 if !directive.contains('=') {
@@ -670,13 +677,6 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
                     aux_directives.edition = Some(edition_str);
                 }
 
-                _ if directive.starts_with("build-env:") => {
-                    if !directive.contains('=') {
-                        log_test(&name, TestResult::Ignored, Some(&format!("invalid directive in `{aux_build}` aux file: each compile-time environment variable must be specified one `build-env: KEY=value` at a time")));
-                        return;
-                    }
-                }
-
                 _ => {
                     results.ignored_tests_count += 1;
                     log_test(&name, TestResult::Ignored, Some(&format!("unknown directive in `{aux_build}` aux file: `{directive}`")));
@@ -701,25 +701,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
 
         cmd.args(raw_aux_directives.iter().filter_map(|d| d.strip_prefix("rustc-flags:").map(str::trim)).flat_map(parse_args));
 
-        let build_env = raw_aux_directives.iter().filter_map(|d| d.strip_prefix("build-env:").map(str::trim))
-            .flat_map(|env| {
-                let (key, val) = env.split_once("=")?;
-                Some((key.trim(), val.trim()))
-            });
-        for (key, val) in build_env {
-            cmd.env(key, val);
-        }
-
-        // NOTE: Avoid passing on the `CARGO_*` environment variables from the test runner.
-        for (var, _) in env::vars() {
-            if var.starts_with("CARGO_") {
-                cmd.env_remove(var);
-            }
-        }
-
-        if opts.verbosity >= 1 {
-            eprintln!("running {cmd:?}");
-        }
+        without_cargo_vars(&mut cmd, opts);
 
         let output = cmd.output().expect("cannot spawn mutest-driver in rustc mode");
         let stdout = String::from_utf8(output.stdout).unwrap();
@@ -768,15 +750,6 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
 
     // Explicitly disable color output. This mainly affects diagnostic messages generated for undetected mutations.
     cmd.arg("--color=never");
-
-    let build_env = raw_test_directives.iter().filter_map(|d| d.strip_prefix("build-env:").map(str::trim))
-        .flat_map(|env| {
-            let (key, val) = env.split_once("=")?;
-            Some((key.trim(), val.trim()))
-        });
-    for (key, val) in build_env {
-        cmd.env(key, val);
-    }
 
     let rustc_flags = raw_test_directives.iter().filter_map(|d| d.strip_prefix("rustc-flags:").map(str::trim)).flat_map(parse_args);
     cmd.args(rustc_flags);
@@ -829,16 +802,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         cmd.env("MUTEST_ENCODED_ARGS".to_owned(), mutest_args.join("\x1F"));
     }
 
-    // NOTE: Avoid passing on the `CARGO_*` environment variables from the test runner.
-    for (var, _) in env::vars() {
-        if var.starts_with("CARGO_") {
-            cmd.env_remove(var);
-        }
-    }
-
-    if opts.verbosity >= 1 {
-        eprintln!("running {cmd:?}");
-    }
+    without_cargo_vars(&mut cmd, opts);
 
     let output = cmd.output().expect("cannot spawn mutest-driver");
     let mut stdout = String::from_utf8(output.stdout).unwrap();
@@ -915,16 +879,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         let run_flags = raw_test_directives.iter().filter_map(|d| d.strip_prefix("run-flags:").map(str::trim)).flat_map(parse_args);
         cmd.args(run_flags);
 
-        // NOTE: Avoid passing on the `CARGO_*` environment variables from the test runner.
-        for (var, _) in env::vars() {
-            if var.starts_with("CARGO_") {
-                cmd.env_remove(var);
-            }
-        }
-
-        if opts.verbosity >= 1 {
-            eprintln!("running {cmd:?}");
-        }
+        without_cargo_vars(&mut cmd, opts);
 
         let full_stdout = &mut stdout;
         let full_stderr = &mut stderr;

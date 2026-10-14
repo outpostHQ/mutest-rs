@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use crate::data_structures::TriangleBitMatrixRef;
 use crate::harness::ActiveMutantHandle;
 
@@ -22,16 +20,6 @@ pub struct ExternalTestsExtra {
 #[derive(Debug)]
 pub enum TestSuite<'a> {
     Tests(&'a [&'static ::test::TestDescAndFn], Option<&'static ExternalTestsExtra>),
-}
-
-pub fn reachable_tests(mutation: &MutationMeta, external_tests_extra: Option<&ExternalTestsExtra>) -> HashSet<TestPath> {
-    match (&mutation.reachable_from, external_tests_extra) {
-        (EntryPoints::InternalTests(reachable_from), None) => reachable_from.keys().copied().collect(),
-        (EntryPoints::InternalTests(_), _) => panic!("encountered meta-mutant compiled for internal tests being run against external tests"),
-
-        (EntryPoints::ExternalTests(reachable_from), Some(_external_tests_extra)) => reachable_from.keys().copied().collect(),
-        (EntryPoints::ExternalTests(_), _) => panic!("encountered meta-mutant compiled for external tests being run without external test metadata"),
-    }
 }
 
 pub fn reachable_tests_count(mutation: &MutationMeta, external_tests_extra: Option<&ExternalTestsExtra>) -> usize {

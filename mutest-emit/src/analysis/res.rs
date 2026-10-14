@@ -174,10 +174,6 @@ pub fn item_child_by_symbol<'tcx>(tcx: TyCtxt<'tcx>, def_id: hir::DefId, symbol:
     item_children(tcx, def_id).find(|child| child.ident.name == symbol)
 }
 
-pub fn item_child_by_ident<'tcx>(tcx: TyCtxt<'tcx>, def_id: hir::DefId, ident: Ident) -> Option<ItemChild> {
-    item_children(tcx, def_id).find(|child| child.ident == ident)
-}
-
 pub fn def_path_res<'tcx>(tcx: TyCtxt<'tcx>, path: &[Symbol]) -> Res {
     fn find_crate(tcx: TyCtxt<'_>, symbol: Symbol) -> Option<hir::DefId> {
         if tcx.crate_name(LOCAL_CRATE) == symbol { return Some(LOCAL_CRATE.as_def_id()); }

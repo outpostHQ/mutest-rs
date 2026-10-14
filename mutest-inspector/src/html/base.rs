@@ -34,8 +34,7 @@ pub(crate) fn topbar_html(body: &mut String, wcx: &WorkspaceCtxt, package: &str,
     for (option_package, option_target) in wcx.targets() {
         let icon = match &option_target {
             TargetSpec::Lib => "package",
-            TargetSpec::MainBin => "binary",
-            TargetSpec::Bin(_) => "binary",
+            TargetSpec::MainBin | TargetSpec::Bin(_) => "binary",
             TargetSpec::Example(_) => "package-search",
             TargetSpec::Test(_) => "package-check",
         };

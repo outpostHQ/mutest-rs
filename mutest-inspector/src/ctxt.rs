@@ -95,14 +95,6 @@ impl PackageCtxt {
             TargetSpec::Test(name) => self.tests.get(name),
         }
     }
-
-    pub fn iter_targets(&self) -> impl Iterator<Item = (TargetSpec, &TargetCtxt)> {
-        self.lib.as_ref().map(|tcx| (TargetSpec::Lib, tcx)).into_iter()
-            .chain(self.bin.as_ref().map(|tcx| (TargetSpec::MainBin, tcx)))
-            .chain(self.bins.iter().map(|(name, tcx)| (TargetSpec::Bin(name.to_owned()), tcx)))
-            .chain(self.examples.iter().map(|(name, tcx)| (TargetSpec::Example(name.to_owned()), tcx)))
-            .chain(self.tests.iter().map(|(name, tcx)| (TargetSpec::Test(name.to_owned()), tcx)))
-    }
 }
 
 pub struct WorkspaceCtxt {

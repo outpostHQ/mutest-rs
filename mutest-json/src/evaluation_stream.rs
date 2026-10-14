@@ -1,5 +1,4 @@
 use std::num::NonZeroU64;
-use std::time::Duration;
 
 use serde::{Serialize, Deserialize};
 
@@ -9,12 +8,6 @@ use crate::mutations::MutationId;
 /// Used in timestamps and measured execution times.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Serialize, Deserialize)]
 pub struct Nanos(pub u64);
-
-impl Nanos {
-    pub fn as_duration(&self) -> Duration {
-        Duration::from_nanos(self.0)
-    }
-}
 
 /// Mutation evaluation stream header.
 ///

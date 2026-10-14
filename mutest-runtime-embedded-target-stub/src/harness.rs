@@ -55,17 +55,9 @@ impl<S: SubstMap> ActiveMutantHandle<S> {
     pub fn runs_mutation_at(&'static self, _entered: SubstMeta, subst_loc_idx: SubstLocIdx, mutation_id: u32) -> bool {
         self.subst_at(subst_loc_idx).is_some_and(|subst| subst.mutation.id == mutation_id)
     }
-
-    /// # Safety
-    ///
-    /// The caller must ensure that no other thread is reading from the handle.
-    pub(crate) unsafe fn replace(&self, v: Option<S>) {
-        self.0.replace(v);
-    }
 }
 
-// SAFETY: While access to the handle data is not synchronized, the handle can only be mutated using
-//         unsafe, crate-private functions, see above.
+// SAFETY: While access to the handle data is not synchronized, nothing mutates the handle after its construction.
 unsafe impl<S: SubstMap> Sync for ActiveMutantHandle<S> {}
 
 impl<S: SubstMap> Debug for ActiveMutantHandle<S> {

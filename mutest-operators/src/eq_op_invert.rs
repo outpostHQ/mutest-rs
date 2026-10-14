@@ -1,6 +1,7 @@
 use mutest_emit::{Mutation, Operator};
 use mutest_emit::codegen::ast;
 use mutest_emit::codegen::mutation::{MutCtxt, MutLoc, Mutations, Subst, SubstDef, SubstLoc};
+use mutest_emit::codegen::symbols::Span;
 use rustc_data_structures::smallvec::smallvec;
 
 pub const EQ_OP_INVERT: &str = "eq_op_invert";
@@ -38,25 +39,21 @@ impl<'a> Operator<'a> for EqOpInvert {
 
         let MutLoc::FnBodyExpr(expr, _) = location else { return Mutations::none(); };
 
-        let ast::ExprKind::Binary(bin_op, lhs, rhs) = &expr.kind else { return Mutations::none(); };
-
-        let inverted_bin_op = match bin_op.node {
-            ast::BinOpKind::Eq => ast::BinOpKind::Ne,
-            ast::BinOpKind::Ne => ast::BinOpKind::Eq,
-            _ => { return Mutations::none(); },
-        };
-        let inverted_bin_expr = ast::mk::expr_binary(def, inverted_bin_op, lhs.clone(), rhs.clone());
-
-        let mutation = Self::Mutation {
-            original_bin_op: bin_op.node,
-            replacement_bin_op: inverted_bin_op,
-        };
-
-        Mutations::new_one(mutation, smallvec![
-            SubstDef::new(
-                SubstLoc::Replace(expr.id, expr.span),
-                Subst::AstExpr(*inverted_bin_expr),
-            ),
-        ])
+        swap_bin_op(def, expr, |bin_op| match bin_op {
+            ast::BinOpKind::Eq => Some(ast::BinOpKind::Ne),
+            ast::BinOpKind::Ne => Some(ast::BinOpKind::Eq),
+            _ => None,
+        }, |original_bin_op, replacement_bin_op| Self::Mutation { original_bin_op, replacement_bin_op })
     }
+}
+
+/// The mutation of a binary expression whose operator `swap` maps to another one.
+pub(crate) fn swap_bin_op<M: Mutation>(def: Span, expr: &ast::Expr, swap: fn(ast::BinOpKind) -> Option<ast::BinOpKind>, mutation: fn(ast::BinOpKind, ast::BinOpKind) -> M) -> Mutations<M> {
+    let ast::ExprKind::Binary(bin_op, lhs, rhs) = &expr.kind else { return Mutations::none(); };
+    let Some(replacement_bin_op) = swap(bin_op.node) else { return Mutations::none(); };
+    let replacement_bin_expr = ast::mk::expr_binary(def, replacement_bin_op, lhs.clone(), rhs.clone());
+
+    Mutations::new_one(mutation(bin_op.node, replacement_bin_op), smallvec![
+        SubstDef::new(SubstLoc::Replace(expr.id, expr.span), Subst::AstExpr(*replacement_bin_expr)),
+    ])
 }

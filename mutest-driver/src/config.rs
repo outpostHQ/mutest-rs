@@ -22,8 +22,7 @@ pub enum CrateKind {
 impl CrateKind {
     pub fn produces_mutations(&self) -> bool {
         match self {
-            CrateKind::MutantWithInternalTests => true,
-            CrateKind::MutantForExternalTests(_) => true,
+            CrateKind::MutantWithInternalTests | CrateKind::MutantForExternalTests(_) => true,
             CrateKind::IntegrationTest => false,
         }
     }
@@ -33,14 +32,6 @@ impl CrateKind {
             CrateKind::MutantWithInternalTests => true,
             CrateKind::MutantForExternalTests(_) => false,
             CrateKind::IntegrationTest => true,
-        }
-    }
-
-    pub fn requires_tests(&self) -> bool {
-        match self {
-            CrateKind::MutantWithInternalTests => false,
-            CrateKind::MutantForExternalTests(_) => true,
-            CrateKind::IntegrationTest => false,
         }
     }
 }

@@ -23,7 +23,7 @@ use crate::journal::{self, WorkerJournal};
 use crate::subsumption::{MutationSubsumptionMatrix, print_mutation_subsumption_matrix};
 use crate::summary;
 use crate::supervisor;
-use crate::test_runner;
+use crate::test_runner::{self, test};
 use crate::thread_pool::ThreadPool;
 use crate::write::{EvaluationStreamWriter, write_evaluation};
 
@@ -34,13 +34,6 @@ use scheduling::ScheduledMutant;
 mod timeouts;
 mod unrepeatable;
 pub use timeouts::TimeoutReruns;
-
-mod test {
-    #![allow(unused_imports, reason = "a glob shim over the unstable `test` crate, of which this crate uses only a part")]
-
-    pub use ::test::*;
-    pub use ::test::test::*;
-}
 
 /// Handle storing the currently active substitution map of a program.
 ///

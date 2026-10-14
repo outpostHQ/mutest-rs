@@ -546,10 +546,6 @@ mod linux {
         control.is_some_and(|control| !matches!(control.try_recv(), Err(mpsc::TryRecvError::Empty)))
     }
 
-    fn owner_failed(status: ExitStatus, stdout: &Capture, stderr: &Capture) -> io::Error {
-        io::Error::other(format!("isolated owner failed: {status}; stdout: {}; stderr: {}", stdout.tail(4096), stderr.tail(4096)))
-    }
-
     pub(super) fn run(
         command: Command,
         control: Option<&mpsc::Receiver<ControlMsg>>,
@@ -567,7 +563,7 @@ mod linux {
             stage.forward_cancellation(&mut owner, control)?;
             if let Some(status) = owner.try_wait()? {
                 if !status.success() {
-                    return Err(owner_failed(status, &stdout, &stderr));
+                    return Err(io::Error::other(format!("isolated owner failed: {status}; stdout: {}; stderr: {}", stdout.tail(4096), stderr.tail(4096))));
                 }
                 stage.exited = true;
                 stage.allow(REPORT_TIMEOUT);

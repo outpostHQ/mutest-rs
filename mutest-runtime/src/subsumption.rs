@@ -124,10 +124,6 @@ impl MutationSubsumptionMatrix {
         let offset = self.n_mutations as usize * (mutation_id as usize - 1);
         &self.inner[offset..(offset + self.n_mutations as usize)]
     }
-
-    pub fn subsumption_between(&self, mutation_id: u32, other_mutation_id: u32) -> Option<MutationSubsumption> {
-        self.inner.get(self.n_mutations as usize * (mutation_id as usize - 1) + (other_mutation_id as usize - 1)).copied()
-    }
 }
 
 pub fn print_mutation_subsumption_matrix(mutation_subsumption_matrix: &MutationSubsumptionMatrix, mutations: &[&MutationMeta], warn_non_exhaustive: bool) {

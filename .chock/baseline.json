@@ -10,7 +10,7 @@
       "mutest-emit/src/codegen/hygiene.rs": 2007,
       "mutest-emit/src/codegen/mutation.rs": 1095,
       "mutest-inspector/src/server.rs": 1226,
-      "mutest-runtime/src/harness.rs": 1257
+      "mutest-runtime/src/harness.rs": 1250
     },
     "binsize": {
       "cargo-mutest": 1895552,
@@ -489,25 +489,22 @@
       "mutest-inspector/src/server.rs": 85,
       "mutest-inspector/src/source_file.rs": 26,
       "mutest-inspector/src/syntax_highlight.rs": 12,
-      "mutest-operators/src/bool_expr_negate.rs": 10,
+      "mutest-operators/src/bool_expr_negate.rs": 4,
       "mutest-operators/src/call_ignore.rs": 6,
       "mutest-operators/src/continue_break_swap.rs": 3,
-      "mutest-operators/src/eq_op_invert.rs": 3,
       "mutest-operators/src/range_limit_swap.rs": 3,
-      "mutest-operators/src/relational_op_eq_swap.rs": 3,
-      "mutest-operators/src/relational_op_invert.rs": 3,
       "mutest-runtime-embedded-host-driver/src/main.rs": 2,
       "mutest-runtime/src/detections.rs": 8,
       "mutest-runtime/src/flakiness.rs": 8,
       "mutest-runtime/src/harness.rs": 7,
       "mutest-runtime/src/subsumption.rs": 23,
-      "tests/src/main.rs": 31,
+      "tests/src/main.rs": 9,
       "tests/ui/mutation/ops/bool_expr_negate/negate_bool_exprs.rs": 5,
       "tests/ui/mutation/ops/relational_op_eq_swap/invert_equality_in_relational_checks.rs": 5,
       "tests/ui/mutation/ops/relational_op_invert/invert_relational_checks.rs": 5
     },
     "lines": {
-      "total": 58218
+      "total": 58217
     },
     "manifest": {},
     "modcheck": {},
@@ -604,7 +601,7 @@
       "mutest-operators/src/range_limit_swap.rs": 1,
       "mutest-runtime-embedded-host-driver/src/main.rs": 1,
       "mutest-runtime-embedded-target-stub/Cargo.toml": 1,
-      "mutest-runtime-embedded-target-stub/src/harness.rs": 3,
+      "mutest-runtime-embedded-target-stub/src/harness.rs": 2,
       "mutest-runtime-embedded-target-stub/src/lib.rs": 1,
       "mutest-runtime-embedded-target-stub/src/metadata.rs": 1,
       "mutest-runtime/Cargo.toml": 1,
@@ -707,7 +704,7 @@
       "mutest-inspector/build.rs#block": 1,
       "mutest-json/src/data_structures/idx.rs#block": 2,
       "mutest-runtime-embedded-target-stub/src/harness.rs#block": 3,
-      "mutest-runtime-embedded-target-stub/src/harness.rs#fn": 2,
+      "mutest-runtime-embedded-target-stub/src/harness.rs#fn": 1,
       "mutest-runtime-embedded-target-stub/src/harness.rs#impl": 1,
       "mutest-runtime-embedded-target-stub/src/metadata.rs#block": 1,
       "mutest-runtime-embedded-target-stub/src/metadata.rs#fn": 2,

@@ -34,7 +34,7 @@ enum MonitorMessage {
     Incomplete { id: test::TestId, message: String },
 }
 
-mod test {
+pub(crate) mod test {
     #![allow(unused_imports, reason = "a glob shim over the unstable `test` crate, of which this crate uses only a part")]
 
     pub use ::test::*;
@@ -245,9 +245,11 @@ impl Drop for TestThreadSignal {
 }
 
 /// Clears the signal of a test that has not ended yet, and counts its thread as abandoned until the test ends.
+/// The count goes up first: a test that ends between the two steps must not take it below the abandoned threads.
 fn abandon_signal(active_signal: &AtomicBool) {
-    if active_signal.swap(false, atomic::Ordering::SeqCst) {
-        ABANDONED_TEST_THREADS.fetch_add(1, atomic::Ordering::SeqCst);
+    ABANDONED_TEST_THREADS.fetch_add(1, atomic::Ordering::SeqCst);
+    if !active_signal.swap(false, atomic::Ordering::SeqCst) {
+        ABANDONED_TEST_THREADS.fetch_sub(1, atomic::Ordering::SeqCst);
     }
 }
 
@@ -410,7 +412,7 @@ fn spawn_test_subprocess(
 
 /// Fixed frame used to clean the backtrace with `RUST_BACKTRACE=1`.
 #[inline(never)]
-fn __rust_begin_short_backtrace<T, F: FnOnce() -> T>(f: F) -> T {
+pub(crate) fn __rust_begin_short_backtrace<T, F: FnOnce() -> T>(f: F) -> T {
     let result = f();
 
     // Prevent this frame from being tail-call optimized away.

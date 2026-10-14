@@ -1,7 +1,8 @@
 use mutest_emit::{Mutation, Operator};
 use mutest_emit::codegen::ast;
-use mutest_emit::codegen::mutation::{MutCtxt, MutLoc, Mutations, Subst, SubstDef, SubstLoc};
-use rustc_data_structures::smallvec::smallvec;
+use mutest_emit::codegen::mutation::{MutCtxt, MutLoc, Mutations};
+
+use crate::swap_bin_op;
 
 pub const RELATIONAL_OP_INVERT: &str = "relational_op_invert";
 
@@ -38,27 +39,12 @@ impl<'a> Operator<'a> for RelationalOpInvert {
 
         let MutLoc::FnBodyExpr(expr, _) = location else { return Mutations::none(); };
 
-        let ast::ExprKind::Binary(bin_op, lhs, rhs) = &expr.kind else { return Mutations::none(); };
-
-        let inverted_bin_op = match bin_op.node {
-            ast::BinOpKind::Lt => ast::BinOpKind::Ge,
-            ast::BinOpKind::Le => ast::BinOpKind::Gt,
-            ast::BinOpKind::Gt => ast::BinOpKind::Le,
-            ast::BinOpKind::Ge => ast::BinOpKind::Lt,
-            _ => { return Mutations::none(); },
-        };
-        let inverted_bin_expr = ast::mk::expr_binary(def, inverted_bin_op, lhs.clone(), rhs.clone());
-
-        let mutation = Self::Mutation {
-            original_bin_op: bin_op.node,
-            replacement_bin_op: inverted_bin_op,
-        };
-
-        Mutations::new_one(mutation, smallvec![
-            SubstDef::new(
-                SubstLoc::Replace(expr.id, expr.span),
-                Subst::AstExpr(*inverted_bin_expr),
-            ),
-        ])
+        swap_bin_op(def, expr, |bin_op| match bin_op {
+            ast::BinOpKind::Lt => Some(ast::BinOpKind::Ge),
+            ast::BinOpKind::Le => Some(ast::BinOpKind::Gt),
+            ast::BinOpKind::Gt => Some(ast::BinOpKind::Le),
+            ast::BinOpKind::Ge => Some(ast::BinOpKind::Lt),
+            _ => None,
+        }, |original_bin_op, replacement_bin_op| Self::Mutation { original_bin_op, replacement_bin_op })
     }
 }

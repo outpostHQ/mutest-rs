@@ -7,14 +7,7 @@ use std::sync::atomic::{self, AtomicUsize};
 use std::sync::mpsc;
 use std::thread::{self, ThreadId};
 
-/// Fixed frame used to clean the backtrace with `RUST_BACKTRACE=1`.
-#[inline(never)]
-fn __rust_begin_short_backtrace<T, F: FnOnce() -> T>(f: F) -> T {
-    let result = f();
-
-    // Prevent this frame from being tail-call optimized away.
-    test::black_box(result)
-}
+use crate::test_runner::__rust_begin_short_backtrace;
 
 pub type Thunk<'a> = Box<dyn FnOnce() + Send + 'a>;
 
@@ -72,10 +65,6 @@ impl JobHandle {
         self.allocated.wait();
         // SAFETY: The wait locks the flag the worker raised after its final packet write.
         unsafe { (*self.thread_id_packet.data.get()).unwrap() }
-    }
-
-    pub fn is_allocated(&self) -> bool {
-        Arc::strong_count(&self.thread_id_packet) == 1
     }
 
     pub fn join(mut self) -> Result<(), Box<dyn Any + Send + 'static>> {
