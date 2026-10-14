@@ -70,13 +70,6 @@ jobs:
         with:
           fetch-depth: 2
 
-      # Install Rust toolchain specified in rust-toolchain.toml.
-      - name: Install Rust toolchain
-        run: rustc --version
-
-      - name: Install clippy
-        run: rustup component add clippy
-
       # bin/test, bin/coverage and the gates that build each keep a target directory of their own.
       - name: Free disk space
         if: runner.os == 'Linux'
@@ -86,12 +79,8 @@ jobs:
         uses: cargo-bins/cargo-binstall@main
 
       # Only the tools of the enabled gates: `chock init --global` also builds cargo-mutest, which bin/test builds from here.
-      - name: Install chock and the tools of the enabled gates
-        run: |
-          . ./tool-versions.env
-          cargo binstall -y --locked chock@"$CHOCK_VERSION" cargo-llvm-cov@"$CARGO_LLVM_COV_VERSION" cargo-crap@"$CARGO_CRAP_VERSION" \
-            cargo-deny@"$CARGO_DENY_VERSION" cargo-sort@"$CARGO_SORT_VERSION" cargo-machete@"$CARGO_MACHETE_VERSION" \
-            cargo-bsize@"$CARGO_BSIZE_VERSION" typos-cli@"$TYPOS_CLI_VERSION"
+      - name: Install the toolchain, chock and the tools of the enabled gates
+        run: bash bin/setup gates
 
       - name: Run every enabled gate
         run: chock run --ci
@@ -124,18 +113,11 @@ jobs:
         with:
           fetch-depth: 2
 
-      # Install Rust toolchain specified in rust-toolchain.toml.
-      - name: Install Rust toolchain
-        run: rustc --version
-
       - name: Install cargo-binstall
         uses: cargo-bins/cargo-binstall@main
 
-      - name: Install chock and the tools of the recorded gates
-        run: |
-          . ./tool-versions.env
-          cargo binstall -y --locked chock@"$CHOCK_VERSION" cargo-llvm-cov@"$CARGO_LLVM_COV_VERSION" cargo-crap@"$CARGO_CRAP_VERSION" \
-            cargo-bsize@"$CARGO_BSIZE_VERSION"
+      - name: Install the toolchain, chock and the tools of the enabled gates
+        run: bash bin/setup gates
 
       # Outside CI, a run writes the first record of each gate that has none.
       - name: Take the first records
