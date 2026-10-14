@@ -1,9 +1,10 @@
 //! The summary each test harness appends to the log that `cargo mutest` gathers into `summary.json`.
 
 use std::env;
-use std::fs::OpenOptions;
+use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::OnceLock;
 
 use mutest_json::summary::{HarnessOutcome, HarnessSummary, LOG_VAR, TargetKind, TimeoutReruns};
@@ -107,16 +108,30 @@ fn record(outcome: impl FnOnce(&Harness) -> HarnessOutcome) {
 
 fn record_in(log: Option<&Path>, harness: Option<&Harness>, outcome: impl FnOnce(&Harness) -> HarnessOutcome) {
     let (Some(log), Some(harness)) = (log, harness) else { return; };
-    if let Err(error) = append_line(log, &harness.summary(outcome(harness))) {
+    let line = json::to_vec(&harness.summary(outcome(harness)));
+    // NOTE: A newline first ends a line that a crash cut short, which would hide this line.
+    append(log, line.map(|line| [&b"\n"[..], &line, b"\n"].concat()));
+}
+
+/// Appends `bytes` to `log` in one write, which keeps them whole among the lines of the other test harnesses.
+fn append(log: &Path, bytes: io::Result<Vec<u8>>) {
+    if let Err(error) = bytes.and_then(|bytes| OpenOptions::new().create(true).append(true).open(log)?.write_all(&bytes)) {
         eprintln!("warning: cannot record the summary of this test harness: {error}");
     }
 }
 
-fn append_line(log: &Path, summary: &HarnessSummary) -> io::Result<()> {
-    let mut line = json::to_vec(summary)?;
-    line.push(b'\n');
-    // NOTE: One write of the whole line keeps it whole among the lines of the other test harnesses.
-    OpenOptions::new().create(true).append(true).open(log)?.write_all(&line)
+/// Points a worker at `staging`, emptied first, as its log.
+pub(crate) fn pass_to(worker: &mut Command, staging: &Path) {
+    let _ = fs::remove_file(staging);
+    worker.env(LOG_VAR, staging);
+}
+
+/// Appends the whole lines of the last worker's `staging` log to the log that `cargo mutest` names, so that a test
+/// harness whose worker restarted logs its summary once.
+pub(crate) fn hand_over(staging: &Path) {
+    let (Some(log), Ok(mut lines)) = (env::var_os(LOG_VAR), fs::read(staging)) else { return };
+    lines.truncate(crate::journal::whole_rows(&lines));
+    append(Path::new(&log), Ok(lines));
 }
 
 #[cfg(test)]
@@ -129,7 +144,7 @@ mod tests {
 
     use mutest_json::summary::{HarnessOutcome, HarnessSummary, TargetKind};
 
-    use super::{Harness, append_line, record_in};
+    use super::{Harness, record_in};
     use crate::detections::MutationDetectionMatrix;
     use crate::harness::MutationAnalysisResults;
     use crate::json;
@@ -163,20 +178,20 @@ mod tests {
         let log = env::current_exe().unwrap().with_file_name(format!("mutest-summary-{}", process::id()));
         let _ = fs::remove_file(&log);
         let harness = Harness::new(Some("pkg"), Some(CargoTargetKind::Test), "pkg", Some("cli"));
-        let failed = harness.summary(HarnessOutcome::ReferenceFailed { failed_tests: vec!["a::b".to_owned()] });
-        let skipped = Harness::new(None, None, "krate", None).summary(HarnessOutcome::Skipped);
+        let krate = Harness::new(None, None, "krate", None);
+        let failed = || HarnessOutcome::ReferenceFailed { failed_tests: vec!["a::b".to_owned()] };
 
-        append_line(&log, &failed).unwrap();
-        append_line(&log, &skipped).unwrap();
+        record_in(Some(&log), Some(&harness), |_| failed());
+        record_in(Some(&log), Some(&krate), |_| HarnessOutcome::Skipped);
 
         let written = fs::read_to_string(&log).unwrap();
         fs::remove_file(&log).unwrap();
         assert_eq!(written, concat!(
-            r#"{"package":"pkg","target_kind":"test","target":"cli","metadata_dir":"pkg/tests/cli","outcome":{"result":"reference_failed","failed_tests":["a::b"]}}"#, "\n",
-            r#"{"package":null,"target_kind":null,"target":"krate","metadata_dir":"","outcome":{"result":"skipped"}}"#, "\n",
+            "\n", r#"{"package":"pkg","target_kind":"test","target":"cli","metadata_dir":"pkg/tests/cli","outcome":{"result":"reference_failed","failed_tests":["a::b"]}}"#, "\n",
+            "\n", r#"{"package":null,"target_kind":null,"target":"krate","metadata_dir":"","outcome":{"result":"skipped"}}"#, "\n",
         ));
-        let read = written.lines().map(|line| serde_json::from_str::<HarnessSummary>(line).unwrap()).collect::<Vec<_>>();
-        assert_eq!(read, [failed, skipped]);
+        let read = written.lines().filter(|line| !line.is_empty()).map(|line| serde_json::from_str::<HarnessSummary>(line).unwrap()).collect::<Vec<_>>();
+        assert_eq!(read, [harness.summary(failed()), krate.summary(HarnessOutcome::Skipped)]);
     }
 
     #[test]

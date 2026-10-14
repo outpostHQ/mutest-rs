@@ -118,6 +118,7 @@ pub fn supervise() -> ! {
     }
     let mut status = after_cleanup(worker_status, cleanup);
     if let Some(journal) = journal {
+        crate::summary::hand_over(&journal.summary_staging());
         match journal.unfinished() {
             Ok(unfinished) if unfinished.is_empty() => {}
             Ok(unfinished) => {
@@ -1002,13 +1003,15 @@ mod tests {
     mod regressions {
         use std::env;
         use std::fs;
-        use std::io;
+        use std::io::{self, Write};
         use std::os::unix::process::CommandExt;
         use std::path::{Path, PathBuf};
         use std::process::{Child, Command, ExitStatus, Stdio};
         use std::sync::MutexGuard;
         use std::thread;
         use std::time::{Duration, Instant};
+
+        use mutest_json::summary::LOG_VAR;
 
         use super::super::{self as supervisor, SUPERVISOR_PID_VAR};
         use crate::{harness, journal};
@@ -1050,6 +1053,7 @@ mod tests {
                     .env("RUST_TEST_THREADS", "2")
                     .env("TMPDIR", root.join("tmp"))
                     .env(ROOT, &root)
+                    .env(LOG_VAR, root.join("summaries"))
                     .env(SCENARIO, scenario)
                     .current_dir(&root)
                     .stdin(Stdio::null())
@@ -1175,8 +1179,10 @@ mod tests {
                 std::process::abort();
             }
             if scenario == "restart-progress" {
-                // Only the first worker finishes its mutation before it crashes.
+                // Only the first worker finishes its mutation before it crashes, in the middle of its summary.
                 let journal = journal::worker().unwrap();
+                let summary = if journal.resumes() { "{\"worker\":2}\n" } else { "{\"worker\":1}\n{\"wor" };
+                fs::OpenOptions::new().create(true).append(true).open(env::var_os(LOG_VAR).unwrap()).unwrap().write_all(summary.as_bytes()).unwrap();
                 if !journal.resumes() {
                     journal.started(&[98]);
                     journal.finished(98, &Default::default(), false);
@@ -1229,44 +1235,20 @@ mod tests {
         }
 
         #[test]
-        fn reference_exit_zero_is_incomplete() {
-            premature(0, "evaluate");
-        }
-        #[test]
-        fn reference_exit_missed_is_incomplete() {
-            premature(2, "evaluate");
-        }
-        #[test]
-        fn reference_exit_timeout_is_incomplete() {
-            premature(3, "evaluate");
+        fn a_reference_exit_with_any_code_is_incomplete() {
+            [0, 2, 3].into_iter().for_each(|code| premature(code, "evaluate"));
         }
         #[test]
         fn missing_journal_cannot_authorize_premature_completion() {
             premature(0, "journal-loss");
         }
         #[test]
-        fn flakes_reference_exit_zero_is_incomplete() {
-            premature(0, "flakes");
+        fn a_flakes_reference_exit_with_any_code_is_incomplete() {
+            [0, 2, 3].into_iter().for_each(|code| premature(code, "flakes"));
         }
         #[test]
-        fn flakes_reference_exit_missed_is_incomplete() {
-            premature(2, "flakes");
-        }
-        #[test]
-        fn flakes_reference_exit_timeout_is_incomplete() {
-            premature(3, "flakes");
-        }
-        #[test]
-        fn simulate_test_exit_zero_is_incomplete() {
-            premature(0, "simulate");
-        }
-        #[test]
-        fn simulate_test_exit_missed_is_incomplete() {
-            premature(2, "simulate");
-        }
-        #[test]
-        fn simulate_test_exit_timeout_is_incomplete() {
-            premature(3, "simulate");
+        fn a_simulate_test_exit_with_any_code_is_incomplete() {
+            [0, 2, 3].into_iter().for_each(|code| premature(code, "simulate"));
         }
 
         fn zero(scenario: &str) {
@@ -1483,6 +1465,7 @@ mod tests {
             assert!(fixture.root.join("retry-pid").exists(), "the crashed worker was not restarted: {}", fixture.output());
             assert!(!fixture.root.join("third-pid").exists(), "a worker that finished nothing was restarted");
             assert!(fixture.output().contains("crashed after it finished more mutations"), "{}", fixture.output());
+            assert_eq!(fs::read_to_string(fixture.root.join("summaries")).unwrap(), "{\"worker\":2}\n", "a restart logs the summary once");
         }
 
         #[test]

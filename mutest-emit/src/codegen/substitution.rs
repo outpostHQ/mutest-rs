@@ -338,7 +338,7 @@ impl<'tcx> ast::mut_visit::MutVisitor for SyntaxAmbiguityResolver<'tcx> {
         ast::mut_visit::walk_expr(self, expr);
 
         if let Some(ambiguous) = ambiguous_operand(expr) {
-            parenthesize(ambiguous);
+            *ambiguous = *ast::mk::expr_paren(ambiguous.span, Box::new(ambiguous.clone()));
         }
     }
 }
@@ -357,10 +357,6 @@ fn ambiguous_operand(expr: &mut ast::Expr) -> Option<&mut ast::Expr> {
         ast::ExprKind::Range(_, Some(end), _) if !classify::expr_is_complete(end) && classify::expr_is_complete(first_operand(end)) => Some(end),
         _ => None,
     }
-}
-
-fn parenthesize(expr: &mut ast::Expr) {
-    *expr = *ast::mk::expr_paren(expr.span, Box::new(expr.clone()));
 }
 
 fn trailing_cast(expr: &mut ast::Expr) -> Option<&mut ast::Expr> {

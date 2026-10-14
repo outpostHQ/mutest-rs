@@ -45,15 +45,6 @@ impl<'ast, 'a> MutLoc<'ast, 'a> {
             Self::FnBodyExpr(expr, _) => expr.span,
         }
     }
-
-    pub fn containing_fn(&self) -> Option<&ast::FnItem<'ast>> {
-        match self {
-            Self::Fn(fn_item) => Some(fn_item),
-            Self::FnParam(_, fn_item) => Some(fn_item),
-            Self::FnBodyStmt(_, fn_item) => Some(fn_item),
-            Self::FnBodyExpr(_, fn_item) => Some(fn_item),
-        }
-    }
 }
 
 /// Whether the expression reads through a temporary, e.g. `f().as_bytes()`, whose lifetime a match arm would shorten.
@@ -330,10 +321,6 @@ impl UnsafeTargeting {
 
     pub fn inside_unsafe(&self) -> bool {
         matches!(self, Self::All)
-    }
-
-    pub fn enclosing_unsafe(&self) -> bool {
-        matches!(self, Self::All | Self::OnlyEnclosing(_))
     }
 }
 
@@ -837,16 +824,6 @@ impl MutationBatchId {
 pub struct MutationBatch<'trg, 'm> {
     pub id: MutationBatchId,
     pub mutations: SmallVec<[&'m Mut<'trg, 'm>; 1]>,
-}
-
-impl<'trg, 'm> MutationBatch<'trg, 'm> {
-    pub fn iter_mutations(&self) -> impl Iterator<Item = &BoxedMutation<'m>> {
-        self.mutations.iter().map(|m| &m.mutation)
-    }
-
-    pub fn iter_substitutions(&self) -> impl Iterator<Item = &SubstDef> {
-        self.mutations.iter().flat_map(|m| &m.substs)
-    }
 }
 
 pub enum MutationBatchesValidationError<'trg, 'm, 'b> {

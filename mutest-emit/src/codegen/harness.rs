@@ -14,17 +14,6 @@ use crate::codegen::substitution::SubstSlot;
 use crate::codegen::symbols::{DUMMY_SP, Ident, Span, Symbol, kw, path, sym};
 use crate::codegen::symbols::hygiene::AstPass;
 
-/// Generate an opaque identifier representing a crate definition
-/// that is stable across crate (and compilation session) boundaries.
-/// This means that the generated code can rely on equivalence between
-/// two opaque stable def ids to determine references to the same crate definition.
-/// The identifier is returned in the form of a [`Symbol`] for embedding into generated code.
-///
-/// The identifier is based on the definition's [`DefPathHash`][hir::DefPathHash].
-pub fn opaque_stable_def_id_for_embedding<'tcx>(tcx: TyCtxt<'tcx>, prefix: &str, def_id: hir::DefId) -> Symbol {
-    Symbol::intern(&format!("{prefix}{}", tcx.def_path_hash(def_id).0.to_hex()))
-}
-
 pub fn mk_crate_kind_const(sp: Span, crate_kind: &str) -> Box<ast::Item> {
     // pub const CRATE_KIND: &str = "...";
     let vis = ast::mk::vis_pub(sp);

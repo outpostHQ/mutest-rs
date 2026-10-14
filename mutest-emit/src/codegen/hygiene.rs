@@ -3,7 +3,6 @@ use std::mem;
 use std::ops::DerefMut;
 use std::sync::Arc;
 
-use rustc_ast::DUMMY_NODE_ID;
 use rustc_ast_pretty::pprust::{expr_to_string, path_to_string, ty_to_string};
 use rustc_data_structures::flat_map_in_place::FlatMapInPlace;
 use rustc_data_structures::fx::{FxHashSet, FxIndexSet};
@@ -61,17 +60,6 @@ impl<'hir> HirNodeExt<'hir> for hir::Node<'hir> {
             }
             _ => None,
         }
-    }
-}
-
-fn qpath_to_string(qself: Option<&ast::QSelf>, path: &ast::Path) -> String {
-    match qself {
-        Some(qself) => {
-            // HACK: Workaround, because `print_qpath` is private.
-            let dummy_ty = ast::Ty { id: DUMMY_NODE_ID, span: DUMMY_SP, kind: ast::TyKind::Path(Some(Box::new(qself.clone())), path.clone()) };
-            ty_to_string(&dummy_ty)
-        },
-        None => path_to_string(path),
     }
 }
 
@@ -165,12 +153,6 @@ pub fn generate_revealed_name_for_anonymous_region(ident: &mut Ident, generic_pa
     ident.name = Symbol::intern(&format!("'__rustc_region_anon_{index}",
         index = generic_param_def.index,
     ));
-}
-
-fn is_macro_helper_attr(syntax_extensions: &[SyntaxExtension], attr: &ast::Attribute) -> bool {
-    syntax_extensions.iter().any(|syntax_extension| {
-        syntax_extension.helper_attrs.iter().any(|&helper_attr| attr.has_name(helper_attr))
-    })
 }
 
 #[derive(Clone, Copy)]
@@ -632,10 +614,6 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
         *lifetime_ast = new_lifetime_ast;
     }
 
-    fn sanitize_region(&self, region: ty::Region<'tcx>, binding_item_def_id: hir::DefId, span: Span) -> Option<ast::Lifetime> {
-        ty::print::region_ast(self.tcx, span, region, binding_item_def_id)
-    }
-
     fn try_sanitize_ty(&self, ty: Ty<'tcx>, binding_item_def_id: hir::DefId, span: Span) -> Option<Box<ast::Ty>> {
         let opaque_ty_handling = ty::print::OpaqueTyHandling::Infer;
         ty::print::ty_ast(self.tcx, self.crate_res, self.def_res, self.current_scope, span, ty, opaque_ty_handling, false, binding_item_def_id)
@@ -647,10 +625,6 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
             span_bug!(span, "cannot construct AST representation of type `{ty:?}`");
         };
         ty_ast
-    }
-
-    fn try_sanitize_const(&self, ct: ty::Const<'tcx>, binding_item_def_id: hir::DefId, span: Span) -> Option<ast::AnonConst> {
-        ty::print::const_ast(self.tcx, self.crate_res, self.def_res, self.current_scope, span, ct, binding_item_def_id)
     }
 
     /// Hygienically print the generic arguments corresponding to the definition referenced by a path segment, such as a trait.
@@ -676,7 +650,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
             .map(|generic_arg| {
                 match generic_arg.kind() {
                     ty::GenericArgKind::Lifetime(region) => {
-                        let lifetime = self.sanitize_region(region, binding_item_def_id, span)?;
+                        let lifetime = ty::print::region_ast(self.tcx, span, region, binding_item_def_id)?;
                         Some(ast::GenericArg::Lifetime(lifetime))
                     }
                     ty::GenericArgKind::Type(ty) => {
@@ -684,7 +658,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                         Some(ast::GenericArg::Type(ty_ast))
                     }
                     ty::GenericArgKind::Const(ct) => {
-                        let const_ast = self.try_sanitize_const(ct, binding_item_def_id, span)?;
+                        let const_ast = ty::print::const_ast(self.tcx, self.crate_res, self.def_res, self.current_scope, span, ct, binding_item_def_id)?;
                         Some(ast::GenericArg::Const(const_ast))
                     }
                 }
@@ -826,7 +800,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
             // Otherwise, resolve it with the help of the corresponding HIR QPath.
             (qself @ _, _) => {
                 let Some(node_hir_id) = self.body_res.hir_id(node_id) else {
-                    self.bug_unmatched_ast_node(path.span, || format!("unable to resolve path `{}` for sanitization", qpath_to_string(qself.as_deref(), path)));
+                    self.bug_unmatched_ast_node(path.span, || format!("unable to resolve path `{}` for sanitization", ast::print::qpath_to_string(qself.as_deref(), path)));
                 };
 
                 let Some(qpath_hir) = self.tcx.hir_node(node_hir_id).qpath() else { span_bug!(path.span, "no corresponding qualified path in HIR") };
@@ -872,7 +846,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                                         qres = hir::Res::Def(trait_item_def_kind, trait_item_def_id);
                                     }
 
-                                    _ => span_bug!(path.span, "path `{}` cannot be resolved", qpath_to_string(qself.as_deref(), path)),
+                                    _ => span_bug!(path.span, "path `{}` cannot be resolved", ast::print::qpath_to_string(qself.as_deref(), path)),
                                 }
                             }
                         }
@@ -1569,7 +1543,7 @@ impl<'tcx, 'op> ast::mut_visit::MutVisitor for MacroExpansionSanitizer<'tcx, 'op
 
     fn visit_attribute(&mut self, attr: &mut ast::Attribute) {
         // Some attributes correspond to already expanded derive proc macros, and thus need to be removed.
-        if is_macro_helper_attr(&self.syntax_extensions, attr) {
+        if self.syntax_extensions.iter().any(|syntax_extension| syntax_extension.helper_attrs.iter().any(|&helper_attr| attr.has_name(helper_attr))) {
             // Disable attribute by overriding it with an empty doc-comment.
             // This is easier than modifying every visit function to properly remove the attribute nodes.
             attr.kind = ast::AttrKind::DocComment(ast::token::CommentKind::Line, sym::empty);
@@ -1674,9 +1648,7 @@ impl<'tcx, 'op> ast::mut_visit::MutVisitor for MacroExpansionSanitizer<'tcx, 'op
 
                 match &mut struct_expr.rest {
                     ast::StructRest::Base(base_expr) => self.visit_expr(base_expr),
-                    ast::StructRest::Rest(_span) => {}
-                    ast::StructRest::None => {}
-                    ast::StructRest::NoneWithError(_) => {}
+                    ast::StructRest::Rest(_) | ast::StructRest::None | ast::StructRest::NoneWithError(_) => {}
                 }
 
                 return;

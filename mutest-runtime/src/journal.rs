@@ -6,7 +6,7 @@ use std::env;
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::hash::{BuildHasher, RandomState};
-use std::io::{self, BufRead, BufReader, Seek, SeekFrom, Write};
+use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::{Mutex, OnceLock};
@@ -124,6 +124,20 @@ impl Entries {
     }
 }
 
+/// The length of the rows that end in a newline: a last row with no newline is a write that a crash cut short.
+pub(crate) fn whole_rows(bytes: &[u8]) -> usize {
+    bytes.iter().rposition(|&byte| byte == b'\n').map_or(0, |end| end + 1)
+}
+
+/// Cuts off a row that a crash cut short, so that it does not count and the next row does not join it.
+fn cut_torn_row(mut file: &File) -> io::Result<&File> {
+    let mut bytes = Vec::new();
+    file.seek(SeekFrom::Start(0))?;
+    file.read_to_end(&mut bytes)?;
+    file.set_len(whole_rows(&bytes) as u64)?;
+    Ok(file)
+}
+
 /// Any row that cannot be read makes the whole journal unreadable, never a shorter one.
 fn read(mut file: &File) -> io::Result<Entries> {
     file.seek(SeekFrom::Start(0))?;
@@ -191,6 +205,14 @@ impl Journal {
 
     pub fn pass_to(&self, worker: &mut process::Command) {
         worker.env(JOURNAL_VAR, &self.path);
+        crate::summary::pass_to(worker, &self.summary_staging());
+    }
+
+    /// The log of the summary of the test harness that the worker that runs now writes.
+    pub(crate) fn summary_staging(&self) -> PathBuf {
+        let mut path = self.path.clone().into_os_string();
+        path.push(".summary");
+        path.into()
     }
 
     pub fn unfinished(&self) -> io::Result<Vec<u32>> {
@@ -199,7 +221,7 @@ impl Journal {
 
     /// Records the unfinished mutations that are not isolated yet as isolated, for the next worker.
     pub fn isolate_unfinished(&self) -> io::Result<Crash> {
-        let entries = read(&self.file)?;
+        let entries = cut_torn_row(&self.file).and_then(read)?;
         let isolated = entries.unfinished().filter(|id| !entries.isolated.contains(id)).collect::<Vec<_>>();
         if !isolated.is_empty() {
             let mut file = &self.file;
@@ -225,6 +247,7 @@ impl Journal {
 
 impl Drop for Journal {
     fn drop(&mut self) {
+        let _ = fs::remove_file(self.summary_staging());
         if !self.retained {
             let _ = fs::remove_file(&self.path);
         }
@@ -450,13 +473,22 @@ mod tests {
     fn unreadable_or_malformed_journal_is_not_an_empty_success() {
         use std::io::Write;
         let mut journal = Journal::create().unwrap();
-        journal.file.write_all(b"{\"finished\":").unwrap();
+        journal.file.write_all(b"{\"finished\":\n").unwrap();
         assert!(journal.unfinished().is_err());
         journal.file = std::fs::OpenOptions::new()
             .write(true)
             .open(&journal.path)
             .unwrap();
         assert!(journal.unfinished().is_err());
+    }
+
+    #[test]
+    fn a_row_a_crash_cut_short_is_unfinished_and_the_next_row_does_not_join_it() {
+        use std::io::Write;
+        let mut journal = Journal::create().unwrap();
+        journal.file.write_all(b"{\"started\":[1,2]}\n{\"finished\":2,\"result\":\"dete").unwrap();
+        assert_eq!(journal.isolate_unfinished().unwrap().isolated, [1, 2]);
+        assert_eq!(std::fs::read_to_string(&journal.path).unwrap(), "{\"started\":[1,2]}\n{\"isolate\":[1,2]}\n");
     }
 
     #[test]
