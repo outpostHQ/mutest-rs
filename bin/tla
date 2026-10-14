@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# Checks the TLA+ specs: TLC must pass each <Spec>.cfg and refute each <Spec>_<variant>.cfg on the invariant
+# its `\* refutes:` line names, and Apalache must prove IndInv inductive. Usage: bin/tla [SPEC...]
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+dir="${TLA_SPECS:-proofs/tla}"
+tools="${OUTPOST_TOOLS:-$HOME/.local/share/outpost-tools}"
+out="${CARGO_TARGET_DIR:-target}/tla"
+[ -n "${JAVA_HOME:-}" ] && export PATH="$JAVA_HOME/bin:$PATH"
+failed=()
+
+# Runs TLC on spec $1 with config $2, into log $3.
+tlc() {
+    java -XX:+UseParallelGC -cp "$tools/tla/tla2tools.jar" tlc2.TLC -workers "${TLC_WORKERS:-4}" -noGenerateSpecTE \
+        -metadir "$out/states/${2%.cfg}" -config "$dir/$2" "$dir/$1.tla" >"$3" 2>&1
+}
+
+# Runs Apalache on spec $1 from init predicate $2 for $3 steps, checking IndInv, into log $4.
+apalache() {
+    "$tools/apalache/bin/apalache-mc" check --out-dir="$out/apalache" --config="$dir/$1.cfg" --init="$2" \
+        --next=Next --inv=IndInv --length="$3" "$dir/$1.tla" >"$4" 2>&1
+}
+
+# Records check $1 as passed when the rest of the line succeeds, or as failed with its log $2.
+check() {
+    local name="$1" log="$2" start=$SECONDS
+    shift 2
+    if "$@"; then
+        echo "ok   $name ($((SECONDS - start)) s)"
+    else
+        echo "FAIL $name ($((SECONDS - start)) s), log: $log"
+        failed+=("$name")
+    fi
+}
+
+# Passes when TLC rejects config $2 of spec $1 on the invariant its `\* refutes:` line names.
+refuted() {
+    local want
+    want="$(sed -n 's/^\\\* refutes: *//p' "$dir/$2")"
+    [ -n "$want" ] || { echo "$dir/$2 has no \\* refutes: line" >"$3"; return 1; }
+    ! tlc "$1" "$2" "$3" && grep -q "Invariant $want is violated" "$3"
+}
+
+inductive() {
+    apalache "$1" Init 0 "$2" && apalache "$1" IndInv 1 "$2"
+}
+
+mkdir -p "$out/logs"
+specs=("$@")
+if [ ${#specs[@]} -eq 0 ]; then
+    for file in "$dir"/*.tla; do specs+=("$(basename "$file" .tla)"); done
+fi
+for spec in "${specs[@]}"; do
+    check "$spec: TLC passes" "$out/logs/$spec.log" tlc "$spec" "$spec.cfg" "$out/logs/$spec.log"
+    for bad in "$dir/${spec}"_*.cfg; do
+        [ -e "$bad" ] || continue
+        bad="$(basename "$bad" .cfg)"
+        check "$bad: TLC refutes it" "$out/logs/$bad.log" refuted "$spec" "$bad.cfg" "$out/logs/$bad.log"
+    done
+    if grep -q '^IndInv ==' "$dir/$spec.tla"; then
+        check "$spec: Apalache proves IndInv inductive" "$out/logs/$spec.apalache.log" \
+            inductive "$spec" "$out/logs/$spec.apalache.log"
+    fi
+done
+[ ${#failed[@]} -eq 0 ] || { echo "bin/tla: ${#failed[@]} checks failed" >&2; exit 1; }

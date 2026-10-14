@@ -8,11 +8,6 @@ on:
     branches:
       - "main"
   workflow_dispatch:
-    inputs:
-      records:
-        description: "Take the first macOS and Windows records of coverage, crap and binsize"
-        type: boolean
-        default: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -39,10 +34,30 @@ jobs:
       - name: Run clippy
         run: cargo clippy --workspace --all-targets
 
+  # The TLA+ specs of proofs/tla: TLC and Apalache give the same answer on every OS, so one runs them.
+  tla:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install TLC and Apalache
+        run: bash bin/setup tla
+
+      - name: Check the specs
+        run: bash bin/tla
+
   # Every enabled gate: bin/test, bin/coverage, and the `commands` of .chock/config.json.
   chock:
     name: chock (${{ matrix.os }})
-    if: ${{ !inputs.records }}
 
     strategy:
       fail-fast: false
@@ -84,52 +99,3 @@ jobs:
 
       - name: Run every enabled gate
         run: chock run --ci
-
-  # Run by hand to take the first macOS and Windows records of the gates that keep one for each system.
-  records:
-    name: records (${{ matrix.os }})
-    if: ${{ inputs.records }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: "macos-latest", system: "macos" }
-          - { os: "windows-latest", system: "windows" }
-
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 150
-
-    env:
-      CHOCK_TIMEOUT: 5400
-
-    defaults:
-      run:
-        shell: bash
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 2
-
-      - name: Install cargo-binstall
-        uses: cargo-bins/cargo-binstall@main
-
-      - name: Install the toolchain, chock and the tools of the enabled gates
-        run: bash bin/setup gates
-
-      # Outside CI, a run writes the first record of each gate that has none.
-      - name: Take the first records
-        run: chock run coverage crap binsize
-
-      - name: Upload the records
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: chock-records-${{ matrix.system }}
-          path: |
-            .chock/baseline.json
-            .chock/crap-baseline@${{ matrix.system }}.json
-          if-no-files-found: error
-          retention-days: 7

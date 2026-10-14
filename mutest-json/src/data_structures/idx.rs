@@ -132,11 +132,6 @@ impl<I: Idx, T> IdxVec<I, T> {
     pub fn into_iter(self) -> std::vec::IntoIter<T> {
         self.raw.into_iter()
     }
-
-    #[inline]
-    pub fn into_iter_enumerated(self) -> impl DoubleEndedIterator<Item = (I, T)> + ExactSizeIterator {
-        self.raw.into_iter().enumerate().map(|(index, v)| (I::from_index(index), v))
-    }
 }
 
 impl<I: Idx, T> IdxVec<I, Option<T>> {
@@ -304,16 +299,6 @@ impl<I: Idx, T> IdxSlice<I, T> {
     }
 
     #[inline]
-    pub fn last_index(&self) -> Option<I> {
-        self.len().checked_sub(1).map(I::from_index)
-    }
-
-    #[inline]
-    pub fn indices(&self) -> impl DoubleEndedIterator<Item = I> + ExactSizeIterator {
-        (0..self.len()).map(|index| I::from_index(index))
-    }
-
-    #[inline]
     pub fn iter(&self) -> std::slice::Iter<'_, T> {
         self.raw.iter()
     }
@@ -326,11 +311,6 @@ impl<I: Idx, T> IdxSlice<I, T> {
     #[inline]
     pub fn iter_enumerated(&self) -> impl DoubleEndedIterator<Item = (I, &T)> + ExactSizeIterator {
         self.raw.iter().enumerate().map(|(index, v)| (I::from_index(index), v))
-    }
-
-    #[inline]
-    pub fn iter_enumerated_mut(&mut self) -> impl DoubleEndedIterator<Item = (I, &mut T)> + ExactSizeIterator {
-        self.raw.iter_mut().enumerate().map(|(index, v)| (I::from_index(index), v))
     }
 
     #[inline]

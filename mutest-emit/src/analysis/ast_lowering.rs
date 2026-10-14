@@ -82,22 +82,6 @@ pub mod visit {
 
         fn def_res(&mut self) -> &super::DefResolutions;
 
-        fn nested_item(&mut self, id: hir::ItemId) -> Option<&'hir hir::Item<'hir>> {
-            Self::NestedFilter::INTER.then(|| self.tcx().hir_item(id))
-        }
-
-        fn nested_trait_item(&mut self, id: hir::TraitItemId) -> Option<&'hir hir::TraitItem<'hir>> {
-            Self::NestedFilter::INTER.then(|| self.tcx().hir_trait_item(id))
-        }
-
-        fn nested_impl_item(&mut self, id: hir::ImplItemId) -> Option<&'hir hir::ImplItem<'hir>> {
-            Self::NestedFilter::INTER.then(|| self.tcx().hir_impl_item(id))
-        }
-
-        fn nested_foreign_item(&mut self, id: hir::ForeignItemId) -> Option<&'hir hir::ForeignItem<'hir>> {
-            Self::NestedFilter::INTER.then(|| self.tcx().hir_foreign_item(id))
-        }
-
         fn nested_body(&mut self, id: hir::BodyId) -> Option<&'hir hir::Body<'hir>> {
             Self::NestedFilter::INTRA.then(|| self.tcx().hir_body(id))
         }
@@ -781,9 +765,7 @@ pub mod visit {
             (ast::ExprKind::Paren(expr_ast), _) => {
                 visit_matching_expr(visitor, expr_ast, expr_hir);
             }
-            (ast::ExprKind::Underscore, _) => {}
-            (ast::ExprKind::MacCall(_), _) => {}
-            (ast::ExprKind::Dummy, _) => {}
+            (ast::ExprKind::Underscore, _) | (ast::ExprKind::MacCall(_), _) | (ast::ExprKind::Dummy, _) => {}
             (ast::ExprKind::Err(_), _) | (_, hir::ExprKind::Err(_)) => {}
 
             _ => visitor.visit_expr(expr_ast, expr_hir),
@@ -826,9 +808,7 @@ pub mod visit {
             (ast::ExprKind::Paren(expr_ast), _) => {
                 visit_matching_expr(visitor, expr_ast, expr_hir);
             }
-            (ast::ExprKind::Underscore, _) => {}
-            (ast::ExprKind::MacCall(_), _) => {}
-            (ast::ExprKind::Dummy, _) => {}
+            (ast::ExprKind::Underscore, _) | (ast::ExprKind::MacCall(_), _) | (ast::ExprKind::Dummy, _) => {}
             (ast::ExprKind::Err(_), _) | (_, hir::ExprKind::Err(_)) => {}
 
             (ast::ExprKind::Array(exprs_ast), hir::ExprKind::Array(exprs_hir)) => {
@@ -1167,8 +1147,7 @@ pub mod visit {
             (ast::PatKind::Paren(pat_ast), _) => {
                 visit_matching_pat(visitor, pat_ast, pat_hir);
             }
-            (ast::PatKind::Rest, _) => {}
-            (ast::PatKind::MacCall(..), _) => {}
+            (ast::PatKind::Rest, _) | (ast::PatKind::MacCall(..), _) => {}
             (ast::PatKind::Err(_), _) | (_, hir::PatKind::Err(_)) => {}
 
             _ => visitor.visit_pat(pat_ast, pat_hir),
@@ -1180,8 +1159,7 @@ pub mod visit {
             (ast::PatKind::Paren(pat_ast), _) => {
                 visit_matching_pat(visitor, pat_ast, pat_hir);
             }
-            (ast::PatKind::Rest, _) => {}
-            (ast::PatKind::MacCall(..), _) => {}
+            (ast::PatKind::Rest, _) | (ast::PatKind::MacCall(..), _) => {}
             (ast::PatKind::Err(_), _) | (_, hir::PatKind::Err(_)) => {}
 
             (ast::PatKind::Wild, hir::PatKind::Wild) => {}
@@ -1284,9 +1262,7 @@ pub mod visit {
             (ast::TyKind::Paren(ty_ast), _) => {
                 visit_matching_ty(visitor, ty_ast, ty_hir);
             }
-            (ast::TyKind::MacCall(..), _) => {}
-            (ast::TyKind::Dummy, _) => {}
-            (ast::TyKind::Err(_), _) | (_, hir::TyKind::Err(_)) => {}
+            (ast::TyKind::MacCall(..), _) | (ast::TyKind::Dummy, _) | (ast::TyKind::Err(_), _) | (_, hir::TyKind::Err(_)) => {}
 
             _ => visitor.visit_ty(ty_ast, ty_hir),
         }
@@ -1297,9 +1273,7 @@ pub mod visit {
             (ast::TyKind::Paren(ty_ast), _) => {
                 visit_matching_ty(visitor, ty_ast, ty_hir);
             }
-            (ast::TyKind::MacCall(..), _) => {}
-            (ast::TyKind::Dummy, _) => {}
-            (ast::TyKind::Err(_), _) | (_, hir::TyKind::Err(_)) => {}
+            (ast::TyKind::MacCall(..), _) | (ast::TyKind::Dummy, _) | (ast::TyKind::Err(_), _) | (_, hir::TyKind::Err(_)) => {}
 
             (ast::TyKind::Never, hir::TyKind::Never) => {}
             (ast::TyKind::Path(qself_ast, path_ast), hir::TyKind::Path(qpath_hir)) => {
@@ -1390,8 +1364,7 @@ pub mod visit {
             (ast::TyKind::ImplicitSelf, hir::TyKind::Path(_qpath_hir)) => {
                 // TODO: Visit path
             }
-            (ast::TyKind::Infer, hir::TyKind::Infer(_)) => {}
-            (ast::TyKind::CVarArgs, _) => {}
+            (ast::TyKind::Infer, hir::TyKind::Infer(_)) | (ast::TyKind::CVarArgs, _) => {}
             (ast::TyKind::Pat(ty_ast, ty_pat_ast), hir::TyKind::Pat(ty_hir, ty_pat_hir)) => {
                 visit_matching_ty(visitor, ty_ast, ty_hir);
                 visitor.visit_ty_pat(ty_pat_ast, ty_pat_hir);
@@ -1731,16 +1704,11 @@ pub mod visit {
 pub struct BodyResolutions<'tcx> {
     tcx: TyCtxt<'tcx>,
     node_id_to_hir_id: FxHashMap<ast::NodeId, hir::HirId>,
-    hir_id_to_node_id: FxHashMap<hir::HirId, ast::NodeId>,
 }
 
 impl<'tcx> BodyResolutions<'tcx> {
     pub(crate) fn empty(tcx: TyCtxt<'tcx>) -> Self {
-        Self { tcx, node_id_to_hir_id: Default::default(), hir_id_to_node_id: Default::default() }
-    }
-
-    pub fn ast_id(&self, hir_id: hir::HirId) -> Option<ast::NodeId> {
-        self.hir_id_to_node_id.get(&hir_id).copied()
+        Self { tcx, node_id_to_hir_id: Default::default() }
     }
 
     pub fn hir_id(&self, node_id: ast::NodeId) -> Option<hir::HirId> {
@@ -1757,10 +1725,6 @@ impl<'tcx> BodyResolutions<'tcx> {
 
     pub fn hir_lifetime(&self, lifetime: &ast::Lifetime) -> Option<&'tcx hir::Lifetime> {
         self.hir_node(lifetime.id).map(|hir_node| hir_node.expect_lifetime())
-    }
-
-    pub fn hir_ty(&self, ty: &ast::Ty) -> Option<&'tcx hir::Ty<'tcx>> {
-        self.hir_node(ty.id).map(|hir_node| hir_node.expect_ty())
     }
 
     pub fn hir_pat(&self, pat: &ast::Pat) -> Option<&'tcx hir::Pat<'tcx>> {
@@ -1801,7 +1765,6 @@ impl<'tcx, 'op> BodyResolutionsCollector<'tcx, 'op> {
         BodyResolutions {
             tcx: self.tcx,
             node_id_to_hir_id: self.node_id_to_hir_id,
-            hir_id_to_node_id: self.hir_id_to_node_id,
         }
     }
 
@@ -2032,24 +1995,6 @@ impl<'ast, 'hir, 'op> visit::AstHirVisitor<'ast, 'hir> for BodyResolutionsCollec
         self.insert_ids(anon_const_ast.id, const_arg_hir.hir_id);
         visit::walk_const_arg(self, anon_const_ast, const_arg_hir);
     }
-}
-
-pub fn resolve_body<'tcx, K>(tcx: TyCtxt<'tcx>, def_res: &DefResolutions, item_ast: &ast::Item<K>, node_hir: hir::Node<'tcx>) -> Option<BodyResolutions<'tcx>>
-where
-    ast::Item<K>: visit::VisitWithHirNode,
-{
-    let mut collector = BodyResolutionsCollector::new(tcx, def_res);
-
-    let visited = visit::VisitWithHirNode::visit(item_ast, &mut collector, node_hir);
-    if !visited { return None; }
-
-    Some(collector.finalize())
-}
-
-pub fn resolve_fn_body<'tcx>(tcx: TyCtxt<'tcx>, def_res: &DefResolutions, fn_ast: &ast::FnItem, fn_hir: &hir::FnItem<'tcx>) -> BodyResolutions<'tcx> {
-    let mut collector = BodyResolutionsCollector::new(tcx, def_res);
-    visit::AstHirVisitor::visit_fn_item(&mut collector, fn_ast, fn_hir);
-    collector.finalize()
 }
 
 struct BodyMetaVisitor<T> {
@@ -2555,6 +2500,26 @@ struct AstDefFinder<'ast, 'hir> {
     result: Option<ast::DefItem<'ast>>,
 }
 
+impl<'ast, 'hir> AstDefFinder<'ast, 'hir> {
+    fn descend(&mut self, def_item_ast: Option<ast::DefItem<'ast>>) {
+        use ast::visit::Visitor;
+
+        let Some(def_item_ast) = def_item_ast else { return; };
+        self.path_stack.pop_front();
+
+        if self.path_stack.is_empty() {
+            self.result = Some(def_item_ast);
+            return;
+        }
+
+        match def_item_ast {
+            ast::DefItem::Item(item_ast) => self.visit_item(item_ast),
+            ast::DefItem::ForeignItem(item_ast) => self.visit_foreign_item(item_ast),
+            ast::DefItem::AssocItem(item_ast, assoc_ctx_ast) => self.visit_assoc_item(item_ast, assoc_ctx_ast),
+        }
+    }
+}
+
 fn find_hir_def_item_in_ast<'ast, 'hir, I>(item_hir: hir::DefItem<'hir>, disambiguator: Option<DefDisambiguator>, items_ast: I) -> Option<ast::DefItem<'ast>>
 where
     I: IntoIterator<Item = ast::DefItem<'ast>>,
@@ -2694,19 +2659,7 @@ impl<'ast, 'hir> ast::visit::Visitor<'ast> for AstDefFinder<'ast, 'hir> {
             _ => { return; }
         };
 
-        let Some(def_item_ast) = def_item_ast else { return; };
-        self.path_stack.pop_front();
-
-        if self.path_stack.is_empty() {
-            self.result = Some(def_item_ast);
-            return;
-        }
-
-        match def_item_ast {
-            ast::DefItem::Item(item_ast) => self.visit_item(item_ast),
-            ast::DefItem::ForeignItem(item_ast) => self.visit_foreign_item(item_ast),
-            ast::DefItem::AssocItem(item_ast, assoc_ctx_ast) => self.visit_assoc_item(item_ast, assoc_ctx_ast),
-        }
+        self.descend(def_item_ast);
     }
 
     fn visit_item(&mut self, item: &'ast ast::Item) {
@@ -2739,19 +2692,7 @@ impl<'ast, 'hir> ast::visit::Visitor<'ast> for AstDefFinder<'ast, 'hir> {
             _ => { return; }
         };
 
-        let Some(def_item_ast) = def_item_ast else { return; };
-        self.path_stack.pop_front();
-
-        if self.path_stack.is_empty() {
-            self.result = Some(def_item_ast);
-            return;
-        }
-
-        match def_item_ast {
-            ast::DefItem::Item(item_ast) => self.visit_item(item_ast),
-            ast::DefItem::ForeignItem(item_ast) => self.visit_foreign_item(item_ast),
-            ast::DefItem::AssocItem(item_ast, assoc_ctx_ast) => self.visit_assoc_item(item_ast, assoc_ctx_ast),
-        }
+        self.descend(def_item_ast);
     }
 
     fn visit_foreign_item(&mut self, item: &'ast ast::ForeignItem) {
@@ -2766,19 +2707,7 @@ impl<'ast, 'hir> ast::visit::Visitor<'ast> for AstDefFinder<'ast, 'hir> {
             _ => { return; }
         };
 
-        let Some(def_item_ast) = def_item_ast else { return; };
-        self.path_stack.pop_front();
-
-        if self.path_stack.is_empty() {
-            self.result = Some(def_item_ast);
-            return;
-        }
-
-        match def_item_ast {
-            ast::DefItem::Item(item_ast) => self.visit_item(item_ast),
-            ast::DefItem::ForeignItem(item_ast) => self.visit_foreign_item(item_ast),
-            ast::DefItem::AssocItem(item_ast, assoc_ctx_ast) => self.visit_assoc_item(item_ast, assoc_ctx_ast),
-        }
+        self.descend(def_item_ast);
     }
 
     fn visit_assoc_item(&mut self, item: &'ast ast::AssocItem, _ctx: ast::visit::AssocCtxt) {
@@ -2793,19 +2722,7 @@ impl<'ast, 'hir> ast::visit::Visitor<'ast> for AstDefFinder<'ast, 'hir> {
             _ => { return; }
         };
 
-        let Some(def_item_ast) = def_item_ast else { return; };
-        self.path_stack.pop_front();
-
-        if self.path_stack.is_empty() {
-            self.result = Some(def_item_ast);
-            return;
-        }
-
-        match def_item_ast {
-            ast::DefItem::Item(item_ast) => self.visit_item(item_ast),
-            ast::DefItem::ForeignItem(item_ast) => self.visit_foreign_item(item_ast),
-            ast::DefItem::AssocItem(item_ast, assoc_ctx_ast) => self.visit_assoc_item(item_ast, assoc_ctx_ast),
-        }
+        self.descend(def_item_ast);
     }
 }
 

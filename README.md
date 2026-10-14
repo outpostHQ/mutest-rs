@@ -202,12 +202,16 @@ bin/setup dev
 | `typos-cli`                                                             | the `typos` gate: spelling                                                              |
 | `cargo-bsize`                                                           | `chock run bsize`: where the bytes of each binary go                                    |
 | `just`                                                                  | runs the recipes of the `justfile`                                                      |
+| TLC and Apalache                                                        | `bin/tla` checks the TLA+ specs of `proofs/tla` with them                               |
+| Java 17 or newer (install it yourself)                                  | runs TLC and Apalache                                                                   |
 | Claude Code                                                             | the coding agent; `.claude/settings.json` sends each edit to `chock edited --hook`      |
 | tova (optional, private to Outpost)                                     | checks each edit of the agent; `tova.toml` holds its settings                           |
 | outpost (optional, private to Outpost)                                  | the code graph and the project reports that the agent reads                             |
 | `gh` (optional)                                                         | follows the CI runs, and starts the `records` job of `.github/workflows/tests.yaml`     |
 
 Run the unit tests and the UI tests with `bin/test`, and every gate with `chock run`.
+
+Check the TLA+ specs with `bin/tla`. `bin/setup tla` installs only TLC and Apalache, and checks the sha256 of each download.
 
 ## License
 

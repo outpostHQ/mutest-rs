@@ -6,7 +6,7 @@
     "admits": {},
     "assertions": {},
     "bigfiles": {
-      "mutest-emit/src/analysis/ast_lowering.rs": 2841,
+      "mutest-emit/src/analysis/ast_lowering.rs": 2758,
       "mutest-emit/src/codegen/ast.rs": 1205,
       "mutest-emit/src/codegen/hygiene.rs": 2035,
       "mutest-emit/src/codegen/mutation.rs": 1118,
@@ -483,7 +483,7 @@
       "mutest-driver/src/main.rs": 3,
       "mutest-driver/src/print.rs": 15,
       "mutest-driver/src/write.rs": 6,
-      "mutest-emit/src/analysis/ast_lowering.rs": 38,
+      "mutest-emit/src/analysis/ast_lowering.rs": 23,
       "mutest-emit/src/analysis/ty.rs": 6,
       "mutest-emit/src/codegen/harness.rs": 8,
       "mutest-emit/src/codegen/hygiene.rs": 7,
@@ -510,6 +510,9 @@
       "tests/ui/mutation/ops/bool_expr_negate/negate_bool_exprs.rs": 5,
       "tests/ui/mutation/ops/relational_op_eq_swap/invert_equality_in_relational_checks.rs": 5,
       "tests/ui/mutation/ops/relational_op_invert/invert_relational_checks.rs": 5
+    },
+    "lines": {
+      "total": 58222
     },
     "manifest": {},
     "modcheck": {},
@@ -742,6 +745,7 @@
     "duplication": "duplicate(s)",
     "features": "feature declaration issue(s)",
     "lean": "removable line(s)",
+    "lines": "line(s)",
     "manifest": "unpinned dependency declaration(s)",
     "modcheck": "orphan module file(s)",
     "nesting": "level(s) past four",

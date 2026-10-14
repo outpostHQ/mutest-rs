@@ -21,6 +21,7 @@
     "features",
     "hygiene",
     "lean",
+    "lines",
     "manifest",
     "modcheck",
     "nesting",

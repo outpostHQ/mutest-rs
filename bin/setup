@@ -10,8 +10,21 @@ windows() { case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac; re
 
 # shellcheck source=/dev/null
 . ./tool-versions.env
-# Not a gate tool, so not in tool-versions.env: `chock doctor` would fail a machine without it.
+# Not gate tools, so not in tool-versions.env: `chock doctor` would fail a machine without them.
 JUST_VERSION=1.58.0
+TLA_TOOLS_VERSION=1.8.0
+TLA_TOOLS_SHA256=0f56d6a813368c48008dfbecb23a73ab43a4a5e1bf09f026782a674aa9d4b3c9
+APALACHE_VERSION=0.62.4
+APALACHE_SHA256=b781b53bba32fac14ac2e02b0332e1dc2edc64cb7b850c0608d8142cc7aa2ef4
+TOOLS="${OUTPOST_TOOLS:-$HOME/.local/share/outpost-tools}"
+
+sha() { { sha256sum "$1" || shasum -a 256 "$1"; } 2>/dev/null | cut -d' ' -f1; }
+
+# Downloads $1 to $2, and stops unless its sha256 is $3.
+fetch() {
+    curl --proto '=https' --tlsv1.2 -fsSL "$1" -o "$2"
+    [ "$(sha "$2")" = "$3" ] || { echo "bin/setup: $1 does not match its pinned sha256" >&2; rm -f "$2"; exit 1; }
+}
 
 gates() {
     if ! has rustup; then
@@ -33,8 +46,32 @@ gates() {
         cargo-machete@"$CARGO_MACHETE_VERSION" cargo-bsize@"$CARGO_BSIZE_VERSION" typos-cli@"$TYPOS_CLI_VERSION"
 }
 
+# Installs the checkers of bin/tla where scm's bin/setup puts them, so a machine keeps one copy.
+tla() {
+    mkdir -p "$TOOLS/tla"
+    if [ "$(sha "$TOOLS/tla/tla2tools.jar")" != "$TLA_TOOLS_SHA256" ]; then
+        say "TLC $TLA_TOOLS_VERSION, the model checker of bin/tla"
+        fetch "https://github.com/tlaplus/tlaplus/releases/download/v$TLA_TOOLS_VERSION/tla2tools.jar" \
+            "$TOOLS/tla/tla2tools.jar" "$TLA_TOOLS_SHA256"
+    fi
+    if [ "$(cat "$TOOLS/apalache/sha256" 2>/dev/null)" != "$APALACHE_SHA256" ]; then
+        say "Apalache $APALACHE_VERSION, the symbolic checker of bin/tla"
+        local tmp
+        tmp="$(mktemp -d)"
+        fetch "https://github.com/apalache-mc/apalache/releases/download/v$APALACHE_VERSION/apalache-$APALACHE_VERSION.tgz" \
+            "$tmp/apalache.tgz" "$APALACHE_SHA256"
+        rm -rf "$TOOLS/apalache" && mkdir -p "$TOOLS/apalache"
+        tar -xzf "$tmp/apalache.tgz" -C "$TOOLS/apalache" --strip-components=1
+        echo "$APALACHE_SHA256" >"$TOOLS/apalache/sha256"
+        rm -rf "$tmp"
+    fi
+    has java || [ -n "${JAVA_HOME:-}" ] || say "bin/tla needs Java 17 or newer: install it, or set JAVA_HOME"
+}
+
 dev() {
     gates
+    say "the TLA+ checkers of bin/tla"
+    tla
     say "just, which runs the recipes of the justfile"
     has just || cargo binstall -y --locked just@"$JUST_VERSION"
     if has claude; then
@@ -59,6 +96,7 @@ dev() {
 
 case "${1:-}" in
     gates) gates ;;
+    tla) tla ;;
     dev) dev ;;
-    *) echo "usage: bin/setup gates|dev" >&2; exit 2 ;;
+    *) echo "usage: bin/setup gates|tla|dev" >&2; exit 2 ;;
 esac
