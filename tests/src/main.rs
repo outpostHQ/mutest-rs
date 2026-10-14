@@ -273,7 +273,7 @@ const CARGO_MUTEST_VAR: &str = "MUTEST_TESTS_CARGO_MUTEST";
 struct TestRunResults {
     pub ignored_tests_count: usize,
     pub passed_tests_count: usize,
-    pub failed_tests_count: usize,
+    pub failed_tests: Vec<String>,
     pub new_tests_count: usize,
     pub blessed_tests_count: usize,
     pub total_tests_count: usize,
@@ -298,6 +298,23 @@ fn log_test(test_name: &str, result: TestResult, reason: Option<&str>) {
         },
         reason = reason.map(|s| format!(" ({s})")).unwrap_or("".to_owned()),
     );
+}
+
+/// Logs a failed test in the line format of libtest, which tools read the name from, and the reason below it.
+fn log_failure(results: &mut TestRunResults, test_name: &str, reason: &str) {
+    results.failed_tests.push(test_name.to_owned());
+    log_test(test_name, TestResult::Failed, None);
+    eprintln!("    {reason}");
+}
+
+/// Repeats the names of the failed tests at the end of the run, as libtest does, where the reader of a long log looks.
+fn log_failures(failed_tests: &[String]) {
+    if failed_tests.is_empty() { return; }
+    eprintln!();
+    eprintln!("failures:");
+    for test_name in failed_tests {
+        eprintln!("    {test_name}");
+    }
 }
 
 fn parse_directives(path: &Path) -> Vec<String> {
@@ -716,11 +733,10 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         }
 
         if output.status.code() != Some(0) {
-            results.failed_tests_count += 1;
-            log_test(&name, TestResult::Failed, Some(&match output.status.code() {
+            log_failure(results, &name, &match output.status.code() {
                 Some(exit_code) => format!("process exited with code {exit_code}"),
                 None => "process exited without exit code".to_owned(),
-            }));
+            });
             eprintln!("stdout:\n{}", stdout);
             eprintln!("stderr:\n{}", stderr);
             return;
@@ -840,11 +856,10 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         false => 0,
     };
     if output.status.code() != Some(expected_exit_code) {
-        results.failed_tests_count += 1;
-        log_test(&name, TestResult::Failed, Some(&match output.status.code() {
+        log_failure(results, &name, &match output.status.code() {
             Some(exit_code) => format!("process exited with code {exit_code}, expected {expected_exit_code}"),
             None => format!("process exited without exit code, expected {expected_exit_code}"),
-        }));
+        });
         eprintln!("stdout:\n{}", stdout);
         eprintln!("stderr:\n{}", stderr);
         return;
@@ -860,8 +875,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
             (Ok(_), _) => None,
         };
         if let Some(reason) = failure {
-            results.failed_tests_count += 1;
-            log_test(&name, TestResult::Failed, Some(&reason));
+            log_failure(results, &name, &reason);
             return;
         }
     }
@@ -954,8 +968,7 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
             None
         };
         if let Some(reason) = failure {
-            results.failed_tests_count += 1;
-            log_test(&name, TestResult::Failed, Some(&reason));
+            log_failure(results, &name, &reason);
             eprintln!("stdout:\n{}", stdout);
             eprintln!("stderr:\n{}", stderr);
             return;
@@ -1026,15 +1039,13 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
             }
             ([], false) => unreachable!(),
             ([ExpectationVerdict::Unmet { reason, error }], _) => {
-                results.failed_tests_count += 1;
-                log_test(&name, TestResult::Failed, Some(reason));
+                log_failure(results, &name, reason);
                 if let Some(error) = error {
                     eprintln!("{error}");
                 }
             }
             (unmet_expectation_verdicts, _) => {
-                results.failed_tests_count += 1;
-                log_test(&name, TestResult::Failed, Some(&format!("{} expectations failed", unmet_expectation_verdicts.len())));
+                log_failure(results, &name, &format!("{} expectations failed", unmet_expectation_verdicts.len()));
                 for unmet_expectation_verdict in unmet_expectation_verdicts {
                     let ExpectationVerdict::Unmet { reason, error } = unmet_expectation_verdict else { unreachable!(); };
                     eprintln!("{reason}:");
@@ -1096,7 +1107,7 @@ fn main() {
     let mut results = TestRunResults {
         ignored_tests_count: 0,
         passed_tests_count: 0,
-        failed_tests_count: 0,
+        failed_tests: Vec::new(),
         new_tests_count: 0,
         blessed_tests_count: 0,
         total_tests_count: 0,
@@ -1142,6 +1153,7 @@ fn main() {
 
     let tests_duration = t_tests_start.elapsed();
 
+    log_failures(&results.failed_tests);
     eprintln!();
     if opts.bless {
         eprintln!("test result: {result}. {blessed} blessed ({new} new); {passed} passed; {failed} failed; {ignored} ignored; finished in {duration:.2?}",
@@ -1152,18 +1164,18 @@ fn main() {
             blessed = results.blessed_tests_count,
             new = results.new_tests_count,
             passed = results.passed_tests_count,
-            failed = results.failed_tests_count,
+            failed = results.failed_tests.len(),
             ignored = results.ignored_tests_count,
             duration = tests_duration,
         );
     } else {
         eprintln!("test result: {result}. {passed} passed; {failed} failed; {ignored} ignored; finished in {duration:.2?}",
-            result = match results.failed_tests_count {
+            result = match results.failed_tests.len() {
                 0 => "\x1b[1;32mok\x1b[0m",
                 _ => "\x1b[1;31mFAILED\x1b[0m",
             },
             passed = results.passed_tests_count,
-            failed = results.failed_tests_count,
+            failed = results.failed_tests.len(),
             ignored = results.ignored_tests_count,
             duration = tests_duration,
         );
@@ -1175,7 +1187,7 @@ fn main() {
         }
     }
 
-    if results.failed_tests_count >= 1 {
+    if !results.failed_tests.is_empty() {
         process::exit(101);
     }
 }
