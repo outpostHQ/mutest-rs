@@ -171,6 +171,46 @@ This attribute can be applied to
   fn foo(&self, #[cfg_attr(mutest, mutest::ignore)] experimental: bool) {
   ```
 
+## Development
+
+Set up a checkout with one command. It installs each tool at the version that `tool-versions.env` pins, and it is safe to run again.
+
+```sh
+just setup
+```
+
+Without `just`, run the script itself. It installs `just` too.
+
+```sh
+bin/setup dev
+```
+
+`bin/setup gates` installs only what `chock run` needs, and CI runs it on Linux, macOS and Windows. On Windows, run the scripts in Git Bash, and install [rustup](https://rustup.rs) first.
+
+| tool                                                                    | what it is for                                                                          |
+|-------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|
+| the nightly of `rust-toolchain.toml`, with `rustc-dev` and `llvm-tools` | `mutest-driver` links the compiler, so it builds on this nightly only                   |
+| `clippy`                                                                | the lints of the `lints` CI job                                                         |
+| the `aarch64-unknown-none` target                                       | `bin/test` builds the runtime stub for a bare-metal target                              |
+| `cargo-binstall`                                                        | installs each tool below from its prebuilt release                                      |
+| `chock`                                                                 | runs every quality gate (`chock run`), and the git hooks that `chock init --local` adds |
+| `cargo-llvm-cov`                                                        | the `coverage` gate, through `bin/coverage`                                             |
+| `cargo-crap`                                                            | the `crap` gate: the risk of each function, from its complexity and its coverage        |
+| `cargo-deny`                                                            | the `deps` gate: advisories, licences and sources of the dependencies                   |
+| `cargo-machete`                                                         | the `unused` gate: dependencies that no code uses                                       |
+| `cargo-sort`                                                            | the `sort` gate: sorted `Cargo.toml` files                                              |
+| `typos-cli`                                                             | the `typos` gate: spelling                                                              |
+| `cargo-bsize`                                                           | `chock run bsize`: where the bytes of each binary go                                    |
+| `just`                                                                  | runs the recipes of the `justfile`                                                      |
+| Claude Code                                                             | the coding agent; `.claude/settings.json` sends each edit to `chock edited --hook`      |
+| tova (optional, private to Outpost)                                     | checks each edit of the agent; `tova.toml` holds its settings                           |
+| outpost (optional, private to Outpost)                                  | the code graph and the project reports that the agent reads                             |
+| `gh` (optional)                                                         | follows the CI runs, and starts the `records` job of `.github/workflows/tests.yaml`     |
+
+Run the unit tests and the UI tests with `bin/test`, and every gate with `chock run`.
+
+On a new clone, `chock doctor` shows the editor hook as `SILENT` until Claude Code makes its first edit.
+
 ## License
 
 The mutest-rs project is dual-licensed under Apache 2.0 and MIT terms.
