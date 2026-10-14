@@ -49,9 +49,8 @@ jobs:
       matrix:
         include:
           - { os: "ubuntu-latest" }
-          # These gates keep a record for each system, and the `records` run writes the first one.
-          - { os: "macos-latest", skip: "--skip=coverage,crap,binsize" }
-          - { os: "windows-latest", skip: "--skip=coverage,crap,binsize" }
+          - { os: "macos-latest" }
+          - { os: "windows-latest" }
 
     runs-on: ${{ matrix.os }}
     timeout-minutes: 150
@@ -95,7 +94,7 @@ jobs:
             cargo-bsize@"$CARGO_BSIZE_VERSION" typos-cli@"$TYPOS_CLI_VERSION"
 
       - name: Run every enabled gate
-        run: chock run --ci ${{ matrix.skip }}
+        run: chock run --ci
 
   # Run by hand to take the first macOS and Windows records of the gates that keep one for each system.
   records:
