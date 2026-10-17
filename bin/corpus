@@ -90,7 +90,10 @@ run_crate() {
 }
 
 if [ $# -eq 0 ]; then
-    set -- $(awk -F '|' -v system="$system" '$5 == "" || index("," $5 ",", "," system ",") { print $1 }' <<< "$corpus")
+    crates=$(awk -F '|' -v host="$system" '$5 == "" || index("," $5 ",", "," host ",") { print $1 }' <<< "$corpus") || exit 1
+    # shellcheck disable=SC2086
+    set -- $crates
+    [ $# -gt 0 ] || { say error "the corpus holds no crate for $system"; exit 1; }
 fi
 
 cargo build --release -p mutest-runtime || exit 1

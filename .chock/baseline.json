@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/outpostHQ/chock/main/schema/baseline-v1.json",
   "version": 1,
-  "chock": "0.9.0",
+  "chock": "0.9.1",
   "gates": {
     "admits": {},
     "assertions": {},
@@ -504,7 +504,7 @@
       "tests/ui/mutation/ops/relational_op_invert/invert_relational_checks.rs": 5
     },
     "lines": {
-      "total": 58213
+      "total": 58205
     },
     "manifest": {},
     "modcheck": {},
