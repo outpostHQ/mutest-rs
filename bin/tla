@@ -12,7 +12,7 @@ failed=()
 
 # Runs TLC on spec $1 with config $2, into log $3.
 tlc() {
-    java -XX:+UseParallelGC -cp "$tools/tla/tla2tools.jar" tlc2.TLC -workers "${TLC_WORKERS:-4}" -noGenerateSpecTE \
+    java -XX:+UseParallelGC -cp "$tools/tla/tla2tools.jar" tlc2.TLC -workers "${TLC_WORKERS:-4}" \
         -metadir "$out/states/${2%.cfg}" -config "$dir/$2" "$dir/$1.tla" >"$3" 2>&1
 }
 

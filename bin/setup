@@ -12,8 +12,8 @@ windows() { case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac; re
 . ./tool-versions.env
 # Not gate tools, so not in tool-versions.env: `chock doctor` would fail a machine without them.
 JUST_VERSION=1.58.0
-TLA_TOOLS_VERSION=1.8.0
-TLA_TOOLS_SHA256=0f56d6a813368c48008dfbecb23a73ab43a4a5e1bf09f026782a674aa9d4b3c9
+TLA_TOOLS_VERSION=1.7.4 # the newest release whose jar stays fixed: v1.8.0 is a rolling pre-release
+TLA_TOOLS_SHA256=936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
 APALACHE_VERSION=0.62.4
 APALACHE_SHA256=b781b53bba32fac14ac2e02b0332e1dc2edc64cb7b850c0608d8142cc7aa2ef4
 TOOLS="${OUTPOST_TOOLS:-$HOME/.local/share/outpost-tools}"
