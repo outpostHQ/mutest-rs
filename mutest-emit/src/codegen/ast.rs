@@ -428,6 +428,7 @@ pub mod mk {
             pat,
             ty,
             is_placeholder: false,
+            has_const_keyword: false,
         }
     }
 

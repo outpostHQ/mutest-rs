@@ -4,7 +4,7 @@ use std::ops::{ControlFlow, FromResidual, Residual, Try};
 
 use rustc_interface::Config as CompilerConfig;
 use rustc_session::Session;
-use rustc_session::config::{ExternEntry, ExternLocation, Externs, Input};
+use rustc_session::config::{ExternEntry, ExternLocation, Externs};
 use rustc_structures::CrateType;
 use rustc_span::Symbol;
 use rustc_span::source_map::RealFileLoader;
@@ -68,16 +68,11 @@ impl<T, E, F: From<E>> From<Flow<T, E>> for Result<Option<T>, F> {
 }
 
 pub fn copy_compiler_settings(config: &CompilerConfig) -> CompilerConfig {
-    let input = match &config.input {
-        Input::File(f) => Input::File(f.clone()),
-        Input::Str { name, input } => Input::Str { name: name.clone(), input: input.clone() },
-    };
-
     CompilerConfig {
         opts: config.opts.clone(),
         crate_cfg: config.crate_cfg.clone(),
         crate_check_cfg: config.crate_check_cfg.clone(),
-        input,
+        input: config.input.clone(),
         output_file: config.output_file.clone(),
         output_dir: config.output_dir.clone(),
         ice_file: config.ice_file.clone(),

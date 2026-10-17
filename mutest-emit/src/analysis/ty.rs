@@ -47,7 +47,6 @@ pub mod print {
     use rustc_infer::infer::TyCtxtInferExt;
     use rustc_middle::mir;
     use rustc_middle::ty::{self, Ty, TyCtxt, TypeVisitableExt};
-    use rustc_middle::ty::consts::ConstExt as _;
     use rustc_span::{DUMMY_SP, Ident, Span, Symbol, sym, kw};
 
     use crate::analysis::ast_lowering;
@@ -582,14 +581,10 @@ pub mod print {
                     let output_ty = projection.skip_binder().term.as_type();
 
                     // NOTE: Parenthesized args are full params. A `_` pattern would print `Fn(_: T)`, which is feature-gated.
-                    let input_tys_ast = input_tys.iter().map(|ty| Ok::<_, String>(ast::Param {
-                        attrs: ast::AttrVec::new(),
-                        ty: self.print_ty(ty)?,
-                        pat: Box::new(ast::Pat { id: ast::DUMMY_NODE_ID, kind: ast::PatKind::Missing, span: sp }),
-                        id: ast::DUMMY_NODE_ID,
-                        span: sp,
-                        is_placeholder: false,
-                    })).try_collect()?;
+                    let input_tys_ast = input_tys.iter().map(|ty| Ok::<_, String>(ast::mk::param(sp,
+                        Box::new(ast::Pat { id: ast::DUMMY_NODE_ID, kind: ast::PatKind::Missing, span: sp }),
+                        self.print_ty(ty)?,
+                    ))).try_collect()?;
                     let output_ty_ast = output_ty.map_or(Result::<_, String>::Ok(None), |ty| Ok(Some(self.print_ty(ty)?)))?;
                     let args = Box::new(ast::GenericArgs::Parenthesized(ast::ParenthesizedArgs {
                         span: sp,
@@ -787,14 +782,7 @@ pub mod print {
                     let output_ty_ast = self.print_ty(fn_sig_tys.output())?;
 
                     let input_params = input_tys_ast.into_iter()
-                        .map(|ty| ast::Param {
-                            id: ast::DUMMY_NODE_ID,
-                            span: sp,
-                            attrs: ast::AttrVec::new(),
-                            pat: Box::new(ast::Pat { id: ast::DUMMY_NODE_ID, span: sp, kind: ast::PatKind::Wild }),
-                            ty,
-                            is_placeholder: false,
-                        })
+                        .map(|ty| ast::mk::param(sp, Box::new(ast::Pat { id: ast::DUMMY_NODE_ID, span: sp, kind: ast::PatKind::Wild }), ty))
                         .collect();
                     Ok(mk_ty_ast(sp, ast::TyKind::FnPtr(Box::new(ast::FnPtrTy {
                         safety: match fn_header.safety() {
