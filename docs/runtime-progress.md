@@ -25,7 +25,7 @@ about whether they support it.
 ## Files
 
 Each worker creates one file, `<nonce>-<pid>-<instance_id>.jsonl`, with mode 0600. A record is one
-line of at most 16 KiB, newline included, and a file holds at most 64 MiB. A record is never cut
+line of at most 16 KiB, newline included, and a file holds at most 1 GiB. A record is never cut
 short to fit: a record over either limit, or one that cannot be written, ends the run incomplete.
 
 ## Records
@@ -46,7 +46,7 @@ Each event adds its own fields:
 
 | Event | Fields |
 | --- | --- |
-| `header` | `pid`, `process_start: {kind: "linux-proc-starttime", ticks: u64}`, `exe` (the canonical executable path), `record_limit_bytes: 16384`, `file_limit_bytes: 67108864` |
+| `header` | `pid`, `process_start: {kind: "linux-proc-starttime", ticks: u64}`, `exe` (the canonical executable path), `record_limit_bytes: 16384`, `file_limit_bytes: 1073741824` |
 | `phase` | `phase`: `reference`, `evaluation` or `simulation` |
 | `test_start` | `phase`, `invocation_id` (a u64 unique within the worker), `test_name`, `mutation_ids` (u32 array), `strategy`: `isolated` or `in_process`, `execution_timeout_ms` (u64 or null), `startup_timeout_ms: 5000`, `cleanup_timeout_ms: 10000`, `report_timeout_ms: 1000`, `join_timeout_ms: 1000` |
 | `test_end` | `invocation_id`, `result`: `ok`, `failed`, `crashed`, `timed_out` or `ignored`, `cleanup`: `complete` or `pending` |

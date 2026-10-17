@@ -504,7 +504,7 @@
       "tests/ui/mutation/ops/relational_op_invert/invert_relational_checks.rs": 5
     },
     "lines": {
-      "total": 58205
+      "total": 58204
     },
     "manifest": {},
     "modcheck": {},

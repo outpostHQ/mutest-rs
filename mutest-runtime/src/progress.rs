@@ -16,7 +16,7 @@ use crate::json;
 pub(crate) const DIRECTORY: &str = "MUTEST_PROGRESS_DIR";
 pub(crate) const NONCE: &str = "MUTEST_PROGRESS_NONCE";
 const RECORD_LIMIT: usize = 16 * 1024;
-const FILE_LIMIT: u64 = 64 * 1024 * 1024;
+const FILE_LIMIT: u64 = 1024 * 1024 * 1024;
 static WRITER: OnceLock<Option<Mutex<Writer>>> = OnceLock::new();
 
 struct Writer {
@@ -419,9 +419,7 @@ mod tests {
         writer.set_phase("simulation").unwrap();
         test.timeout = None;
         let pending = writer.start_test(&test, &[9], false).unwrap();
-        writer
-            .end_test(pending, &TestResult::TimedOut, false)
-            .unwrap();
+        writer.end_test(pending, &TestResult::TimedOut, false).unwrap();
         assert!(writer.finish(true, 0).is_err());
         writer.finish(false, 101).unwrap();
         let path = fs::read_dir(&root).unwrap().next().unwrap().unwrap().path();
@@ -430,6 +428,7 @@ mod tests {
             .lines()
             .map(|line| serde_json::from_str::<Value>(line).unwrap())
             .collect::<Vec<_>>();
+        assert_eq!((records[0]["record_limit_bytes"].as_u64(), records[0]["file_limit_bytes"].as_u64()), (Some(16384), Some(1 << 30)));
         for (sequence, record) in records.iter().enumerate() {
             assert_eq!(record["seq"], sequence as u64);
             assert_eq!(record["nonce"], "0123456789abcdef0123456789abcdef");
