@@ -556,9 +556,7 @@ mod sys {
         fn listed_children() -> io::Result<Vec<pid_t>> {
             let mut children = Vec::new();
             for task in fs::read_dir("/proc/self/task")? {
-                let Some(listed) = unless_vanished(fs::read_to_string(task?.path().join("children")))? else {
-                    continue;
-                };
+                let listed = unless_vanished(fs::read_to_string(task?.path().join("children")))?.unwrap_or_default();
                 for pid in listed.split_whitespace() {
                     children.push(pid.parse::<pid_t>().map_err(|_| io::Error::other("invalid child process id"))?);
                 }
@@ -573,20 +571,22 @@ mod sys {
                 let Some(pid) = entry?.file_name().to_str().and_then(|name| name.parse::<pid_t>().ok()) else {
                     continue;
                 };
-                let Some(stat) = unless_vanished(fs::read_to_string(format!("/proc/{pid}/stat")))? else {
-                    continue;
-                };
-                let (_, after_comm) = stat.rsplit_once(')').ok_or_else(|| io::Error::other("invalid process stat"))?;
-                let ppid = after_comm
-                    .split_whitespace()
-                    .nth(1)
-                    .and_then(|value| value.parse::<pid_t>().ok())
-                    .ok_or_else(|| io::Error::other("invalid process parent"))?;
-                if ppid == me {
+                // A process that exits meanwhile has no parent to match.
+                let stat = unless_vanished(fs::read_to_string(format!("/proc/{pid}/stat")))?;
+                if stat.as_deref().map(parent_in_stat).transpose()? == Some(me) {
                     children.push(pid);
                 }
             }
             Ok(children)
+        }
+
+        fn parent_in_stat(stat: &str) -> io::Result<pid_t> {
+            let (_, after_comm) = stat.rsplit_once(')').ok_or_else(|| io::Error::other("invalid process stat"))?;
+            after_comm
+                .split_whitespace()
+                .nth(1)
+                .and_then(|value| value.parse::<pid_t>().ok())
+                .ok_or_else(|| io::Error::other("invalid process parent"))
         }
 
         /// A `/proc` read of a process that has exited meanwhile is `None`, not an error.
