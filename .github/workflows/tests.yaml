@@ -64,8 +64,9 @@ jobs:
       matrix:
         include:
           - { os: "ubuntu-latest" }
-          - { os: "macos-latest" }
-          - { os: "windows-latest" }
+          # No `mutest` record is committed for these systems yet; the last two steps take one.
+          - { os: "macos-latest", skip: "--skip=mutest" }
+          - { os: "windows-latest", skip: "--skip=mutest" }
 
     runs-on: ${{ matrix.os }}
     timeout-minutes: 150
@@ -98,4 +99,16 @@ jobs:
         run: bash bin/setup gates
 
       - name: Run every enabled gate
-        run: chock run --ci
+        run: chock run --ci ${{ matrix.skip }}
+
+      # Outside `--ci`, a run writes the first record of a gate that has none.
+      - name: Take the first mutest record
+        if: ${{ !cancelled() && matrix.skip }}
+        run: chock run mutest
+
+      - name: Upload the record
+        if: ${{ !cancelled() && matrix.skip }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: chock-records-${{ runner.os }}
+          path: .chock/baseline.json

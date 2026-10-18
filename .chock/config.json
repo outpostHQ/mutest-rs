@@ -24,6 +24,7 @@
     "lines",
     "manifest",
     "modcheck",
+    "mutest",
     "nesting",
     "placement",
     "profile",
