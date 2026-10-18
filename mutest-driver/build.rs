@@ -149,14 +149,6 @@ fn main() {
         None => workspace_out_dir_path.to_owned(),
     };
 
-    // Fetch Cargo workspace metadata for visible crate names of public dependencies.
-    let metadata_cmd = cargo_metadata::MetadataCommand::new();
-    let metadata = metadata_cmd.exec().expect("could not retrieve Cargo metadata");
-    // Find Cargo package in the metadata.
-    let Some(mutest_runtime_package) = metadata.packages.iter().find(|package| package.name.as_ref() == "mutest-runtime") else {
-        panic!("cannot find package `mutest-runtime` in Cargo metadata");
-    };
-
     let mutest_runtime_rlib_path = workspace_out_dir_path.join("libmutest_runtime.rlib");
     let deps_dir_path = workspace_out_dir_path.join("deps");
     let dep_dirs = dependency_dirs(&deps_dir_path);
@@ -190,23 +182,6 @@ fn main() {
     writeln!(&mut rlib_catalog_content, "pub const MUTEST_RUNTIME_RLIB_FILENAME: &str = \"{}\";", mutest_runtime_rlib_path.file_name().unwrap().to_str().unwrap()).unwrap();
     writeln!(&mut rlib_catalog_content, "#[cfg(feature = \"embed-runtime\")] pub const MUTEST_RUNTIME_RLIB_DATA: &[u8] = include_bytes!(r\"{}\");", mutest_runtime_rlib_path.display()).unwrap();
     // Embed the dependency `.rlib` files into the final binary.
-    writeln!(&mut rlib_catalog_content, "pub const MUTEST_RUNTIME_PUBLIC_DEPS: &[(&str, &str)] = &[").unwrap();
-    for dependency in &mutest_runtime_package.dependencies {
-        // NOTE: Only inject extern dependencies of mutest-runtime with the
-        //       `__mutest_runtime_public_dep_` prefix, which is used both
-        //       to denote an exposed dependency that needs to be injected into the generated code,
-        //       and to avoid potential name collisions with the crate's own externs.
-        let Some(visible_package_name) = &dependency.rename else { continue; };
-        if !visible_package_name.starts_with("__mutest_runtime_public_dep_") { continue };
-        // Find the compiled dependency corresponding to the dependency crate.
-        let package_crate_name = dependency.name.replace("-", "_");
-        let Some((_, dep_path)) = mutest_runtime_rlib_crate_deps.iter().find(|(crate_name, _)| *crate_name == package_crate_name) else { panic!("cannot find reference to package dependency `{visible_package_name}` in rlib"); };
-        // Embed the mapping between the visible crate name and the underlying compiled dependency artifact.
-        let visible_crate_name = visible_package_name.replace("-", "_");
-        let dep_file_name = dep_path.file_name().expect(&format!("encountered rlib dependency path with no file name: `{}`", dep_path.display())).to_str().unwrap();
-        writeln!(&mut rlib_catalog_content, "    (\"{}\", \"{}\"),", visible_crate_name, dep_file_name).unwrap();
-    }
-    writeln!(&mut rlib_catalog_content, "];").unwrap();
     writeln!(&mut rlib_catalog_content, "#[cfg(feature = \"embed-runtime\")] pub const MUTEST_RUNTIME_EXTERN_DEPS_DATA: &[(&str, &[u8])] = &[").unwrap();
     for (_dep_crate_name, dep_path) in &mutest_runtime_rlib_crate_deps {
         let dep_file_name = dep_path.file_name().expect(&format!("encountered rlib dependency path with no file name: `{}`", dep_path.display())).to_str().unwrap();

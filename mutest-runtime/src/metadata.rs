@@ -1,13 +1,16 @@
 use crate::data_structures::TriangleBitMatrixRef;
 use crate::harness::ActiveMutantHandle;
 
-pub macro static_map($($input:tt)*) {
-    {
-        // NOTE: The `phf` crate name must exist in this generated scope
-        //       for the `phf_map` macro to expand correctly.
-        extern crate __mutest_runtime_public_dep_phf as phf;
+#[doc(hidden)]
+pub extern crate __mutest_runtime_public_dep_phf as __mutest_runtime_phf;
+
+#[macro_export]
+macro_rules! static_map {
+    ($($input:tt)*) => {{
+        // phf's generated paths must refer to the same crate as EntryPoints::InternalTests.
+        use $crate::__mutest_runtime_phf as phf;
         phf::phf_map!($($input)*)
-    }
+    }};
 }
 
 pub type TestPath = &'static str;

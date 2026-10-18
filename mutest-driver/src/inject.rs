@@ -55,14 +55,6 @@ fn extract_runtime_crate_and_deps(target_dir_root_path: &Path) {
 const COMPILETIME_ARTIFACTS_DIR: &str = env!("COMPILETIME_ARTIFACTS_DIR");
 const COMPILETIME_DEPS_DIR: &str = env!("COMPILETIME_DEPS_DIR");
 
-/// The path of a runtime dependency, which is reported as missing from `deps_dir` if no directory holds it.
-fn locate_dependency(deps_dir: &Path, file_name: &str) -> PathBuf {
-    dependency_dirs(deps_dir).into_iter()
-        .map(|dir| dir.join(file_name))
-        .find(|path| path.exists())
-        .unwrap_or_else(|| deps_dir.join(file_name))
-}
-
 fn push_dependency_search_paths(search_paths: &mut Vec<SearchPath>, deps_dir: &Path) {
     search_paths.extend(dependency_dirs(deps_dir).into_iter().map(|dir| SearchPath { kind: PathKind::Dependency, dir: dir.into() }));
 }
@@ -174,27 +166,6 @@ pub fn inject_runtime_crate_and_deps(config: &Config, compiler_config: &mut Comp
             nounused_dep: false,
             force: false,
         });
-    }
-
-    // The embedded stub re-exports its dependencies, preserving their identities in its metadata.
-    if !config.opts.unstable_flags.embedded {
-        for &(visible_crate_name, dep_file_name) in rlib_catalog::MUTEST_RUNTIME_PUBLIC_DEPS {
-            let dep_file_paths = BTreeSet::from([
-                CanonicalizedPath::new(locate_dependency(mutest_target_deps_dir_path, dep_file_name)),
-            ]);
-            let existing_extern = externs.insert(visible_crate_name.to_owned(), ExternEntry {
-                location: ExternLocation::ExactPaths(dep_file_paths),
-                is_private_dep: false,
-                add_prelude: false,
-                nounused_dep: false,
-                force: false,
-            });
-            if let Some(_existing_extern) = existing_extern {
-                let mut diag = early_dcx.early_struct_fatal(format!("mutest-injected crate conflicts with existing extern `{visible_crate_name}`"));
-                diag.note("mutest-injected crates use the reserved `__mutest_runtime_public_dep_` prefix: if you see this error for any other crate, please file a bug report");
-                diag.emit();
-            }
-        }
     }
 
     if let Some((visible_crate_name, specialized_external_mutant_crate_compilation)) = specialized_external_mutant_crate

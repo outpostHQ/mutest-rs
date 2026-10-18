@@ -1,10 +1,6 @@
 #![no_std]
 
-// Injected dependencies:
-// Because public dependencies of mutest-runtime are injected into mutated crates,
-// they are renamed to avoid name collisions.
-// These crates are aliased back to their original names inside of mutest-runtime
-// for convenience, so that their usual names can be used inside of this crate.
+// `static_map!` reaches phf through a `$crate` re-export; inside this crate it keeps its usual name.
 extern crate __mutest_runtime_public_dep_phf as phf;
 
 mod harness;
