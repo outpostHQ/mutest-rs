@@ -58,3 +58,4 @@ kani-list.json
 
 # Outpost keeps its per-repository state here.
 .outpost/
+?*.chock.[0-9]*

@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/outpostHQ/chock/main/schema/baseline-v1.json",
   "version": 1,
-  "chock": "0.9.1",
+  "chock": "0.10.1",
   "gates": {
     "admits": {},
     "assertions": {},
