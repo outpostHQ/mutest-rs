@@ -1258,6 +1258,9 @@ pub(crate) mod tests {
         }
     }
 
+    static RUNNER_SIGNALLED: atomic::AtomicBool = atomic::AtomicBool::new(false);
+    extern "C" fn note_runner_signal(_: libc::c_int) { RUNNER_SIGNALLED.store(true, atomic::Ordering::SeqCst); }
+
     fn lifecycle_scheduler(root: PathBuf, scenario: String) {
         let concurrency = if scenario.ends_with("-serial") { 1 } else { 2 };
         let scenario = scenario.trim_end_matches("-serial");
@@ -1271,6 +1274,10 @@ pub(crate) mod tests {
             test
         }).collect();
         let cancelled = matches!(scenario, "cancel" | "cancel-unlimited" | "callback-error");
+        if scenario == "group-signal" {
+            // SAFETY: the handler only stores to an atomic.
+            unsafe { assert_ne!(libc::signal(libc::SIGWINCH, note_runner_signal as extern "C" fn(libc::c_int) as libc::sighandler_t), libc::SIG_ERR); }
+        }
         let mut run = ScenarioRun { root: &root, scenario, concurrency, cancelled, waits: 0, results: Vec::new() };
         let returned = run_tests_with_concurrency(tests, |event, _| run.observe(event), lifecycle_strategy(root.clone(), scenario.to_owned()), false, concurrency);
         if scenario == "callback-error" {
@@ -1284,11 +1291,12 @@ pub(crate) mod tests {
         let expected = run.expected();
         if scenario != "out-of-order" { run.results.sort_by_key(|(id, _)| *id); }
         assert_eq!(run.results, expected, "{scenario}");
+        assert!(!RUNNER_SIGNALLED.load(atomic::Ordering::SeqCst), "a test's signal to its process group reached the runner");
 
         for id in 0..concurrency {
             let test_root = root.join(id.to_string());
             assert_reaped(&test_root.join("child"), &format!("{scenario}: child"));
-            if !matches!(scenario, "flood" | "out-of-order") {
+            if !matches!(scenario, "flood" | "out-of-order" | "group-signal") {
                 assert_reaped(&test_root.join("holder"), &format!("{scenario}: holder"));
             }
         }
@@ -1357,6 +1365,8 @@ pub(crate) mod tests {
                     thread::sleep(Duration::from_millis(2));
                 }
             }
+            // SAFETY: kill only sends a signal, which by default changes nothing in the processes it reaches.
+            "group-signal" => { unsafe { libc::kill(0, libc::SIGWINCH); } }
             "out-of-order" => {
                 let siblings = PathBuf::from(env::var_os("MUTEST_LIFECYCLE_SIBLINGS").unwrap());
                 if root.file_name().unwrap() == "0" { fixture_wait(&siblings, "result-1"); }
@@ -1393,7 +1403,7 @@ pub(crate) mod tests {
         let scratch = Scratch(root);
         for scenario in ["timeout-serial", "exit-serial", "flood-serial", "cancel-serial", "callback-error-serial",
                          "timeout", "exit", "flood", "cancel", "callback-error", "out-of-order", "cancel-unlimited-serial", "cancel-unlimited",
-                         "failure-setup", "failure-cleanup", "failure-panic", "failure-completion", "failure-owner-exit", "orphan-reap"] {
+                         "failure-setup", "failure-cleanup", "failure-panic", "failure-completion", "failure-owner-exit", "orphan-reap", "group-signal"] {
             let root = scratch.0.join(scenario);
             fs::create_dir(&root).unwrap();
             let output = fs::File::create(root.join("output")).unwrap();

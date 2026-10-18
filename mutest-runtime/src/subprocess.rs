@@ -406,7 +406,7 @@ mod linux {
     use std::io::{Read, Write};
     use std::os::fd::{AsFd, OwnedFd};
     use std::os::unix::net::UnixStream;
-    use std::os::unix::process::ExitStatusExt;
+    use std::os::unix::process::{CommandExt, ExitStatusExt};
     use std::process::{self, Child, ExitStatus, Stdio};
     use std::sync::PoisonError;
     use std::thread;
@@ -714,11 +714,13 @@ mod linux {
             .map(|nanos| nanos.parse::<u128>().map_err(io::Error::other))
             .transpose()?
             .map(|nanos| Duration::from_nanos(u64::try_from(nanos).unwrap_or(u64::MAX)));
+        // NOTE: The test leads its own process group, so a signal it sends to its group reaches neither this owner nor the runner.
         let child = Command::new(env::current_exe()?)
             .args(env::args_os().skip(1))
             .env_remove(OWNER)
             .env_remove(TIMEOUT)
             .stdin(Stdio::null())
+            .process_group(0)
             .spawn()?;
         let start = Instant::now();
         channel.write_all(&[READY])?;
