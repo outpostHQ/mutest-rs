@@ -1021,48 +1021,6 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
         }
     }
 
-    /// The modules that may name the item of an import path, in the order of lookup.
-    fn import_path_mod_scopes(&self, mod_scope: hir::ModId, mod_path_segments: &[ast::PathSegment], item_def_id: hir::DefId, span: Span) -> Vec<hir::ModId> {
-        let overlay_mod_scope = match self.macros_2_0_top_level_relative_path_res_hack {
-            Macros2_0TopLevelRelativePathResHack::InTopLevelMacros2_0Scope { parent_module: macros_2_0_def_parent_mod } => Some(macros_2_0_def_parent_mod),
-            _ => None,
-        };
-
-        match mod_path_segments {
-            [.., parent_mod_path_segment] if let Some(parent_mod_res) = self.def_res.node_res(parent_mod_path_segment.id) => {
-                let hir::Res::Def(hir::DefKind::Mod, parent_mod_def_id) = parent_mod_res else { span_bug!(span, "import path has non-mod prefix segment") };
-                vec![hir::ModId::new_unchecked(parent_mod_def_id)]
-            }
-
-            // `$crate::Item` paths.
-            [dollar_crate_segment]  if dollar_crate_segment.ident.name == kw::DollarCrate => {
-                let crate_num = dollar_crate_segment.ident.span.ctxt().outer_expn_data().macro_def_id.unwrap().krate;
-                vec![crate_num.as_mod_id()]
-            }
-
-            // `crate::Item` paths.
-            // NOTE: It is important that we look into the local crate root first, to avoid potential visibility issues.
-            [crate_segment] if crate_segment.ident.name == kw::Crate => vec![LOCAL_CRATE.as_mod_id(), item_def_id.krate.as_mod_id()],
-
-            // `{self::}?super{::super}*::Item` paths.
-            [super_segments @ ..] if let Some(supers) = scope::super_count(super_segments) => {
-                let mut parent_mod_id = overlay_mod_scope.unwrap_or(mod_scope);
-                for _ in 0..supers {
-                    parent_mod_id = self.tcx.parent_module_from_def_id(parent_mod_id.expect_local().to_local_def_id()).to_mod_id();
-                }
-                vec![parent_mod_id]
-            }
-
-            // `{self::}?Item` paths.
-            [] | [ast::PathSegment { ident: Ident { name: kw::SelfLower, .. }, .. }] => {
-                [overlay_mod_scope, Some(mod_scope), self.prelude_mod].into_iter().flatten().collect()
-            }
-
-            prefix => span_bug!(span, "unhandled import path root `{}` with missing parent mod resolutions",
-                prefix.iter().map(|segment| segment.ident.to_string()).collect::<Vec<_>>().join("::")),
-        }
-    }
-
     fn sanitize_import_path(&mut self, scope: hir::HirId, import_node_id: ast::NodeId, path: &mut ast::Path, res: hir::Res<ast::NodeId>) {
         enum ModPathKind {
             DirectPath,
@@ -1362,7 +1320,7 @@ pub fn sanitize_path<'tcx>(tcx: TyCtxt<'tcx>, crate_res: &res::CrateResolutions<
 macro def_flat_map_item_fns(
     $(fn $ident:ident(&mut $self:ident, $item:ident: $item_kind:ident $(,$($args:tt)*)?) |$def_id:ident| {
         walk_item: $walk_item:expr,
-        $(check $check:block)?
+        check $check:block
         $(post_walk $post_walk:block)?
     });+;
 ) {
@@ -1376,7 +1334,10 @@ macro def_flat_map_item_fns(
 
             let Some(&$def_id) = $self.def_res.node_id_to_def_id.get(&$item.id) else { unreachable!() };
 
-            $($check)?
+            // A macros 2.0 scope that $check enters holds for this item alone. A $check of `true` handled the whole item.
+            let previous_macros_2_0_scope = $self.macros_2_0_top_level_relative_path_res_hack;
+            let handled: bool = $check;
+            if handled { $self.macros_2_0_top_level_relative_path_res_hack = previous_macros_2_0_scope; return smallvec![$item]; }
 
             // Store new context scope.
             let previous_scope = mem::replace(&mut $self.current_scope, Some($def_id.to_def_id()));
@@ -1398,6 +1359,7 @@ macro def_flat_map_item_fns(
             // Restore previous context.
             $self.current_typeck_ctx = previous_typeck_ctx;
             $self.current_scope = previous_scope;
+            $self.macros_2_0_top_level_relative_path_res_hack = previous_macros_2_0_scope;
 
             smallvec![$item]
         }
@@ -1429,26 +1391,27 @@ impl<'tcx, 'op> ast::mut_visit::MutVisitor for MacroExpansionSanitizer<'tcx, 'op
                     }
                 }
 
-                if let ast::ItemKind::ExternCrate(symbol, ident) = &mut item.kind {
-                    self.visit_vis(&mut item.vis);
+                match &mut item.kind {
+                    ast::ItemKind::ExternCrate(symbol, ident) => {
+                        self.visit_vis(&mut item.vis);
 
-                    // Retain original crate name if not already aliased.
-                    if symbol.is_none() { *symbol = Some(ident.name); }
+                        // Retain original crate name if not already aliased.
+                        if symbol.is_none() { *symbol = Some(ident.name); }
 
-                    // Sanitize local name of extern.
-                    sanitize_ident_if_from_expansion(ident, IdentResKind::Def);
-
-                    return smallvec![item];
-                }
-
-                if let ast::ItemKind::Use(use_tree) = &mut item.kind {
-                    self.visit_vis(&mut item.vis);
-
-                    // FIXME: Resolutions for the prelude import path are missing; ignore.
-                    if !item.attrs.iter().any(|attr| attr.has_name(sym::prelude_import) && attr.is_word()) {
-                        self.sanitize_use_tree(use_tree, id, span);
+                        // Sanitize local name of extern.
+                        sanitize_ident_if_from_expansion(ident, IdentResKind::Def);
+                        true
                     }
-                    return smallvec![item];
+                    ast::ItemKind::Use(use_tree) => {
+                        self.visit_vis(&mut item.vis);
+
+                        // FIXME: Resolutions for the prelude import path are missing; ignore.
+                        if !item.attrs.iter().any(|attr| attr.has_name(sym::prelude_import) && attr.is_word()) {
+                            self.sanitize_use_tree(use_tree, id, span);
+                        }
+                        true
+                    }
+                    _ => false,
                 }
             }
             post_walk {
@@ -1516,6 +1479,7 @@ impl<'tcx, 'op> ast::mut_visit::MutVisitor for MacroExpansionSanitizer<'tcx, 'op
                         }
                     }
                 }
+                false
             }
         };
     }

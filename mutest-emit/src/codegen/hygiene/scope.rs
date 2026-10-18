@@ -6,7 +6,7 @@ use crate::analysis::res;
 use crate::codegen::ast;
 use crate::codegen::symbols::{DUMMY_SP, Ident, Span, Symbol, kw};
 
-use super::MacroExpansionSanitizer;
+use super::{MacroExpansionSanitizer, Macros2_0TopLevelRelativePathResHack};
 
 /// Pushes the names that the use tree brings into scope, with `None` for a glob import.
 fn push_use_tree_names(use_tree: &ast::UseTree, names: &mut Vec<Option<Symbol>>) {
@@ -125,5 +125,47 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
         if supers == 0 || !through_mods || !matches!(path.root, res::DefPathRootKind::Local) { return None; }
         path.root = res::DefPathRootKind::Parent { supers };
         Some(path)
+    }
+
+    /// The modules that may name the item of an import path, in the order of lookup.
+    pub(super) fn import_path_mod_scopes(&self, mod_scope: hir::ModId, mod_path_segments: &[ast::PathSegment], item_def_id: hir::DefId, span: Span) -> Vec<hir::ModId> {
+        let overlay_mod_scope = match self.macros_2_0_top_level_relative_path_res_hack {
+            Macros2_0TopLevelRelativePathResHack::InTopLevelMacros2_0Scope { parent_module: macros_2_0_def_parent_mod } => Some(macros_2_0_def_parent_mod),
+            _ => None,
+        };
+
+        match mod_path_segments {
+            [.., parent_mod_path_segment] if let Some(parent_mod_res) = self.def_res.node_res(parent_mod_path_segment.id) => {
+                let hir::Res::Def(hir::DefKind::Mod, parent_mod_def_id) = parent_mod_res else { span_bug!(span, "import path has non-mod prefix segment") };
+                vec![hir::ModId::new_unchecked(parent_mod_def_id)]
+            }
+
+            // `$crate::Item` paths.
+            [dollar_crate_segment]  if dollar_crate_segment.ident.name == kw::DollarCrate => {
+                let crate_num = dollar_crate_segment.ident.span.ctxt().outer_expn_data().macro_def_id.unwrap().krate;
+                vec![crate_num.as_mod_id()]
+            }
+
+            // `crate::Item` paths.
+            // NOTE: It is important that we look into the local crate root first, to avoid potential visibility issues.
+            [crate_segment] if crate_segment.ident.name == kw::Crate => vec![hir::LOCAL_CRATE.as_mod_id(), item_def_id.krate.as_mod_id()],
+
+            // `{self::}?super{::super}*::Item` paths.
+            [super_segments @ ..] if let Some(supers) = super_count(super_segments) => {
+                let mut parent_mod_id = overlay_mod_scope.unwrap_or(mod_scope);
+                for _ in 0..supers {
+                    parent_mod_id = self.tcx.parent_module_from_def_id(parent_mod_id.expect_local().to_local_def_id()).to_mod_id();
+                }
+                vec![parent_mod_id]
+            }
+
+            // `{self::}?Item` paths.
+            [] | [ast::PathSegment { ident: Ident { name: kw::SelfLower, .. }, .. }] => {
+                [overlay_mod_scope, Some(mod_scope), self.prelude_mod].into_iter().flatten().collect()
+            }
+
+            prefix => span_bug!(span, "unhandled import path root `{}` with missing parent mod resolutions",
+                prefix.iter().map(|segment| segment.ident.to_string()).collect::<Vec<_>>().join("::")),
+        }
     }
 }
