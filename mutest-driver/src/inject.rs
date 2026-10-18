@@ -140,20 +140,14 @@ pub fn inject_runtime_crate_and_deps(config: &Config, compiler_config: &mut Comp
             Ok(false) => {
                 let profile = mutest_host_artifacts_dir_path.file_name().expect("invalid mutest search path");
 
-                let mut diag = match target_triple == host_triple {
-                    true => early_dcx.early_struct_fatal(format!("cannot find mutest-rs embedded runtime for host")),
-                    false => early_dcx.early_struct_fatal(format!("cannot find cross-compiled mutest-rs embedded runtime for target `{target_triple}`")),
+                // NOTE: We remove the explicit `--target` argument for the host because if specified, Cargo will place the host artifact in a target triple subdirectory.
+                let (runtime, target_arg) = match target_triple == host_triple {
+                    true => ("mutest-rs embedded runtime for host".to_owned(), String::new()),
+                    false => (format!("cross-compiled mutest-rs embedded runtime for target `{target_triple}`"), format!("--target={target_triple} ")),
                 };
+                let mut diag = early_dcx.early_struct_fatal(format!("cannot find {runtime}"));
                 diag.note(format!("searching in `{}`", mutest_target_artifacts_dir_path.display()));
-                match target_triple == host_triple {
-                    true => {
-                        // NOTE: We remove the explicit `--target` argument because if specified, Cargo will place the host artifact in a target triple subdirectory.
-                        diag.note(format!("consider running `cargo build --profile={} -p mutest-runtime-embedded-target-stub` in the mutest-rs source tree", profile.display()));
-                    }
-                    false => {
-                        diag.note(format!("consider running `cargo build --target={} --profile={} -p mutest-runtime-embedded-target-stub` in the mutest-rs source tree", target_triple, profile.display()));
-                    }
-                }
+                diag.note(format!("consider running `cargo build {target_arg}--profile={} -p mutest-runtime-embedded-target-stub` in the mutest-rs source tree", profile.display()));
                 diag.emit();
             }
         }
