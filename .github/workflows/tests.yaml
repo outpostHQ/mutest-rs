@@ -64,7 +64,7 @@ jobs:
       matrix:
         include:
           - { os: "ubuntu-latest" }
-          # No `mutest` record is committed for these systems yet; the last two steps take one.
+          # No `mutest` record is committed for these systems yet; the last two steps take one, as a run outside `--ci` writes it.
           - { os: "macos-latest", skip: "--skip=mutest" }
           - { os: "windows-latest", skip: "--skip=mutest" }
 
@@ -94,14 +94,16 @@ jobs:
       - name: Install cargo-binstall
         uses: cargo-bins/cargo-binstall@main
 
-      # Only the tools of the enabled gates: `chock init --global` also builds cargo-mutest, which bin/test builds from here.
+      # Only the tools of the enabled gates, and cargo-mutest built from this commit: `chock init --global` builds fork main.
       - name: Install the toolchain, chock and the tools of the enabled gates
-        run: bash bin/setup gates
+        run: |
+          bash bin/setup gates
+          cargo build --release -p mutest-runtime && cargo build --release -p mutest-driver -p cargo-mutest
+          echo "$GITHUB_WORKSPACE/target/release" >> "$GITHUB_PATH"
 
       - name: Run every enabled gate
         run: chock run --ci ${{ matrix.skip }}
 
-      # Outside `--ci`, a run writes the first record of a gate that has none.
       - name: Take the first mutest record
         if: ${{ !cancelled() && matrix.skip }}
         run: chock run mutest
@@ -109,6 +111,4 @@ jobs:
       - name: Upload the record
         if: ${{ !cancelled() && matrix.skip }}
         uses: actions/upload-artifact@v7
-        with:
-          name: chock-records-${{ runner.os }}
-          path: .chock/baseline.json
+        with: { name: "chock-records-${{ runner.os }}", path: .chock/baseline.json }

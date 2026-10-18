@@ -100,7 +100,7 @@
       "cargo-mutest/src/main.rs#main": 26,
       "cargo-mutest/src/main.rs#process_cargo_args": 34,
       "cargo-mutest/src/main.rs#run_cargo_with_mutest_driver": 50,
-      "mutest-driver/src/inject.rs#inject_runtime_crate_and_deps": 27,
+      "mutest-driver/src/inject.rs#inject_runtime_crate_and_deps": 24,
       "mutest-driver/src/lib.rs#run": 26,
       "mutest-driver/src/main.rs#main": 162,
       "mutest-driver/src/passes/analysis.rs#run": 318,
@@ -504,7 +504,7 @@
       "tests/ui/mutation/ops/relational_op_invert/invert_relational_checks.rs": 5
     },
     "lines": {
-      "total": 58204
+      "total": 58196
     },
     "manifest": {},
     "modcheck": {},
@@ -551,7 +551,7 @@
       "cargo-mutest/src/main.rs#run_mutest_inspector_from_cargo_invocation": 2,
       "cargo-mutest/src/main.rs#strip_arg_value_occurrences": 2,
       "mutest-driver/src/cargo_package_config.rs#fetch_merged_cargo_package_config": 2,
-      "mutest-driver/src/inject.rs#inject_runtime_crate_and_deps": 2,
+      "mutest-driver/src/inject.rs#inject_runtime_crate_and_deps": 1,
       "mutest-driver/src/lib.rs#run": 1,
       "mutest-driver/src/print.rs#print_call_graph": 8,
       "mutest-driver/src/print.rs#print_mutation_graph": 1,
