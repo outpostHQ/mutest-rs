@@ -369,7 +369,7 @@ fn run_test_in_process(
     };
 }
 
-pub static TEST_SUBPROCESS_INVOCATION: &str = "__ISOLATED_TEST_CASE";
+pub static TEST_SUBPROCESS_INVOCATION: &str = protocol_var!("__ISOLATED_TEST_CASE");
 
 /// The command that runs the test `name` in a child process, which runs the tests in `list` in turn, if given.
 fn isolated_command(name: &test::TestName, cmd_hook: &(dyn Fn(&mut Command) + Send + Sync), list: Option<&std::path::Path>, no_capture: bool) -> io::Result<Command> {
@@ -1028,7 +1028,7 @@ mod abandon_tests {
 }
 
 #[cfg(all(test, target_os = "linux"))]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -1110,7 +1110,7 @@ mod tests {
                     "abort" => { command.env("MUTEST_SERIAL_ABORT", "1"); }
                     _ => { command.env("MUTEST_SERIAL_HANG", "1"); }
                 }
-                keep_loader_environment(command);
+                keep_start_environment(command);
             }));
             let mut results = Vec::new();
             let mut observed_wait = false;
@@ -1141,9 +1141,9 @@ mod tests {
     const FIXTURE_CLEANUP_BOUND: Duration = Duration::from_secs(4);
     const FLOOD_BYTES: usize = 256 * 1024;
 
-    /// A child started with a cleared environment still needs the loader paths this test binary runs with.
-    fn keep_loader_environment(command: &mut Command) {
-        for name in ["LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH"] {
+    /// The loader paths, and the libtest mark of a mutest harness that runs these tests, by its name outside of mutation.
+    pub(crate) fn keep_start_environment(command: &mut Command) {
+        for name in ["LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH", "__MUTEST_RUN_AS_LIBTEST"] {
             if let Some(value) = env::var_os(name) { command.env(name, value); }
         }
     }
@@ -1153,7 +1153,7 @@ mod tests {
         command.args(["--ignored", "--exact", LIFECYCLE_ENTRY, "--test-threads=1", "--nocapture"])
             .env_clear().env("MUTEST_LIFECYCLE_ROOT", root).env("MUTEST_LIFECYCLE_ROLE", role)
             .env("MUTEST_LIFECYCLE_SCENARIO", scenario).stdin(process::Stdio::null());
-        keep_loader_environment(&mut command);
+        keep_start_environment(&mut command);
         command
     }
 

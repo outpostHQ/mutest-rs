@@ -14,7 +14,7 @@ pub(super) const REPORT_TIMEOUT: Duration = Duration::from_secs(1);
 pub(super) const POLL_INTERVAL: Duration = Duration::from_millis(2);
 pub(super) const OUTPUT_LIMIT: usize = 1024 * 1024;
 /// Set for an isolated test run without an owner, so that the test ends with the process that started it.
-pub(crate) const TEST_RUNNER_PID_VAR: &str = "__MUTEST_TEST_RUNNER_PID";
+pub(crate) const TEST_RUNNER_PID_VAR: &str = protocol_var!("__MUTEST_TEST_RUNNER_PID");
 
 pub(super) fn run(
     command: Command,
@@ -414,8 +414,8 @@ mod linux {
 
     use super::*;
 
-    const OWNER: &str = "__MUTEST_TEST_OWNER";
-    const TIMEOUT: &str = "__MUTEST_TEST_OWNER_TIMEOUT_NANOS";
+    const OWNER: &str = protocol_var!("__MUTEST_TEST_OWNER");
+    const TIMEOUT: &str = protocol_var!("__MUTEST_TEST_OWNER_TIMEOUT_NANOS");
     const READY: u8 = 0xa1;
     const EXITED: u8 = 0;
     const TIMED_OUT: u8 = 1;

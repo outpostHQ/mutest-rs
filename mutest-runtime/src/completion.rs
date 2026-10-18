@@ -9,8 +9,8 @@ use std::process::{self, Command};
 
 use mutest_exit_code as exit_code;
 
-const PATH_VAR: &str = "__MUTEST_COMPLETION_PATH";
-const TOKEN_VAR: &str = "__MUTEST_COMPLETION_TOKEN";
+pub(crate) const PATH_VAR: &str = protocol_var!("__MUTEST_COMPLETION_PATH");
+pub(crate) const TOKEN_VAR: &str = protocol_var!("__MUTEST_COMPLETION_TOKEN");
 const RECORD_LIMIT: u64 = 256;
 
 /// The supervisor's exit code: a completed status stands only with the worker's matching record.

@@ -70,11 +70,11 @@ pub(crate) fn after_mutations() {
 }
 
 fn completion_path() -> PathBuf {
-    PathBuf::from(env::var_os("__MUTEST_COMPLETION_PATH").unwrap())
+    PathBuf::from(env::var_os(crate::completion::PATH_VAR).unwrap())
 }
 
 fn write_malformed_completion(scenario: &str) -> ! {
-    let token = env::var("__MUTEST_COMPLETION_TOKEN").unwrap();
+    let token = env::var(crate::completion::TOKEN_VAR).unwrap();
     let pid = process::id();
     let text = match scenario {
         "completion-partial" => format!("{token} {pid} 0"),
@@ -196,7 +196,7 @@ fn aborting() -> Result<(), String> {
     if ACTIVE.subst_at(0).is_some() {
         mark("abort-entered");
         let root = PathBuf::from(env::var_os("MUTEST_REGRESSION_ROOT").unwrap());
-        let journal = env::var_os("__MUTEST_JOURNAL").expect("fixture journal missing");
+        let journal = env::var_os(crate::journal::JOURNAL_VAR).expect("fixture journal missing");
         fs::copy(journal, root.join("journal-before-abort")).unwrap();
         RENDEZVOUS.get_or_init(|| Barrier::new(2)).wait();
         process::abort();

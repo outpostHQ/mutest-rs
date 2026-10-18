@@ -13,8 +13,8 @@ use std::time::Instant;
 use super::{CompletedTest, Test, TestResult, subprocess, test};
 use crate::json;
 
-pub(crate) const DIRECTORY: &str = "MUTEST_PROGRESS_DIR";
-pub(crate) const NONCE: &str = "MUTEST_PROGRESS_NONCE";
+pub(crate) const DIRECTORY: &str = protocol_var!("MUTEST_PROGRESS_DIR");
+pub(crate) const NONCE: &str = protocol_var!("MUTEST_PROGRESS_NONCE");
 const RECORD_LIMIT: usize = 16 * 1024;
 const FILE_LIMIT: u64 = 1024 * 1024 * 1024;
 static WRITER: OnceLock<Option<Mutex<Writer>>> = OnceLock::new();

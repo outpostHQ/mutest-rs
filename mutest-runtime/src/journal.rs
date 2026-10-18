@@ -18,7 +18,7 @@ use crate::json;
 use crate::metadata::MutationMeta;
 use crate::test_runner;
 
-pub(crate) const JOURNAL_VAR: &str = "__MUTEST_JOURNAL";
+pub(crate) const JOURNAL_VAR: &str = protocol_var!("__MUTEST_JOURNAL");
 
 fn result_name(result: MutationTestResult) -> &'static str {
     match result {

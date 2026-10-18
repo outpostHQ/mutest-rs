@@ -21,8 +21,8 @@ pub(crate) use sys::{exited_child, kill_group};
 #[cfg(all(unix, test))]
 pub(crate) use sys::tests::STARTING_PROCESSES;
 
-const SUPERVISOR_PID_VAR: &str = "__MUTEST_SUPERVISOR_PID";
-const RUN_ELAPSED_VAR: &str = "__MUTEST_RUN_ELAPSED_NANOS";
+const SUPERVISOR_PID_VAR: &str = protocol_var!("__MUTEST_SUPERVISOR_PID");
+const RUN_ELAPSED_VAR: &str = protocol_var!("__MUTEST_RUN_ELAPSED_NANOS");
 
 static RUN_START: OnceLock<Instant> = OnceLock::new();
 static WORKER_START: OnceLock<Instant> = OnceLock::new();
@@ -1058,6 +1058,7 @@ mod tests {
                     .stdin(Stdio::null())
                     .stdout(output.try_clone().unwrap())
                     .stderr(output);
+                crate::test_runner::tests::keep_start_environment(&mut command);
                 let parent = std::process::id();
                 // SAFETY: After the fork this calls only `prctl`, `getppid` and `_exit`, all async-signal-safe.
                 unsafe {

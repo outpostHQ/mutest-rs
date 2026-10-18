@@ -11,6 +11,12 @@ extern crate test;
 // `static_map!` reaches phf through a `$crate` re-export; inside this crate it keeps its usual name.
 extern crate __mutest_runtime_public_dep_phf as phf;
 
+/// The name of a variable of the process protocol. Under mutation, the crate gives its variables other names,
+/// so that the harness that runs its tests does not take the variables of the crate's own test children as its own.
+macro_rules! protocol_var {
+    ($name:literal) => { if cfg!(mutest) { concat!($name, "_UNDER_MUTATION") } else { $name } };
+}
+
 pub mod test_runner;
 pub mod thread_pool;
 

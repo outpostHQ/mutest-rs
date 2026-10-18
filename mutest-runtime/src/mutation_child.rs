@@ -20,7 +20,7 @@ use super::{__rust_begin_short_backtrace, incomplete_isolation, progress, test};
 
 /// The file that lists the tests a child runs in turn. The child appends a line with the run time of each test
 /// that passes to the same path with the extension `passed`.
-pub(crate) const TESTS_OF_CHILD_VAR: &str = "__MUTEST_ISOLATED_TESTS";
+pub(crate) const TESTS_OF_CHILD_VAR: &str = protocol_var!("__MUTEST_ISOLATED_TESTS");
 
 static NEXT_LIST: AtomicU64 = AtomicU64::new(0);
 

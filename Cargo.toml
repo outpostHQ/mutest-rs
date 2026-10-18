@@ -21,6 +21,9 @@ members = [
 # The crates that bin/corpus fetches into target/corpus are their own workspaces.
 exclude = ["target"]
 
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(mutest)"] }
+
 [workspace.lints.clippy]
 allow_attributes_without_reason = "warn"
 dbg_macro = "warn"

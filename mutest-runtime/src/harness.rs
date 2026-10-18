@@ -1074,7 +1074,7 @@ fn verdict_exit_code(results: &MutationAnalysisResults) -> i32 {
     ].into_iter().flatten())
 }
 
-const MUTEST_ISOLATED_WORKER_MUTATION_ID: &str = "__MUTEST_ISOLATED_WORKER_MUTATION_ID";
+const MUTEST_ISOLATED_WORKER_MUTATION_ID: &str = protocol_var!("__MUTEST_ISOLATED_WORKER_MUTATION_ID");
 
 fn mutest_isolated_worker(tests: Vec<test::TestDescAndFn>, report: Option<std::fs::File>, meta_mutant: &'static MetaMutant<impl SubstMap>) -> ! {
     let mutation_id = env::var(MUTEST_ISOLATED_WORKER_MUTATION_ID).unwrap()
@@ -1187,7 +1187,7 @@ fn mutest_simulate_main<S: SubstMap>(args: &[&str], tests: Vec<test::TestDescAnd
 }
 
 /// Set by the supervisor to its worker's executable, so that this binary run again by a test runs as libtest.
-pub(crate) const RUN_AS_LIBTEST_VAR: &str = "__MUTEST_RUN_AS_LIBTEST";
+pub(crate) const RUN_AS_LIBTEST_VAR: &str = protocol_var!("__MUTEST_RUN_AS_LIBTEST");
 
 fn runs_as_libtest() -> bool {
     let Some(marked_exe) = env::var_os(RUN_AS_LIBTEST_VAR) else { return false; };
