@@ -606,16 +606,11 @@ fn join_isolated(handle: ThreadHandle) -> Result<(), String> {
     handle.join().map_err(|_| "isolated monitor panicked".to_owned())
 }
 
-/// Whether an isolated test's monitor has outlived every stage its timeout allows for.
-fn monitor_overdue(test: &RunningTest) -> bool {
-    test.timeout.is_some_and(|timeout| {
-        test.start_time.elapsed() >= timeout.saturating_add(subprocess::STARTUP_TIMEOUT + subprocess::CLEANUP_TIMEOUT + subprocess::REPORT_TIMEOUT)
-    })
-}
-
 fn receive_isolated(running: &HashMap<test::TestId, RunningTest>, receiver: &mpsc::Receiver<MonitorMessage>, deadline: Option<Instant>) -> MonitorMessage {
+    // NOTE: An isolated test's monitor is overdue once it has outlived every stage its timeout allows for.
+    let stages = subprocess::STARTUP_TIMEOUT + subprocess::CLEANUP_TIMEOUT + subprocess::REPORT_TIMEOUT;
     loop {
-        if deadline.is_none() && let Some((&id, test)) = running.iter().find(|(_, test)| monitor_overdue(test)) {
+        if deadline.is_none() && let Some((&id, test)) = running.iter().find(|(_, test)| test.timeout.is_some_and(|timeout| test.start_time.elapsed() >= timeout.saturating_add(stages))) {
             let _ = test.control_tx.send(ControlMsg::KillChildProcess);
             return MonitorMessage::Incomplete { id, message: "isolated monitor missed its execution deadline".to_owned() };
         }

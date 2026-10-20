@@ -97,10 +97,6 @@ impl<'a> Sentinel<'a> {
     fn new(data: &'a Arc<ThreadPoolData>) -> Self {
         Sentinel { data, active: true }
     }
-
-    fn cancel(mut self) {
-        self.active = false;
-    }
 }
 
 impl<'a> Drop for Sentinel<'a> {
@@ -127,7 +123,7 @@ fn spawn_in_pool(data: Arc<ThreadPoolData>) {
 
     let _handle = builder.spawn(move || {
         // Will spawn a new thread on panic unless it is cancelled.
-        let sentinel = Sentinel::new(&data);
+        let mut sentinel = Sentinel::new(&data);
 
         loop {
             let job_msg = data.job_receiver.lock().expect("worker thread unable to lock job receiver").recv();
@@ -152,7 +148,7 @@ fn spawn_in_pool(data: Arc<ThreadPoolData>) {
             data.active_threads_count.fetch_sub(1, atomic::Ordering::SeqCst);
         }
 
-        sentinel.cancel();
+        sentinel.active = false;
     }).unwrap();
 }
 
