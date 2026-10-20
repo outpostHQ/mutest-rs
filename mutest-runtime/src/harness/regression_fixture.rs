@@ -18,7 +18,7 @@ static COLLATERAL: MutationMeta = MutationMeta {
     display_location: "fixture:2", undetected_diagnostic: "collateral survived",
     reachable_from: EntryPoints::InternalTests(phf::phf_map! { "collateral" => 0usize }), reached_by_truncated_entry_point: false,
 };
-static SOLO: StandaloneMutantMeta = StandaloneMutantMeta {
+const SOLO: StandaloneMutantMeta = StandaloneMutantMeta {
     mutation: &ABORT, substitutions: &[(0, SubstMeta { mutation: &ABORT })],
 };
 static EMPTY: MetaMutant<Map> = MetaMutant {
@@ -36,24 +36,20 @@ static BATCH: MetaMutant<Map> = MetaMutant {
 static SINGLE: MetaMutant<Map> = MetaMutant {
     cargo_package_name: None, cargo_target_kind: None, crate_name: "runtime_fixture",
     active_mutant_handle: &ACTIVE, mutations: &[&ABORT],
-    mutation_parallelism: MutationParallelism::None(&[StandaloneMutantMeta {
-        mutation: &ABORT, substitutions: &[(0, SubstMeta { mutation: &ABORT })],
-    }]),
+    mutation_parallelism: MutationParallelism::None(&[SOLO]),
 };
 static UNSAFE: MutationMeta = MutationMeta {
     id: 1, safety: MutationSafety::Unsafe, op_name: "fixture", display_name: "isolated abort",
     display_location: "fixture:1", undetected_diagnostic: "abort survived",
     reachable_from: EntryPoints::InternalTests(phf::phf_map! { "isolated" => 0usize }), reached_by_truncated_entry_point: false,
 };
-static UNSAFE_SOLO: StandaloneMutantMeta = StandaloneMutantMeta {
+const UNSAFE_SOLO: StandaloneMutantMeta = StandaloneMutantMeta {
     mutation: &UNSAFE, substitutions: &[(0, SubstMeta { mutation: &UNSAFE })],
 };
 static UNSAFE_META: MetaMutant<Map> = MetaMutant {
     cargo_package_name: None, cargo_target_kind: None, crate_name: "runtime_fixture",
     active_mutant_handle: &ACTIVE, mutations: &[&UNSAFE],
-    mutation_parallelism: MutationParallelism::None(&[StandaloneMutantMeta {
-        mutation: &UNSAFE, substitutions: &[(0, SubstMeta { mutation: &UNSAFE })],
-    }]),
+    mutation_parallelism: MutationParallelism::None(&[UNSAFE_SOLO]),
 };
 static RENDEZVOUS: OnceLock<Barrier> = OnceLock::new();
 
