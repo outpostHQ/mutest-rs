@@ -1,4 +1,4 @@
-use mutest_emit::{Mutation, Operator};
+use mutest_emit::Operator;
 use mutest_emit::analysis::hir;
 use mutest_emit::analysis::res;
 use mutest_emit::analysis::ty::{self, Ty};
@@ -7,6 +7,8 @@ use mutest_emit::codegen::mutation::{MutCtxt, MutLoc, Mutations, Subst, SubstDef
 use mutest_emit::codegen::symbols::sym;
 use rustc_data_structures::smallvec::smallvec;
 use rustc_middle::ty::TyCtxt;
+
+use crate::BinOpSwapMutation;
 
 #[derive(Clone, Copy, Debug)]
 pub enum OpKind {
@@ -44,7 +46,7 @@ fn impls_matching_op<'tcx>(tcx: TyCtxt<'tcx>, caller_def_id: hir::LocalDefId, lh
 
 macro define_op_swap_operator(
     $(#[$meta:meta])*
-    $vis:vis $operator:ident, $mutation:ident as $op_name_ident:ident = $op_name:literal $([$bin_op_group:expr])? {
+    $vis:vis $operator:ident as $op_name_ident:ident = $op_name:literal $([$bin_op_group:expr])? {
         $(
             $bin_op_from:pat $(if impl $bin_op_to_trait:ident)? => $bin_op_to:expr
             $(, $assign_op_from:pat $(if impl $bin_assign_op_to_trait:ident)? => $assign_op_to:expr)?
@@ -53,35 +55,11 @@ macro define_op_swap_operator(
 ) {
     $vis const $op_name_ident: &str = $op_name;
 
-    $vis struct $mutation {
-        pub original_op_kind: OpKind,
-        pub replacement_op_kind: OpKind,
-    }
-
-    impl Mutation for $mutation {
-        fn op_name(&self) -> &str { $op_name }
-
-        fn display_name(&self) -> String {
-            format!(concat!("swap ", $($bin_op_group, " ",)? "{op_kind} `{original_bin_op}` for `{replacement_bin_op}`"),
-                op_kind = self.original_op_kind.desc(),
-                original_bin_op = self.original_op_kind.as_str(),
-                replacement_bin_op = self.replacement_op_kind.as_str(),
-            )
-        }
-
-        fn span_label(&self) -> String {
-            format!(concat!("swap ", $($bin_op_group, " ",)? "{op_kind} for `{replacement_bin_op}`"),
-                op_kind = self.original_op_kind.desc(),
-                replacement_bin_op = self.replacement_op_kind.as_str(),
-            )
-        }
-    }
-
     $(#[$meta])*
     $vis struct $operator;
 
     impl<'a> Operator<'a> for $operator {
-        type Mutation = $mutation;
+        type Mutation = BinOpSwapMutation;
 
         fn try_apply(&self, mcx: &MutCtxt) -> Mutations<Self::Mutation> {
             let MutCtxt { opts: _, tcx, crate_res: _, def_res: _, def_site: def, item_hir: f_hir, body_res, location, value_is_borrowed: _ } = *mcx;
@@ -125,9 +103,12 @@ macro define_op_swap_operator(
                 _ => unreachable!(),
             };
 
-            let mutation = Self::Mutation {
-                original_op_kind: op_kind,
-                replacement_op_kind: mapped_op_kind,
+            let mutation = BinOpSwapMutation {
+                op_name: $op_name,
+                display_name: format!(concat!("swap ", $($bin_op_group, " ",)? "{op_kind} `{original_bin_op}` for `{replacement_bin_op}`"),
+                    op_kind = op_kind.desc(), original_bin_op = op_kind.as_str(), replacement_bin_op = mapped_op_kind.as_str()),
+                span_label: format!(concat!("swap ", $($bin_op_group, " ",)? "{op_kind} for `{replacement_bin_op}`"),
+                    op_kind = op_kind.desc(), replacement_bin_op = mapped_op_kind.as_str()),
             };
 
             Mutations::new_one(mutation, smallvec![
@@ -142,7 +123,7 @@ macro define_op_swap_operator(
 
 define_op_swap_operator! {
     /// Swap addition for subtraction and vice versa.
-    pub OpAddSubSwap, OpAddSubSwapMutation as MATH_OP_ADD_SUB_SWAP = "math_op_add_sub_swap" {
+    pub OpAddSubSwap as MATH_OP_ADD_SUB_SWAP = "math_op_add_sub_swap" {
         ast::BinOpKind::Add if impl Sub => ast::BinOpKind::Sub,
         ast::AssignOpKind::AddAssign if impl SubAssign => ast::AssignOpKind::SubAssign;
         ast::BinOpKind::Sub if impl Add => ast::BinOpKind::Add,
@@ -152,7 +133,7 @@ define_op_swap_operator! {
 
 define_op_swap_operator! {
     /// Swap addition for multiplication and vice versa.
-    pub OpAddMulSwap, OpAddMulSwapMutation as MATH_OP_ADD_MUL_SWAP = "math_op_add_mul_swap" {
+    pub OpAddMulSwap as MATH_OP_ADD_MUL_SWAP = "math_op_add_mul_swap" {
         ast::BinOpKind::Add if impl Mul => ast::BinOpKind::Mul,
         ast::AssignOpKind::AddAssign if impl MulAssign => ast::AssignOpKind::MulAssign;
         ast::BinOpKind::Mul if impl Add => ast::BinOpKind::Add,
@@ -162,7 +143,7 @@ define_op_swap_operator! {
 
 define_op_swap_operator! {
     /// Swap multiplication for division and vice versa.
-    pub OpMulDivSwap, OpMulDivSwapMutation as MATH_OP_MUL_DIV_SWAP = "math_op_mul_div_swap" {
+    pub OpMulDivSwap as MATH_OP_MUL_DIV_SWAP = "math_op_mul_div_swap" {
         ast::BinOpKind::Mul if impl Div => ast::BinOpKind::Div,
         ast::AssignOpKind::MulAssign if impl DivAssign => ast::AssignOpKind::DivAssign;
         ast::BinOpKind::Div if impl Mul => ast::BinOpKind::Mul,
@@ -172,7 +153,7 @@ define_op_swap_operator! {
 
 define_op_swap_operator! {
     /// Swap division for modulus and vice versa.
-    pub OpDivRemSwap, OpDivRemSwapMutation as MATH_OP_DIV_REM_SWAP = "math_op_div_rem_swap" {
+    pub OpDivRemSwap as MATH_OP_DIV_REM_SWAP = "math_op_div_rem_swap" {
         ast::BinOpKind::Div if impl Rem => ast::BinOpKind::Rem,
         ast::AssignOpKind::DivAssign if impl RemAssign => ast::AssignOpKind::RemAssign;
         ast::BinOpKind::Rem if impl Div => ast::BinOpKind::Div,
@@ -182,7 +163,7 @@ define_op_swap_operator! {
 
 define_op_swap_operator! {
     /// Swap bitwise OR for bitwise XOR and vice versa.
-    pub BitOpOrXorSwap, BitOpOrXorSwapMutation as BIT_OP_OR_XOR_SWAP = "bit_op_or_xor_swap" ["bitwise"] {
+    pub BitOpOrXorSwap as BIT_OP_OR_XOR_SWAP = "bit_op_or_xor_swap" ["bitwise"] {
         ast::BinOpKind::BitOr if impl BitXor => ast::BinOpKind::BitXor,
         ast::AssignOpKind::BitOrAssign if impl BitXorAssign => ast::AssignOpKind::BitXorAssign;
         ast::BinOpKind::BitXor if impl BitOr => ast::BinOpKind::BitOr,
@@ -192,7 +173,7 @@ define_op_swap_operator! {
 
 define_op_swap_operator! {
     /// Swap bitwise OR for bitwise AND and vice versa.
-    pub BitOpOrAndSwap, BitOpOrAndSwapMutation as BIT_OP_OR_AND_SWAP = "bit_op_or_and_swap" ["bitwise"] {
+    pub BitOpOrAndSwap as BIT_OP_OR_AND_SWAP = "bit_op_or_and_swap" ["bitwise"] {
         ast::BinOpKind::BitOr if impl BitAnd => ast::BinOpKind::BitAnd,
         ast::AssignOpKind::BitOrAssign if impl BitAndAssign => ast::AssignOpKind::BitAndAssign;
         ast::BinOpKind::BitAnd if impl BitOr => ast::BinOpKind::BitOr,
@@ -202,7 +183,7 @@ define_op_swap_operator! {
 
 define_op_swap_operator! {
     /// Swap bitwise XOR for bitwise AND and vice versa.
-    pub BitOpXorAndSwap, BitOpXorAndSwapMutation as BIT_OP_XOR_AND_SWAP = "bit_op_xor_and_swap" ["bitwise"] {
+    pub BitOpXorAndSwap as BIT_OP_XOR_AND_SWAP = "bit_op_xor_and_swap" ["bitwise"] {
         ast::BinOpKind::BitXor if impl BitAnd => ast::BinOpKind::BitAnd,
         ast::AssignOpKind::BitXorAssign if impl BitAndAssign => ast::AssignOpKind::BitAndAssign;
         ast::BinOpKind::BitAnd if impl BitXor => ast::BinOpKind::BitXor,
@@ -212,7 +193,7 @@ define_op_swap_operator! {
 
 define_op_swap_operator! {
     /// Swap the direction of bitwise shift operators.
-    pub BitOpShiftDirSwap, BitOpShiftDirSwapMutation as BIT_OP_SHIFT_DIR_SWAP = "bit_op_shift_dir_swap" ["bitwise"] {
+    pub BitOpShiftDirSwap as BIT_OP_SHIFT_DIR_SWAP = "bit_op_shift_dir_swap" ["bitwise"] {
         ast::BinOpKind::Shl if impl Shr => ast::BinOpKind::Shr,
         ast::AssignOpKind::ShlAssign if impl ShrAssign => ast::AssignOpKind::ShrAssign;
         ast::BinOpKind::Shr if impl Shl => ast::BinOpKind::Shl,
@@ -222,7 +203,7 @@ define_op_swap_operator! {
 
 define_op_swap_operator! {
     /// Swap logical && for logical || and vice versa.
-    pub LogicalOpAndOrSwap, LogicalOpAndOrSwapMutation as LOGICAL_OP_AND_OR_SWAP = "logical_op_and_or_swap" ["logical"] {
+    pub LogicalOpAndOrSwap as LOGICAL_OP_AND_OR_SWAP = "logical_op_and_or_swap" ["logical"] {
         ast::BinOpKind::And => ast::BinOpKind::Or;
         ast::BinOpKind::Or => ast::BinOpKind::And;
     }

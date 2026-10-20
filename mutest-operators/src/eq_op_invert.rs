@@ -6,33 +6,31 @@ use rustc_data_structures::smallvec::smallvec;
 
 pub const EQ_OP_INVERT: &str = "eq_op_invert";
 
-pub struct EqOpInvertMutation {
-    pub original_bin_op: ast::BinOpKind,
-    pub replacement_bin_op: ast::BinOpKind,
+/// A mutation that swaps a binary operator: the name of its operator, and the texts that describe the swap.
+pub struct BinOpSwapMutation {
+    pub op_name: &'static str,
+    pub display_name: String,
+    pub span_label: String,
 }
 
-impl Mutation for EqOpInvertMutation {
-    fn op_name(&self) -> &str { EQ_OP_INVERT }
+impl Mutation for BinOpSwapMutation {
+    fn op_name(&self) -> &str { self.op_name }
+    fn display_name(&self) -> String { self.display_name.clone() }
+    fn span_label(&self) -> String { self.span_label.clone() }
+}
 
-    fn display_name(&self) -> String {
-        format!("invert equality operator `{original_bin_op}` to `{replacement_bin_op}`",
-            original_bin_op = self.original_bin_op.as_str(),
-            replacement_bin_op = self.replacement_bin_op.as_str(),
-        )
-    }
-
-    fn span_label(&self) -> String {
-        format!("invert equality operator to `{replacement_bin_op}`",
-            replacement_bin_op = self.replacement_bin_op.as_str(),
-        )
-    }
+/// The mutation that inverts an operator of the kind, such as `equality`, to the replacement.
+pub(crate) fn invert_bin_op(op_name: &'static str, kind: &str, original_bin_op: ast::BinOpKind, replacement_bin_op: ast::BinOpKind) -> BinOpSwapMutation {
+    let (original_bin_op, replacement_bin_op) = (original_bin_op.as_str(), replacement_bin_op.as_str());
+    let display_name = format!("invert {kind} operator `{original_bin_op}` to `{replacement_bin_op}`");
+    BinOpSwapMutation { op_name, display_name, span_label: format!("invert {kind} operator to `{replacement_bin_op}`") }
 }
 
 /// Invert equality checks.
 pub struct EqOpInvert;
 
 impl<'a> Operator<'a> for EqOpInvert {
-    type Mutation = EqOpInvertMutation;
+    type Mutation = BinOpSwapMutation;
 
     fn try_apply(&self, mcx: &MutCtxt) -> Mutations<Self::Mutation> {
         let MutCtxt { opts: _, tcx: _, crate_res: _, def_res: _, def_site: def, item_hir: _, body_res: _, location, value_is_borrowed: _ } = *mcx;
@@ -43,7 +41,7 @@ impl<'a> Operator<'a> for EqOpInvert {
             ast::BinOpKind::Eq => Some(ast::BinOpKind::Ne),
             ast::BinOpKind::Ne => Some(ast::BinOpKind::Eq),
             _ => None,
-        }, |original_bin_op, replacement_bin_op| Self::Mutation { original_bin_op, replacement_bin_op })
+        }, |original_bin_op, replacement_bin_op| invert_bin_op(EQ_OP_INVERT, "equality", original_bin_op, replacement_bin_op))
     }
 }
 
