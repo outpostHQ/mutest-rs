@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/outpostHQ/chock/main/schema/baseline-v1.json",
   "version": 1,
-  "chock": "0.10.1",
+  "chock": "0.11.1",
   "gates": {
     "admits": {},
     "assertions": {},
@@ -655,6 +655,7 @@
       "mutest-runtime/src/harness.rs#run_mutation_analysis": 3,
       "mutest-runtime/src/test_runner.rs#from_task": 1
     },
+    "pinned": {},
     "placement": {},
     "slop": {
       "cargo-mutest/src/main.rs": 4,
@@ -829,6 +830,7 @@
     "modcheck": "orphan module file(s)",
     "mutest": "mutation(s) no test killed",
     "nesting": "level(s) past four",
+    "pinned": "lost test(s)",
     "placement": "misplaced dependency declaration(s)",
     "slop": "over-long comment block(s)",
     "sort": "unsorted manifest(s)",

@@ -26,6 +26,7 @@
     "modcheck",
     "mutest",
     "nesting",
+    "pinned",
     "placement",
     "profile",
     "slop",
