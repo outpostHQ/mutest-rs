@@ -360,13 +360,10 @@ fn run_test_in_process(
     let stdout = io_buffer.lock().unwrap_or_else(|e| e.into_inner()).to_vec();
     let completed_test = CompletedTest { id, desc, result: test_result, exec_time: Some(exec_time), stdout };
 
-    match monitor_ch.send(MonitorMessage::Completed(completed_test)) {
-        Ok(()) => {}
-        // Send errors will only occur if the test execution outlives the test run, closing the receiver early. This
-        // happens if the test runner was stopped early, leaving already running tests lingering until completion. This
-        // behavior is considered intended and so send errors are explicitly ignored.
-        Err(mpsc::SendError(_)) => {}
-    };
+    // Send errors will only occur if the test execution outlives the test run, closing the receiver early. This
+    // happens if the test runner was stopped early, leaving already running tests lingering until completion. This
+    // behavior is considered intended and so send errors are explicitly ignored.
+    let _ = monitor_ch.send(MonitorMessage::Completed(completed_test));
 }
 
 pub static TEST_SUBPROCESS_INVOCATION: &str = protocol_var!("__ISOLATED_TEST_CASE");
