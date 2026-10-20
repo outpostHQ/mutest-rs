@@ -35,3 +35,14 @@ fn read() -> u8 {
     let self::data::Value(value) = self::data::Value(1);
     value
 }
+
+pub fn key(table: &str, key: &str) -> String {
+    format!("{table}/{key}")
+}
+
+impl Frame {
+    pub fn get(&self, table: &str, key: &str) -> String {
+        // TEST: The param `key` shadows the fn `key`.
+        self::key(table, key)
+    }
+}

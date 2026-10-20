@@ -59,7 +59,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
         }
     }
 
-    /// Whether an item or import of an enclosing block can shadow the module item that starts the local path.
+    /// Whether an item, import or local binding of an enclosing block or fn can shadow the module item that starts the local path.
     pub(super) fn is_shadowed_in_block(&self, def_path: &res::DefPath<'tcx>) -> bool {
         let Some(first) = def_path.segments.first() else { return false; };
         if first.ident.is_path_segment_keyword() { return false; }

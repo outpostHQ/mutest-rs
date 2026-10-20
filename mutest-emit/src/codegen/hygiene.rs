@@ -143,6 +143,11 @@ pub fn sanitize_ident_if_def_from_expansion(ident: &mut Ident, def_ident_span: S
     sanitize_ident_if_from_expansion(ident, IdentResKind::Def);
 }
 
+/// The type root that a path adjustment returns, which a context that disallows qualified paths cannot use.
+fn expect_unqualified(qself: Option<Ty<'_>>, span: Span) {
+    if qself.is_some() { span_bug!(span, "produced type-relative path in context which disallows qualified paths"); }
+}
+
 fn sanitize_standalone_ident_if_from_expansion(ident: &mut Ident, ident_res_kind: IdentResKind) {
     if ident.name == kw::StaticLifetime { return; }
 
@@ -194,7 +199,7 @@ struct MacroExpansionSanitizer<'tcx, 'op> {
     /// We do not want to sanitize some idents (mostly temporarily) in the AST.
     /// During the visit we keep track of these so that they can be excluded from sanitization.
     protected_idents: FxHashSet<Ident>,
-    /// Names that the items and imports of the enclosing blocks bring into scope, which can shadow module items.
+    /// Names that the items, imports and local bindings of the enclosing blocks and fns bring into scope, which can shadow module items.
     /// `None` stands for a glob import, which can shadow any name.
     block_names: Vec<Option<Symbol>>,
 
@@ -1034,9 +1039,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
             };
 
             let visible_def_path = self.expect_visible_def_path(def_path_request, ignore_reexport, path.span);
-            let None = self.overwrite_path_with_def_path(path, &visible_def_path) else {
-                span_bug!(path.span, "produced type-relative path in context which disallows qualified paths");
-            };
+            expect_unqualified(self.overwrite_path_with_def_path(path, &visible_def_path), path.span);
         };
 
         let Some(&import_def_id) = self.def_res.node_id_to_def_id.get(&import_node_id) else { unreachable!() };
@@ -1312,9 +1315,7 @@ pub fn sanitize_path<'tcx>(tcx: TyCtxt<'tcx>, crate_res: &res::CrateResolutions<
         }
     }
 
-    let None = sanitizer.adjust_path_from_expansion(path, res, None) else {
-        span_bug!(path.span, "produced type-relative path in context which disallows qualified paths");
-    };
+    expect_unqualified(sanitizer.adjust_path_from_expansion(path, res, None), path.span);
 }
 
 macro def_flat_map_item_fns(
@@ -1341,6 +1342,7 @@ macro def_flat_map_item_fns(
 
             // Store new context scope.
             let previous_scope = mem::replace(&mut $self.current_scope, Some($def_id.to_def_id()));
+            let outer_block_names = $self.block_names.len();
 
             // Store new typeck scope, if needed.
             let previous_typeck_ctx = $self.current_typeck_ctx;
@@ -1357,6 +1359,7 @@ macro def_flat_map_item_fns(
             $($post_walk)?
 
             // Restore previous context.
+            $self.block_names.truncate(outer_block_names);
             $self.current_typeck_ctx = previous_typeck_ctx;
             $self.current_scope = previous_scope;
             $self.macros_2_0_top_level_relative_path_res_hack = previous_macros_2_0_scope;
@@ -1675,6 +1678,7 @@ impl<'tcx, 'op> ast::mut_visit::MutVisitor for MacroExpansionSanitizer<'tcx, 'op
                 if let Some(hir::Res::Local(..)) = self.def_res.node_res(pat_id) {
                     sanitize_standalone_ident_if_from_expansion(ident, IdentResKind::Local);
                     protected_ident = Some(*ident);
+                    self.block_names.push(Some(ident.name));
                 }
             }
             ast::PatKind::Path(qself, path) => {
@@ -1760,9 +1764,7 @@ impl<'tcx, 'op> ast::mut_visit::MutVisitor for MacroExpansionSanitizer<'tcx, 'op
         let Some(res) = self.def_res.node_res(last_segment.id) else {
             span_bug!(path.span, "path `{}` cannot be resolved by generic path handler", path_to_string(path));
         };
-        let None = self.sanitize_path(path, res, None) else {
-            span_bug!(path.span, "produced type-relative path in context which disallows qualified paths");
-        };
+        expect_unqualified(self.sanitize_path(path, res, None), path.span);
     }
 
     fn visit_lifetime(&mut self, lifetime: &mut ast::Lifetime, _lifetime_ctx: ast::visit::LifetimeCtxt) {
@@ -1808,9 +1810,7 @@ impl<'tcx, 'op> ast::mut_visit::MutVisitor for MacroExpansionSanitizer<'tcx, 'op
                 let previous_scope = self.current_scope.replace(vis_scope);
                 let qself = self.adjust_path_from_expansion(path, res, None);
                 self.current_scope = previous_scope;
-                let None = qself else {
-                    span_bug!(path.span, "produced type-relative path in context which disallows qualified paths");
-                };
+                expect_unqualified(qself, path.span);
             }
             _ => ast::mut_visit::walk_vis(self, vis),
         }
