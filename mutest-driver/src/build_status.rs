@@ -78,12 +78,14 @@ pub fn build_failed(marker_path: &Path) -> bool {
 pub fn stop_once_the_build_has_failed() {
     let Some(marker_path) = marker_path() else { return; };
     thread::spawn(move || {
-        while !build_failed(&marker_path) {
-            thread::sleep(POLL_INTERVAL);
-        }
-
+        wait_until(|| build_failed(&marker_path));
         mutest_emit::stop::request("another part of the build has already failed".to_owned());
     });
+}
+
+/// Checks `done` now and after each poll interval, until it holds.
+fn wait_until(mut done: impl FnMut() -> bool) {
+    while !done() { thread::sleep(POLL_INTERVAL); }
 }
 
 #[cfg(test)]
@@ -91,7 +93,7 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
-    use super::{belongs_to_run, build_failed, build_label, record_failure};
+    use super::{belongs_to_run, build_failed, build_label, record_failure, wait_until};
 
     #[test]
     fn a_driver_sees_the_failure_that_another_driver_of_the_same_build_recorded() {
@@ -108,6 +110,13 @@ mod tests {
         assert!(build_failed(&marker_path));
 
         let _ = fs::remove_file(&marker_path);
+    }
+
+    #[test]
+    fn the_wait_checks_again_after_each_poll_interval() {
+        let mut checks = 0;
+        wait_until(|| { checks += 1; checks == 2 });
+        assert_eq!(checks, 2);
     }
 
     #[test]
