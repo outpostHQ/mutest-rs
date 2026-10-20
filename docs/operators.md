@@ -182,7 +182,7 @@ self.len() <= other.len() || self.iter().all(|v| other.contains(v))
 
 ## `match_arm_delete`
 
-Delete match arms, so that the values they matched fall through to a later arm.
+Delete match arms with a guard that never holds, so that the values they matched fall through to a later arm. The arm keeps its body, so the other arms keep their types.
 
 Only arms before an unguarded catch-all arm are deleted, which keeps the match exhaustive.
 
@@ -196,6 +196,7 @@ match response.status() {
 with
 ```rs
 match response.status() {
+    404 if false => None,
     _ => Some(response.body()),
 }
 ```

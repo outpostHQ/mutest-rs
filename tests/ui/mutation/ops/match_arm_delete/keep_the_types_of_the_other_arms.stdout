@@ -1,0 +1,10 @@
+[match_arm_delete] delete match arm `"repo"` in render at tests/ui/mutation/ops/match_arm_delete/keep_the_types_of_the_other_arms.rs:12:17: 16:6
+  <-(0)- the_arms_keep_their_types
+
+[match_arm_delete] delete match arm `"root"` in render at tests/ui/mutation/ops/match_arm_delete/keep_the_types_of_the_other_arms.rs:12:17: 16:6
+  <-(0)- the_arms_keep_their_types
+
+[match_arm_delete] delete match arm `input` in guarded at tests/ui/mutation/ops/match_arm_delete/keep_the_types_of_the_other_arms.rs:21:5: 25:6
+  <-(0)- the_arms_keep_their_types
+
+3 mutations; 3 safe; 0 unsafe (0 tainted)
