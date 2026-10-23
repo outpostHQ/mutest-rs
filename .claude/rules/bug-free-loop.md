@@ -1,7 +1,6 @@
 # Bug-free loop — the same in every op/* repository
 
-Loaded on every session. Each op/* repository has this text unchanged; scm keeps the source.
-The goal is 100% bug-free software, written by people or by agents. Each step has a measure.
+Loaded each session. Goal: 100% bug-free software, by people or agents; each step has a measure.
 
 1. **Map.** List the parts where data can be lost or a result can be wrong. Check them first.
 2. **Design.** Write a TLA+ spec for each design where two processes, a crash or a retry meet.
@@ -11,12 +10,13 @@ The goal is 100% bug-free software, written by people or by agents. Each step ha
    Kani harness (bounded), Miri, loom or a fuzz target. Label each function proven, bounded,
    design checked, tested, assumed or unverified. A gate refuses a label that goes down.
 4. **Oracle.** Where another tool is the reference, a ledger of cases must agree with it exactly.
-5. **Tests.** `chock run mutest` decides which tests stay. A surviving mutant gets a check.
-6. **Bug loop.** First a check that fails on the bug, then the fix where the defect is (no shim,
-   seam or alias), then the gate. Each open defect is one row, with `file:line` evidence, in
-   the repository's open-defect table; a fixed row leaves the table.
-7. **Gate.** One full gate run per batch, as the repository's workflow defines it, all green;
-   `cannot_run` is not a pass.
+5. **Order** (owner, 2026-10-23). Per feature or bug: a proof with a mutant, the smallest function,
+   the feature on real data at once, read; a failure: fix the cause, rerun, never the full suite.
+   Tests last: `chock run mutest` decides which stay, and a surviving mutant gets a check.
+6. **Bug loop.** Fix where the defect is (no shim, seam or alias). Each open defect is one row,
+   with `file:line` evidence, in the open-defect table; a fixed row leaves the table.
+7. **Gate.** The tests, proofs and lints of the change, then the required checks once per batch,
+   before the push, all green; `cannot_run` is not a pass. Green tests never prove a feature.
 8. **Lean** (owner, 2026-10-11). Each part stays under its line ceiling, which only goes down.
    Proofs and specs count, so a new spec comes with a larger deletion in the same commit. No
    code that keeps an old form working, no dead or duplicate code, no feature cut for a ceiling.
