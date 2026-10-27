@@ -59,7 +59,7 @@ Start(w) == sv[H(w)] = "loop" /\ pc[w] = "new" /\ (w > NH => jn /\ pc[w - NH] \i
 Begin(w) == pc[w] = "run" /\ Put(w, "start", "test") /\ UNCHANGED <<pid, sl>>
 \* code: mutest-runtime/src/progress.rs::Writer::end_test
 End(w) == pc[w] = "test" /\ \E k \in {"end", "endp"} : Put(w, k, "epi") /\ UNCHANGED <<pid, sl>>
-\* code: mutest-runtime/src/summary.rs::append_line
+\* code: mutest-runtime/src/summary.rs::record_in
 Sum(w, a, d) == pc[w] = "epi" /\ UNCHANGED <<f, n, pid>> /\ \E ok \in BOOLEAN :
     /\ pc' = [pc EXCEPT ![w] = IF ok THEN "fin" ELSE "dead"]
     /\ sl' = IF jn /\ ~d /\ ~ok THEN sl ELSE [sl EXCEPT ![w] = [p |-> IF jn /\ ~d THEN -1 ELSE Pos, ok |-> ok, l |-> a]]
@@ -68,13 +68,13 @@ Finish(w) == pc[w] = "fin" /\ (IF Act(w) THEN Put(w, "tbad", "bad") ELSE Put(w, 
 \* code: none; a signal ends the worker, maybe in the middle of a progress write
 Crash(w) == Alive(w) /\ UNCHANGED <<pid, sl>>
     /\ (Put(w, "part", "dead") \/ (pc' = [pc EXCEPT ![w] = "dead"] /\ UNCHANGED <<f, n>>))
-\* code: ../chock/src/gates/mutation/watch.rs::Watch::poll
+\* code: none; the reader is chock's (Watch::poll in src/gates/mutation/watch.rs)
 Poll(w, nl, nc, tk) == rs = "read" /\ IF nc /\ w = 0 THEN n[0] > 0 /\ rs' = "err" /\ UNCHANGED <<rd, bind>> ELSE
     LET m == IF nl THEN Whole(w) ELSE n[w] IN m > rd[w] /\ rd' = [rd EXCEPT ![w] = m] /\ \E v \in Wk :
     /\ (v = 0 <=> \A u \in Cur : pid[u] = pid[w] => ~Alive(u)) /\ (v > 0 => Alive(v) /\ pid[v] = pid[w])
     /\ IF bind[w] >= 0 THEN UNCHANGED <<bind, rs>> ELSE IF tk /\ v \notin {0, w} THEN rs' = "err" /\ UNCHANGED bind
        ELSE bind' = [bind EXCEPT ![w] = v] /\ UNCHANGED rs
-\* code: ../chock/src/gates/mutation/watch.rs::Watch::complete
+\* code: none; the reader is chock's (Watch::complete in src/gates/mutation/watch.rs)
 Complete == rs = "read" /\ sj[1] >= 0 /\ (\A w \in Wk : rd[w] = Whole(w)) /\ UNCHANGED <<rd, bind>>
     /\ rs' = IF \A w \in Wk : rd[w] = n[w] /\ (n[w] > 0 => f[w][n[w]] \in Term) THEN "done" ELSE "err"
 \* code: mutest-runtime/src/summary.rs::hand_over; sv[h] becomes the harness result; a signal can end it in its write

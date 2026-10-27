@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/outpostHQ/chock/main/schema/baseline-v1.json",
   "version": 1,
-  "chock": "0.11.1",
+  "chock": "0.18.0",
   "gates": {
     "admits": {},
     "assertions": {},
@@ -465,10 +465,7 @@
     },
     "duplication": {
       "mutest-emit/src/codegen/mutation.rs#visit_block": 1,
-      "mutest-emit/src/codegen/mutation.rs#visit_param": 1,
-      "mutest-operators/src/eq_op_invert.rs#try_apply": 2,
-      "mutest-operators/src/relational_op_eq_swap.rs#try_apply": 2,
-      "mutest-operators/src/relational_op_invert.rs#try_apply": 2
+      "mutest-emit/src/codegen/mutation.rs#visit_param": 1
     },
     "features": {},
     "lean": {
@@ -504,7 +501,11 @@
       "tests/ui/mutation/ops/relational_op_invert/invert_relational_checks.rs": 5
     },
     "lines": {
-      "total": 58183
+      "total": 58181
+    },
+    "links": {
+      "proofs/tla/MutantScheduling.tla#mutest-runtime/src/test_runner.rs::run_test_in_process": 1,
+      "proofs/tla/WorkerRestart.tla#mutest-runtime/src/supervisor.rs::supervise": 1
     },
     "manifest": {},
     "modcheck": {},
@@ -826,6 +827,7 @@
     "features": "feature declaration issue(s)",
     "lean": "removable line(s)",
     "lines": "line(s)",
+    "links": "stale link(s)",
     "manifest": "unpinned dependency declaration(s)",
     "modcheck": "orphan module file(s)",
     "mutest": "mutation(s) no test killed",

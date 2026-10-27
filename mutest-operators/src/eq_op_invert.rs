@@ -1,7 +1,6 @@
 use mutest_emit::{Mutation, Operator};
 use mutest_emit::codegen::ast;
 use mutest_emit::codegen::mutation::{MutCtxt, MutLoc, Mutations, Subst, SubstDef, SubstLoc};
-use mutest_emit::codegen::symbols::Span;
 use rustc_data_structures::smallvec::smallvec;
 
 pub const EQ_OP_INVERT: &str = "eq_op_invert";
@@ -33,11 +32,7 @@ impl<'a> Operator<'a> for EqOpInvert {
     type Mutation = BinOpSwapMutation;
 
     fn try_apply(&self, mcx: &MutCtxt) -> Mutations<Self::Mutation> {
-        let MutCtxt { opts: _, tcx: _, crate_res: _, def_res: _, def_site: def, item_hir: _, body_res: _, location, value_is_borrowed: _ } = *mcx;
-
-        let MutLoc::FnBodyExpr(expr, _) = location else { return Mutations::none(); };
-
-        swap_bin_op(def, expr, |bin_op| match bin_op {
+        swap_bin_op(mcx, |bin_op| match bin_op {
             ast::BinOpKind::Eq => Some(ast::BinOpKind::Ne),
             ast::BinOpKind::Ne => Some(ast::BinOpKind::Eq),
             _ => None,
@@ -45,8 +40,10 @@ impl<'a> Operator<'a> for EqOpInvert {
     }
 }
 
-/// The mutation of a binary expression whose operator `swap` maps to another one.
-pub(crate) fn swap_bin_op<M: Mutation>(def: Span, expr: &ast::Expr, swap: fn(ast::BinOpKind) -> Option<ast::BinOpKind>, mutation: fn(ast::BinOpKind, ast::BinOpKind) -> M) -> Mutations<M> {
+/// The mutation of a binary expression in a function body whose operator `swap` maps to another one.
+pub(crate) fn swap_bin_op<M: Mutation>(mcx: &MutCtxt, swap: fn(ast::BinOpKind) -> Option<ast::BinOpKind>, mutation: fn(ast::BinOpKind, ast::BinOpKind) -> M) -> Mutations<M> {
+    let MutCtxt { opts: _, tcx: _, crate_res: _, def_res: _, def_site: def, item_hir: _, body_res: _, location, value_is_borrowed: _ } = *mcx;
+    let MutLoc::FnBodyExpr(expr, _) = location else { return Mutations::none(); };
     let ast::ExprKind::Binary(bin_op, lhs, rhs) = &expr.kind else { return Mutations::none(); };
     let Some(replacement_bin_op) = swap(bin_op.node) else { return Mutations::none(); };
     let replacement_bin_expr = ast::mk::expr_binary(def, replacement_bin_op, lhs.clone(), rhs.clone());
