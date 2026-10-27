@@ -748,8 +748,8 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
         }
     }
 
-    // Explicitly disable color output. This mainly affects diagnostic messages generated for undetected mutations.
-    cmd.arg("--color=never");
+    // Disable color output, and name the standard library's spans `/rustc/<hash>/…` also with `rust-src` installed.
+    cmd.args(["--color=never", "-Ztranslate-remapped-path-to-local-path=no"]);
 
     let rustc_flags = raw_test_directives.iter().filter_map(|d| d.strip_prefix("rustc-flags:").map(str::trim)).flat_map(parse_args);
     cmd.args(rustc_flags);
