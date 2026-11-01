@@ -15,6 +15,7 @@ pub fn generate_client(_input: TokenStream) -> TokenStream {
         use self::inner::Marker;
 
         pub struct Client;
+        impl Client { pub fn new() -> Self { Client } }
 
         pub mod prelude {
             pub use self::super::Client;

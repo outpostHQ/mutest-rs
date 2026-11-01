@@ -16,11 +16,6 @@ fn written_self_ty_segments<'a>(qself: &'a Option<Box<ast::QSelf>>, path: &'a as
     }
 }
 
-/// Writes the enum generic args from `enum_args_of_variant_path` on the variant segment of the sanitized path.
-fn write_variant_args(path: &mut ast::Path, variant_args: Option<Box<ast::GenericArgs>>) {
-    if let Some(variant_segment) = path.segments.last_mut() && variant_args.is_some() { variant_segment.args = variant_args; }
-}
-
 impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
     /// Whether the self type of the path can keep its higher-ranked types inferred: in a body, with no generic args written for it.
     pub(super) fn infers_self_ty_args(&self, qself: &Option<Box<ast::QSelf>>, path: &ast::Path, qself_ty_hir_id: hir::HirId) -> bool {
@@ -68,7 +63,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
         } else {
             let variant_args = self.enum_args_of_variant_path(qself, path, qself_ty, node_hir_id, span);
             let None = self.sanitize_path(path, res, None) else { span_bug!(path.span, "produced unexpected type-relative path for non-assoc path") };
-            write_variant_args(path, variant_args);
+            if let Some(variant_segment) = path.segments.last_mut() && variant_args.is_some() { variant_segment.args = variant_args; }
         }
         *qself = None;
     }

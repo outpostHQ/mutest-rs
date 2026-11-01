@@ -46,15 +46,13 @@ fn returns_opaque_ty(sig: &ast::FnSig) -> bool {
 }
 
 /// Whether the function runs as plain code from its start to its end, unlike a constant or a coroutine.
-fn runs_as_plain_code(constness: &ast::Const, coroutine_marker: &Option<ast::CoroutineMarker>) -> bool {
-    matches!(constness, ast::Const::No) && coroutine_marker.is_none()
-}
+fn runs_as_plain_code(header: &ast::FnHeader) -> bool { matches!(header.constness, ast::Const::No) && header.coroutine_marker.is_none() }
 
 /// The body of the function to keep as its original code. A function has none if a copy of its body would hold
 /// an item a second time, or would give an opaque return type the type of a second closure.
 pub fn original_fn_body(func: &ast::Fn) -> Option<Box<ast::Block>> {
     let header = &func.sig.header;
-    if !runs_as_plain_code(&header.constness, &header.coroutine_marker) || func.define_opaque.is_some() { return None; }
+    if !runs_as_plain_code(header) || func.define_opaque.is_some() { return None; }
     let body = func.body.as_ref()?;
     let mut shape = BodyShape::default();
     shape.visit_block(body);

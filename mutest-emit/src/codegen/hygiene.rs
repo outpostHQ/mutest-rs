@@ -94,24 +94,22 @@ fn sanitize_ident_if_from_expansion(ident: &mut Ident, ident_res_kind: IdentResK
 
     let syntax_ctxt = ident.span.ctxt();
 
-    let mut res_ctxt_expn_id = None;
-    for (expn_id, transparency) in syntax_ctxt.marks().into_iter().rev() {
+    let res_ctxt_mark = syntax_ctxt.marks().into_iter().rev().find(|&(_, transparency)| match transparency {
+        // Transparent expansions (e.g. the call-site spans of procedural macros) are not hygienic: rustc resolves
+        // their identifiers at call-site, so their names stay as they are, as other crates name them so too.
+        Transparency::Transparent => false,
         // Some identifiers produced by semi-transparent expansions (e.g. macro_rules macros)
         // may be resolved at call-site, rather than at definition-site, meaning that
         // they are not actually hygienic.
-        if let Transparency::SemiOpaque = transparency {
-            // Local variables and labels get resolved at definition-site (i.e. hygienic),
-            // everything else at call-site (i.e. not hygienic).
-            // NOTE: `$crate` also gets resolved at definition-site but is handled
-            //       before our sanitization step.
-            let (IdentResKind::Local | IdentResKind::Label) = ident_res_kind else { continue; };
-        }
+        // Local variables and labels get resolved at definition-site (i.e. hygienic),
+        // everything else at call-site (i.e. not hygienic).
+        // NOTE: `$crate` also gets resolved at definition-site but is handled
+        //       before our sanitization step.
+        Transparency::SemiOpaque => matches!(ident_res_kind, IdentResKind::Local | IdentResKind::Label),
+        Transparency::Opaque => true,
+    });
 
-        res_ctxt_expn_id = Some(expn_id);
-        break;
-    }
-
-    let Some(res_ctxt_expn_id) = res_ctxt_expn_id else { return; };
+    let Some((res_ctxt_expn_id, _)) = res_ctxt_mark else { return; };
     let res_ctxt_expn = res_ctxt_expn_id.expn_data();
     if !is_macro_expn(&res_ctxt_expn) { return; }
 

@@ -7,7 +7,7 @@
     "assertions": {},
     "bigfiles": {
       "mutest-emit/src/analysis/ast_lowering.rs": 2758,
-      "mutest-emit/src/codegen/hygiene.rs": 1966,
+      "mutest-emit/src/codegen/hygiene.rs": 1964,
       "mutest-emit/src/codegen/mutation.rs": 1092,
       "mutest-inspector/src/server.rs": 1226,
       "mutest-runtime/src/harness.rs": 1250
@@ -699,7 +699,7 @@
       "mutest-emit/src/analysis/tests.rs": 1,
       "mutest-emit/src/codegen/ast.rs": 1,
       "mutest-emit/src/codegen/harness.rs": 1,
-      "mutest-emit/src/codegen/hygiene.rs": 31,
+      "mutest-emit/src/codegen/hygiene.rs": 30,
       "mutest-emit/src/codegen/mutation.rs": 4,
       "mutest-emit/src/codegen/substitution.rs": 2,
       "mutest-emit/src/codegen/symbols.rs": 1,

@@ -532,7 +532,7 @@ mod linux {
 
         /// Passes a requested cancellation on to an owner that has neither reported nor exited yet.
         fn forward_cancellation(&mut self, owner: &mut Owner, control: Option<&mpsc::Receiver<ControlMsg>>) -> io::Result<()> {
-            if self.cancelled || owner.cleanup_reported || self.exited || !cancel_requested(control) {
+            if self.cancelled || owner.cleanup_reported || self.exited || !control.is_some_and(|control| !matches!(control.try_recv(), Err(mpsc::TryRecvError::Empty))) {
                 return Ok(());
             }
             cancel(&mut owner.channel)?;
@@ -540,10 +540,6 @@ mod linux {
             self.allow(CLEANUP_TIMEOUT + REPORT_TIMEOUT);
             Ok(())
         }
-    }
-
-    fn cancel_requested(control: Option<&mpsc::Receiver<ControlMsg>>) -> bool {
-        control.is_some_and(|control| !matches!(control.try_recv(), Err(mpsc::TryRecvError::Empty)))
     }
 
     pub(super) fn run(
