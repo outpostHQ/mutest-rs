@@ -54,6 +54,7 @@ kani-list.json
 .chock/run.lock
 .chock/verdicts.json
 .chock/last-edit
+.chock/mutest-kills.json
 ?*.chock
 
 # Outpost keeps its per-repository state here.

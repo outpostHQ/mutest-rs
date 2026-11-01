@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs what work on mutest-rs needs, at the versions tool-versions.env pins. Safe to run again.
+# Installs what work on mutest-rs needs, at the versions tool-versions.env pins (chock: the newest). Safe to run again.
 # `bin/setup gates` installs what `chock run` needs, as CI does; `bin/setup dev` adds the developer tools.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -36,8 +36,8 @@ gates() {
     rustup target add aarch64-unknown-none
     say "cargo-binstall, so each tool after it installs a prebuilt release"
     has cargo-binstall || cargo install --locked cargo-binstall --version "$CARGO_BINSTALL_VERSION"
-    say "chock and the tools of the enabled gates"
-    cargo binstall -y --locked chock@"$CHOCK_VERSION" cargo-llvm-cov@"$CARGO_LLVM_COV_VERSION" \
+    say "the newest chock, and the tools of the enabled gates"
+    cargo binstall -y --locked chock cargo-llvm-cov@"$CARGO_LLVM_COV_VERSION" \
         cargo-crap@"$CARGO_CRAP_VERSION" cargo-deny@"$CARGO_DENY_VERSION" cargo-sort@"$CARGO_SORT_VERSION" \
         cargo-machete@"$CARGO_MACHETE_VERSION" cargo-bsize@"$CARGO_BSIZE_VERSION" typos-cli@"$TYPOS_CLI_VERSION"
 }
