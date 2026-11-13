@@ -578,7 +578,6 @@ pub fn generate_harness<'tcx, 'ent, 'trg, 'm>(
     extern_crate_mutest_runtime.vis = ast::mk::vis_pub_crate(def_site);
     mutest_generated_mod_items.push(extern_crate_mutest_runtime);
 
-
     match meta_mutant {
         MetaMutant::Internal { mutations, subst_slots, mutation_parallelism, unsafe_targeting } => {
             mutest_generated_mod_items.extend([

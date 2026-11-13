@@ -28,7 +28,6 @@ static NEXT_LIST: AtomicU64 = AtomicU64::new(0);
 mod child;
 use child::Child;
 
-
 impl<E, F> Scheduler<F>
 where
     F: FnMut(TestEvent, &mut Vec<(test::TestId, Test)>) -> Result<Flow, E>,

@@ -1282,6 +1282,11 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
             .collect::<ThinVec<_>>();
         use_tree.kind = ast::UseTreeKind::Nested { items: use_tree_items, span };
     }
+
+    fn attr_is_disabled(&self, attr: &ast::Attribute) -> bool {
+        matches!(attr.kind, ast::AttrKind::Generated(_))
+            || self.syntax_extensions.iter().any(|syntax_extension| syntax_extension.helper_attrs.iter().any(|&helper_attr| attr.has_name(helper_attr)))
+    }
 }
 
 pub fn sanitize_path<'tcx>(tcx: TyCtxt<'tcx>, crate_res: &res::CrateResolutions<'tcx>, def_res: &ast_lowering::DefResolutions, scope: Option<hir::DefId>, path: &mut ast::Path, res: hir::Res<ast::NodeId>, descend_into_args: bool) {
@@ -1502,19 +1507,14 @@ impl<'tcx, 'op> ast::mut_visit::MutVisitor for MacroExpansionSanitizer<'tcx, 'op
     }
 
     fn visit_attribute(&mut self, attr: &mut ast::Attribute) {
-        // Derive-helper and compiler-inserted (tokenless) attributes are disabled via an empty doc-comment.
-        if matches!(attr.kind, ast::AttrKind::Generated(_))
-            || self.syntax_extensions.iter().any(|syntax_extension| syntax_extension.helper_attrs.iter().any(|&helper_attr| attr.has_name(helper_attr)))
-        {
+        if self.attr_is_disabled(attr) {
             attr.kind = ast::AttrKind::DocComment(ast::token::CommentKind::Line, sym::empty);
             return;
         }
 
-        // The `no_mangle`, `export_name` and `link_section` attributes have been "made" unsafe
-        // and are required to be marked unsafe starting in edition 2024.
-        // See https://doc.rust-lang.org/edition-guide/rust-2024/unsafe-attributes.html.
-        // Previous editions allow, but do not require marking these three attributes as unsafe.
-        // NOTE: All other unsafe attributes were unsafe when they were stabilized.
+        // The `no_mangle`, `export_name` and `link_section` attributes must be marked unsafe from edition 2024
+        // (https://doc.rust-lang.org/edition-guide/rust-2024/unsafe-attributes.html); earlier editions allow it unmarked.
+        // NOTE: All other unsafe attributes were already unsafe when they were stabilized.
         if self.tcx.sess.edition().at_least_rust_2024()
             && let ast::AttrKind::Normal(normal_attr) = &mut attr.kind
             && let Some(attr_name) = normal_attr.item.name()

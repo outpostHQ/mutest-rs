@@ -260,15 +260,13 @@ fn test_thread_abandoned() -> bool {
     unsafe { TEST_THREAD_ACTIVE.get().as_ref() }.is_some_and(|active_signal| !active_signal.load(atomic::Ordering::SeqCst))
 }
 
-/// Whether the run gave up a test whose thread still runs.
-/// Inlined even in unoptimized builds, as every substitution point calls it.
+/// Whether the run gave up a test whose thread still runs. Inlined even in unoptimized builds, as every substitution point calls it.
 #[inline(always)]
 fn any_test_thread_abandoned() -> bool {
     ABANDONED_TEST_THREADS.load(atomic::Ordering::Relaxed) != 0
 }
 
-/// The substitution of the active mutant at the location, or none for a test the run gave up, which an unwinding
-/// abandoned test reaches past `is_test_thread_active`.
+/// The substitution of the active mutant at the location, or none for a test the run gave up, which an unwinding abandoned test reaches past `is_test_thread_active`.
 #[inline(always)]
 fn active_subst<S: SubstMap>(subst_map: &S, subst_loc_idx: SubstLocIdx) -> Option<SubstMeta> {
     match subst_map.subst_at(subst_loc_idx) {
@@ -284,8 +282,7 @@ impl<S: SubstMap> ActiveMutantHandle<S> {
         active_subst(self.subst_map(), subst_loc_idx)
     }
 
-    /// Whether a location runs the mutation: the one that the slot of the guard of its function body holds now.
-    /// The slot mostly holds what the guard entered the body with, and then the location reads nothing behind the slot.
+    /// Whether a location runs the mutation: the one that the slot of the guard of its function body holds now. The slot mostly holds what the guard entered the body with, and then the location reads nothing behind the slot.
     #[inline(always)]
     pub fn runs_mutation_at(&'static self, entered: SubstMeta, subst_loc_idx: SubstLocIdx, mutation_id: u32) -> bool {
         let entered_with = entered.mutation.id == mutation_id;
@@ -309,7 +306,12 @@ fn runs_mutation_of_new_mutant(subst: Option<SubstMeta>, entered_with: bool, mut
 /// Whether this thread may go on past a substitution point, where an abandoned test is cancelled by a panic.
 #[inline(always)]
 pub fn is_test_thread_active() -> bool {
-    !any_test_thread_abandoned() || !test_thread_abandoned() || thread::panicking()
+    !any_test_thread_abandoned() || test_thread_goes_on()
+}
+
+/// Whether the test of this thread goes on: the run did not give it up, or it unwinds already, as a second panic would abort the process.
+fn test_thread_goes_on() -> bool {
+    !test_thread_abandoned() || thread::panicking()
 }
 
 fn run_test_in_process(
