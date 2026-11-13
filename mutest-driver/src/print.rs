@@ -1,17 +1,17 @@
-use std::hash::{Hash, Hasher};
 use std::iter;
 
 use mutest_emit::analysis::call_graph::{CallGraph, Callee, EntryPoints, LocalEntryPoint, Target, TargetReachability, Unsafety};
 use mutest_emit::analysis::tests::Test;
 use mutest_emit::codegen::symbols::span_diagnostic_ord;
 use mutest_emit::codegen::mutation::{Mut, MutId, MutationBatch, MutationConflictGraph, UnsafeTargeting};
-use rustc_data_structures::fx::{FxHashMap, FxHashSet, FxHasher};
-use rustc_data_structures::smallvec::{SmallVec, smallvec};
+use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use rustc_middle::ty::TyCtxt;
 use rustc_span::bug;
 use rustc_span::def_id::DefId;
 
 use crate::config;
+
+mod print_call_graph_graphviz;
 
 pub fn print_tests(tests: &[Test]) {
     let mut ignored_tests_count = 0;
@@ -168,7 +168,7 @@ fn filtered_call_graph_nodes<'tcx>(tcx: TyCtxt<'tcx>, entry_points: EntryPoints<
     filtered_nodes
 }
 
-pub fn print_call_graph<'tcx, 'ent, 'trg>(tcx: TyCtxt<'tcx>, entry_points: EntryPoints<'ent>, call_graph: &CallGraph<'tcx>, targets: &[Target], format: config::GraphFormat, entry_point_filters: &[String], non_local_call_view: config::CallGraphNonLocalCallView) {
+pub fn print_call_graph<'tcx, 'ent>(tcx: TyCtxt<'tcx>, entry_points: EntryPoints<'ent>, call_graph: &CallGraph<'tcx>, targets: &[Target], format: config::GraphFormat, entry_point_filters: &[String], non_local_call_view: config::CallGraphNonLocalCallView) {
     if let EntryPoints::External = entry_points {
         bug!("cannot print call graph for external entry points");
     }
@@ -176,251 +176,65 @@ pub fn print_call_graph<'tcx, 'ent, 'trg>(tcx: TyCtxt<'tcx>, entry_points: Entry
     let filtered_nodes = filtered_call_graph_nodes(tcx, entry_points, call_graph, entry_point_filters);
 
     match format {
-        config::GraphFormat::Simple => {
-            let mut entry_points_in_print_order = entry_points.iter()
-                .map(|entry_point| (entry_point.path_str(tcx), entry_point))
-                .collect::<Vec<_>>();
-            entry_points_in_print_order.sort_unstable_by(|(entry_point_a_path_str, _), (entry_point_b_path_str, _)| Ord::cmp(entry_point_a_path_str, entry_point_b_path_str));
+        config::GraphFormat::Simple => print_call_graph_simple(tcx, entry_points, call_graph, entry_point_filters, &filtered_nodes),
+        config::GraphFormat::Graphviz => print_call_graph_graphviz::print_call_graph_graphviz(tcx, entry_points, call_graph, targets, entry_point_filters, non_local_call_view, &filtered_nodes),
+    }
+}
 
-            println!("entry points:\n");
+fn print_call_graph_simple<'tcx, 'ent>(tcx: TyCtxt<'tcx>, entry_points: EntryPoints<'ent>, call_graph: &CallGraph<'tcx>, entry_point_filters: &[String], filtered_nodes: &FxHashSet<Callee<'tcx>>) {
+    let mut entry_points_in_print_order = entry_points.iter()
+        .map(|entry_point| (entry_point.path_str(tcx), entry_point))
+        .collect::<Vec<_>>();
+    entry_points_in_print_order.sort_unstable_by(|(entry_point_a_path_str, _), (entry_point_b_path_str, _)| Ord::cmp(entry_point_a_path_str, entry_point_b_path_str));
 
-            for (entry_point_path_str, entry_point) in entry_points_in_print_order {
-                if !matches_entry_point_filters(&entry_point_path_str, entry_point_filters) { continue; }
+    println!("entry points:\n");
 
-                println!("{descr} {path}",
-                    descr = match entry_points {
-                        EntryPoints::Tests(_) => "test",
-                        EntryPoints::External => unreachable!(),
-                    },
-                    path = entry_point_path_str,
-                );
+    for (entry_point_path_str, entry_point) in entry_points_in_print_order {
+        if !matches_entry_point_filters(&entry_point_path_str, entry_point_filters) { continue; }
 
-                let mut callees_in_print_order = call_graph.root_calls.get(&entry_point.local_def_id).map(|v| &**v).unwrap_or_default().into_iter()
-                    // HACK: Deduplicate multiple calls to the same callee.
-                    .map(|call| call.callee).collect::<FxHashSet<_>>().into_iter()
-                    .map(|callee| (callee.display_str(tcx), tcx.def_span(callee.def_id), callee))
-                    .collect::<Vec<_>>();
-                callees_in_print_order.sort_unstable_by(|(callee_a_display_str, callee_a_span, _), (callee_b_display_str, callee_b_span, _)| {
-                    span_diagnostic_ord(*callee_a_span, *callee_b_span).then(Ord::cmp(callee_a_display_str, callee_b_display_str))
-                });
-
-                for (callee_display_str, callee_span, _) in callees_in_print_order {
-                    println!("  -> {} at {:#?}", callee_display_str, callee_span);
-                }
-            }
-
-            for (distance, calls) in iter::zip(1.., &call_graph.nested_calls) {
-                println!("\nnested calls at distance {distance}:\n");
-
-                let callers = calls.iter()
-                    .map(|(caller, _)| caller)
-                    .filter(|caller| entry_point_filters.is_empty() || filtered_nodes.contains(caller))
-                    .collect::<FxHashSet<_>>();
-                let mut callers_in_print_order = callers.into_iter()
-                    .map(|caller| (caller.display_str(tcx), tcx.def_span(caller.def_id), caller))
-                    .collect::<Vec<_>>();
-                callers_in_print_order.sort_unstable_by(|(caller_a_display_str, caller_a_span, _), (caller_b_display_str, caller_b_span, _)| {
-                    span_diagnostic_ord(*caller_a_span, *caller_b_span).then(Ord::cmp(caller_a_display_str, caller_b_display_str))
-                });
-
-                for (caller_display_str, caller_span, caller) in callers_in_print_order {
-                    println!("{} at {:#?}", caller_display_str, caller_span);
-
-                    let mut callees_in_print_order = calls.get(caller).map(|v| &**v).unwrap_or_default().into_iter()
-                        // HACK: Deduplicate multiple calls to the same callee.
-                        .map(|call| call.callee).collect::<FxHashSet<_>>().into_iter()
-                        .map(|callee| (callee.display_str(tcx), tcx.def_span(callee.def_id), callee))
-                        .collect::<Vec<_>>();
-                    callees_in_print_order.sort_unstable_by(|(callee_a_display_str, callee_a_span, _), (callee_b_display_str, callee_b_span, _)| {
-                        span_diagnostic_ord(*callee_a_span, *callee_b_span).then(Ord::cmp(callee_a_display_str, callee_b_display_str))
-                    });
-
-                    for (callee_display_str, callee_span, _) in callees_in_print_order {
-                        println!("  -> {} at {:#?}", callee_display_str, callee_span);
-                    }
-                }
-            }
-        }
-        config::GraphFormat::Graphviz => {
-            let def_node_id = |def_id: DefId| format!("def_{}_{}", def_id.krate.index(), def_id.index.index());
-
-            let callee_node_id = |callee: &Callee| {
-                if callee.generic_args.is_empty() { return def_node_id(callee.def_id); }
-                let hash = { let mut hasher = FxHasher::default(); callee.generic_args.hash(&mut hasher); hasher.finish() };
-                format!("def_{}_{}_{:x}", callee.def_id.krate.index(), callee.def_id.index.index(), hash)
-            };
-
-            let escape_label_str = |label: &str| rustc_graphviz::LabelText::LabelStr(std::borrow::Cow::Borrowed(label)).to_dot_string();
-
-            println!("strict digraph {{");
-            println!("  layout=dot;");
-            println!("  rankdir=LR;");
-            println!("  concentrate=true;");
-            println!("  ranksep=1;");
-            println!("  forcelabels=true;");
-
-            // Distance markers. Also used as "anchors" for the depth-based ranks.
-            println!("  node [shape=none];");
-            println!("  _ [label=\"distance:\"];");
-            print!("  _");
-            for distance in 0..=call_graph.nested_calls.len() { print!(" -> {distance}"); }
-            println!(" [arrowhead=none];");
-
-            println!("  node [shape=ellipse];");
-
-            println!("  subgraph cluster_tests {{");
-            println!("    label=\"{}\";", match entry_points {
-                EntryPoints::Tests(_) => "tests (entry points)",
+        println!("{descr} {path}",
+            descr = match entry_points {
+                EntryPoints::Tests(_) => "test",
                 EntryPoints::External => unreachable!(),
-            });
-            println!("    rank=same");
-            println!("    style=filled;");
-            println!("    color=lightgray;");
-            println!("    node [style=filled, color=white];");
+            },
+            path = entry_point_path_str,
+        );
 
-            for entry_point in entry_points.iter() {
-                let entry_point_path_str = entry_point.path_str(tcx);
-
-                if !matches_entry_point_filters(&entry_point_path_str, entry_point_filters) { continue; }
-
-                // TODO: Use different styling for ignored test, or use strikethrough.
-                println!("    {} [label=\"{}\"];", def_node_id(entry_point.local_def_id.to_def_id()), entry_point_path_str);
-            }
-
-            println!("  }}");
-
-            let mut defined_callees: FxHashSet<Callee> = Default::default();
-            let mut collapsed_call_paths: FxHashMap::<Callee<'tcx>, SmallVec<[SmallVec<[Callee<'tcx>; 3]>; 1]>> = Default::default();
-
-            println!("  {{ rank=same; 0;");
-            let unique_root_callees = call_graph.root_calls.iter()
-                .filter(|(root_def_id, _)| entry_point_filters.is_empty() || filtered_nodes.contains(&Callee::new(root_def_id.to_def_id(), tcx.mk_args(&[]))))
-                .flat_map(|(_, calls)| calls)
-                .map(|call| call.callee)
-                .collect::<FxHashSet<_>>();
-            for callee in unique_root_callees {
-                if !defined_callees.insert(callee) { continue; }
-
-                // Override non-local callee node rendering.
-                if !callee.def_id.is_local() {
-                    match non_local_call_view {
-                        config::CallGraphNonLocalCallView::Collapse => {}
-                        config::CallGraphNonLocalCallView::Expand => {
-                            println!("    {} [label={}, shape=plaintext, fontcolor=lightgray];", callee_node_id(&callee), escape_label_str(&callee.display_str(tcx)));
-                        }
-                    }
-                    continue;
-                }
-
-                match targets.iter().any(|target| target.def_id() == callee.def_id) {
-                    true => println!("    {} [label={}];", callee_node_id(&callee), escape_label_str(&callee.display_str(tcx))),
-                    false => println!("    {} [label={}, shape=plaintext];", callee_node_id(&callee), escape_label_str(&callee.display_str(tcx))),
-                }
-            }
-            println!("  }}");
-            for (root_def_id, calls) in &call_graph.root_calls {
-                for call in calls {
-                    if !entry_point_filters.is_empty() && !filtered_nodes.contains(&Callee::new(root_def_id.to_def_id(), tcx.mk_args(&[]))) { continue; }
-
-                    // Override non-local root call edge rendering.
-                    if !call.callee.def_id.is_local() {
-                        match non_local_call_view {
-                            config::CallGraphNonLocalCallView::Collapse => {
-                                collapsed_call_paths.entry(call.callee).or_default().push(smallvec![Callee::new(root_def_id.to_def_id(), tcx.mk_args(&[])), call.callee]);
-                            }
-                            config::CallGraphNonLocalCallView::Expand => {
-                                println!("  {} -> {}:w [color=lightgray];", def_node_id(root_def_id.to_def_id()), callee_node_id(&call.callee));
-                            }
-                        }
-                        continue;
-                    }
-
-                    println!("  {} -> {}:w;", def_node_id(root_def_id.to_def_id()), callee_node_id(&call.callee));
-                }
-            }
-
-            for (distance, calls) in iter::zip(1.., &call_graph.nested_calls) {
-                println!("  {{ rank=same; {};", distance);
-                let unique_nested_callees = calls.iter()
-                    .filter(|(caller, _)| entry_point_filters.is_empty() || filtered_nodes.contains(caller))
-                    .flat_map(|(_, calls)| calls)
-                    .map(|call| call.callee)
-                    .collect::<FxHashSet<_>>();
-                for callee in unique_nested_callees {
-                    if !defined_callees.insert(callee) { continue; }
-
-                    // Override non-local callee node rendering.
-                    if !callee.def_id.is_local() {
-                        match non_local_call_view {
-                            config::CallGraphNonLocalCallView::Collapse => {}
-                            config::CallGraphNonLocalCallView::Expand => {
-                                println!("    {} [label={}, shape=plaintext, fontcolor=lightgray];", callee_node_id(&callee), escape_label_str(&callee.display_str(tcx)));
-                            }
-                        }
-                        continue;
-                    }
-
-                    match targets.iter().any(|target| target.def_id() == callee.def_id) {
-                        true => println!("    {} [label={}];", callee_node_id(&callee), escape_label_str(&callee.display_str(tcx))),
-                        false => println!("    {} [label={}, shape=plaintext];", callee_node_id(&callee), escape_label_str(&callee.display_str(tcx))),
-                    }
-                }
-                println!("  }}");
-                for (caller, calls) in calls {
-                    for call in calls {
-                        if !entry_point_filters.is_empty() && !filtered_nodes.contains(caller) { continue; }
-
-                        // Override non-local deep call edge rendering.
-                        if !caller.def_id.is_local() || !call.callee.def_id.is_local() {
-                            match non_local_call_view {
-                                config::CallGraphNonLocalCallView::Collapse => {
-                                    match (caller.def_id.is_local(), call.callee.def_id.is_local()) {
-                                        (true, true) => unreachable!(),
-                                        // Local definition calls into non-local definition.
-                                        (true, false) => {
-                                            // Record new collapsed non-local call path.
-                                            collapsed_call_paths.entry(call.callee).or_default().push(smallvec![*caller, call.callee]);
-                                        }
-                                        // Non-local definition calls into other non-local definition.
-                                        (false, false) => {
-                                            // Extend collapsed non-local call paths.
-                                            let Some(call_paths) = collapsed_call_paths.get(caller) else { unreachable!() };
-                                            let mut call_paths = call_paths.clone();
-                                            for call_path in &mut call_paths {
-                                                call_path.push(call.callee);
-                                            }
-                                            collapsed_call_paths.entry(call.callee).or_default().extend(call_paths);
-                                        }
-                                        // Non-local definition calls into local definition.
-                                        (false, true) => {
-                                            // Write out collapsed non-local call paths.
-                                            let Some(call_paths) = collapsed_call_paths.get(caller) else { unreachable!(); };
-                                            for call_path in call_paths {
-                                                let [root_callee, ..] = &call_path[..] else { unreachable!() };
-                                                let tooltip = call_path.iter().chain(iter::once(&call.callee))
-                                                    .map(|callee| callee.display_str(tcx))
-                                                    .intersperse("\n-> ".to_owned())
-                                                    .collect::<String>();
-                                                println!("  {} -> {}:w [label=\"indirect\", color=lightgray, labeltooltip={}];", callee_node_id(root_callee), callee_node_id(&call.callee), escape_label_str(&tooltip));
-                                            }
-                                        }
-                                    }
-                                }
-                                config::CallGraphNonLocalCallView::Expand => {
-                                    println!("  {} -> {}:w [color=lightgray];", callee_node_id(caller), callee_node_id(&call.callee));
-                                }
-                            }
-                            continue;
-                        }
-
-                        println!("  {} -> {}:w;", callee_node_id(caller), callee_node_id(&call.callee));
-                    }
-                }
-            }
-
-            println!("}}");
+        let callees = call_graph.root_calls.get(&entry_point.local_def_id).map(|v| &**v).unwrap_or_default().iter()
+            .map(|call| call.callee).collect::<FxHashSet<_>>();
+        for callee in sorted_callees_for_print(tcx, callees) {
+            println!("  -> {} at {:#?}", callee.display_str(tcx), tcx.def_span(callee.def_id));
         }
     }
+
+    for (distance, calls) in iter::zip(1.., &call_graph.nested_calls) {
+        println!("\nnested calls at distance {distance}:\n");
+
+        let callers = calls.keys().copied()
+            .filter(|caller| entry_point_filters.is_empty() || filtered_nodes.contains(caller))
+            .collect::<FxHashSet<_>>();
+        for caller in sorted_callees_for_print(tcx, callers) {
+            println!("{} at {:#?}", caller.display_str(tcx), tcx.def_span(caller.def_id));
+
+            let callees = calls.get(&caller).map(|v| &**v).unwrap_or_default().iter()
+                .map(|call| call.callee).collect::<FxHashSet<_>>();
+            for callee in sorted_callees_for_print(tcx, callees) {
+                println!("  -> {} at {:#?}", callee.display_str(tcx), tcx.def_span(callee.def_id));
+            }
+        }
+    }
+}
+
+fn call_graph_graphviz_print_order<'tcx>(tcx: TyCtxt<'tcx>, a: &Callee<'tcx>, b: &Callee<'tcx>) -> std::cmp::Ordering {
+    span_diagnostic_ord(tcx.def_span(a.def_id), tcx.def_span(b.def_id)).then_with(|| Ord::cmp(&a.display_str(tcx), &b.display_str(tcx)))
+}
+
+/// `Callee` hashes its (per-run, interning-pointer-based) generic args, so a `FxHashSet<Callee>`
+/// iterates in an order that varies between runs: sort it into a reproducible order before print.
+fn sorted_callees_for_print<'tcx>(tcx: TyCtxt<'tcx>, callees: FxHashSet<Callee<'tcx>>) -> Vec<Callee<'tcx>> {
+    let mut callees = callees.into_iter().collect::<Vec<_>>();
+    callees.sort_unstable_by(|a, b| call_graph_graphviz_print_order(tcx, a, b));
+    callees
 }
 
 pub fn print_mutation_graph<'trg: 'op, 'm: 'op, 'op, N, E>(mutation_conflict_graph: &MutationConflictGraph<'m>, mutations_iter: N, edge_iter: E, format: config::GraphFormat)
