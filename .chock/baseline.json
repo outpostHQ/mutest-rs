@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/outpostHQ/chock/main/schema/baseline-v1.json",
   "version": 1,
-  "chock": "0.20.0",
+  "chock": "0.21.0",
   "gates": {
     "admits": {},
     "assertions": {},
@@ -33,10 +33,39 @@
       "mutest-runtime-embedded-host-driver": 669696,
       "mutest-tests": 1552896
     },
+    "blocking-async": {
+      "mutest-inspector/src/lib.rs#fs-in-async": 1
+    },
     "citations": {
       "mutest-driver/src/config.rs": 1
     },
     "claims": {},
+    "clone-abuse": {
+      "mutest-driver/build.rs#clone-in-loop": 2,
+      "mutest-driver/src/inject.rs#clone-in-loop": 7,
+      "mutest-driver/src/passes/external_mutant/invocation.rs#clone-in-loop": 3,
+      "mutest-driver/src/passes/mod.rs#clone-in-loop": 2,
+      "mutest-driver/src/print.rs#clone-in-loop": 1,
+      "mutest-driver/src/write.rs#clone-in-loop": 1,
+      "mutest-emit/src/analysis/ast_lowering.rs#clone-in-loop": 1,
+      "mutest-emit/src/analysis/res.rs#clone-in-loop": 2,
+      "mutest-emit/src/codegen/hygiene.rs#clone-in-loop": 1,
+      "mutest-emit/src/codegen/mutation.rs#clone-in-loop": 1,
+      "mutest-emit/src/codegen/substitution.rs#clone-in-loop": 3,
+      "mutest-inspector/src/ctxt.rs#clone-in-loop": 7,
+      "mutest-inspector/src/lib.rs#clone-in-loop": 5,
+      "mutest-inspector/src/server.rs#clone-in-loop": 7,
+      "mutest-inspector/src/syntax_highlight.rs#clone-in-loop": 3,
+      "mutest-operators/src/arg_default_shadow.rs#clone-in-loop": 1,
+      "mutest-operators/src/match_guard_value.rs#clone-in-loop": 2,
+      "mutest-operators/src/struct_field_delete.rs#clone-in-loop": 2,
+      "mutest-runtime/src/harness.rs#clone-in-loop": 12,
+      "mutest-runtime/src/harness/timeouts.rs#clone-in-loop": 6,
+      "mutest-runtime/src/mutation_child.rs#clone-in-loop": 2,
+      "mutest-runtime/src/subsumption.rs#clone-in-loop": 1,
+      "mutest-runtime/src/test_runner.rs#clone-in-loop": 8,
+      "mutest-runtime/src/thread_pool.rs#clone-in-loop": 1
+    },
     "codeslop": {
       "chock::short_name": 38,
       "clippy::arithmetic_side_effects": 361,
@@ -106,7 +135,7 @@
       "cargo-mutest/src/main.rs#main": 26,
       "cargo-mutest/src/main.rs#process_cargo_args": 34,
       "cargo-mutest/src/main.rs#run_cargo_with_mutest_driver": 50,
-      "mutest-driver/src/inject.rs#inject_runtime_crate_and_deps": 24,
+      "mutest-driver/src/inject.rs#inject_runtime_crate_and_deps": 22,
       "mutest-driver/src/lib.rs#run": 26,
       "mutest-driver/src/main.rs#main": 162,
       "mutest-driver/src/passes/analysis.rs#run": 318,
@@ -629,7 +658,6 @@
       "cargo-mutest/src/main.rs#run_mutest_inspector_from_cargo_invocation": 2,
       "cargo-mutest/src/main.rs#strip_arg_value_occurrences": 2,
       "mutest-driver/src/cargo_package_config.rs#fetch_merged_cargo_package_config": 2,
-      "mutest-driver/src/inject.rs#inject_runtime_crate_and_deps": 1,
       "mutest-driver/src/lib.rs#run": 1,
       "mutest-driver/src/print.rs#print_call_graph": 8,
       "mutest-driver/src/print.rs#print_mutation_graph": 1,
@@ -837,8 +865,10 @@
     "assertions": "length assertion(s)",
     "bigfiles": "production lines",
     "binsize": "byte(s)",
+    "blocking-async": "call(s)",
     "citations": "stale citation(s)",
     "claims": "stale claim(s)",
+    "clone-abuse": "clone(s)",
     "codeslop": "findings",
     "commands-build": "declared finding(s)",
     "complexity": "cognitive",

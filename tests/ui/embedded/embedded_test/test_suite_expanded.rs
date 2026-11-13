@@ -21,7 +21,7 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
 mod embedded_test {
     pub mod export {
         pub fn check_outcome((): ()) -> ! {
-            core::process::abort_immediate();
+            core::process::crash();
         }
     }
 }

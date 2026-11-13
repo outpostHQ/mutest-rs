@@ -9,7 +9,7 @@ use crate::codegen::symbols::{DUMMY_SP, Span};
 
 use super::{Call, CallKind};
 
-pub fn drop_glue_callees<'tcx>(tcx: TyCtxt<'tcx>, body_mir: &'tcx mir::Body<'tcx>, generic_args: ty::GenericArgsRef<'tcx>) -> impl Iterator<Item = Call<'tcx>> {
+pub fn drop_glue_callees<'tcx>(tcx: TyCtxt<'tcx>, body_mir: &'tcx mir::Body<'tcx>, generic_args: ty::GenericArgs<'tcx>) -> impl Iterator<Item = Call<'tcx>> {
     let instance = ty::Instance { def: body_mir.source.instance, args: generic_args };
     let typing_env = ty::TypingEnv::fully_monomorphized();
 
@@ -76,7 +76,7 @@ fn vtable_calls<'tcx>(tcx: TyCtxt<'tcx>, source_ty: ty::Ty<'tcx>, target_ty: ty:
 
 /// Returns the functions that the body turns into function pointers or trait objects, as calls of the body.
 // Based on `rustc_monomorphize::collector::MirUsedCollector::visit_rvalue`.
-pub fn coercion_callees<'tcx>(tcx: TyCtxt<'tcx>, body_mir: &'tcx mir::Body<'tcx>, generic_args: ty::GenericArgsRef<'tcx>) -> impl Iterator<Item = Call<'tcx>> {
+pub fn coercion_callees<'tcx>(tcx: TyCtxt<'tcx>, body_mir: &'tcx mir::Body<'tcx>, generic_args: ty::GenericArgs<'tcx>) -> impl Iterator<Item = Call<'tcx>> {
     let instance = ty::Instance { def: body_mir.source.instance, args: generic_args };
     let typing_env = ty::TypingEnv::fully_monomorphized();
 

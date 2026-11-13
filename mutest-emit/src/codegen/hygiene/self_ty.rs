@@ -28,7 +28,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
         let ty::TyKind::Adt(adt_def, generic_args) = qself_ty.kind() else { return None; };
         let has_written_args = written_self_ty_segments(qself, path)?.iter().any(|segment| segment.args.is_some());
         if !adt_def.is_enum() || !has_written_args || path.segments.last()?.args.is_some() { return None; }
-        self.sanitize_generic_args(adt_def.did(), generic_args, node_hir_id.owner.to_def_id(), self.is_inside_body(node_hir_id), span)
+        self.sanitize_generic_args(adt_def.did(), generic_args.as_slice(), node_hir_id.owner.to_def_id(), self.is_inside_body(node_hir_id), span)
     }
 
     /// Sanitizes the type-relative path to an item of an inherent impl into `<$ty>::$item`, with the type alias that the

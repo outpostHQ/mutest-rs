@@ -295,7 +295,7 @@ impl<'a> EntryPoints<'a> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CallKind<'tcx> {
-    Def(hir::DefId, ty::GenericArgsRef<'tcx>),
+    Def(hir::DefId, ty::GenericArgs<'tcx>),
     Ptr(ty::PolyFnSig<'tcx>),
 }
 
@@ -307,7 +307,7 @@ pub struct Call<'tcx> {
 }
 
 // Based on `rustc_mir_transform::inline::cycle::mir_inliner_callees`.
-pub fn mir_callees<'tcx>(tcx: TyCtxt<'tcx>, body_mir: &'tcx mir::Body<'tcx>, generic_args: ty::GenericArgsRef<'tcx>) -> impl Iterator<Item = Call<'tcx>> {
+pub fn mir_callees<'tcx>(tcx: TyCtxt<'tcx>, body_mir: &'tcx mir::Body<'tcx>, generic_args: ty::GenericArgs<'tcx>) -> impl Iterator<Item = Call<'tcx>> {
     let instance = ty::Instance { def: body_mir.source.instance, args: generic_args };
     let typing_env = ty::TypingEnv::fully_monomorphized();
 
@@ -381,11 +381,11 @@ pub fn mir_callees<'tcx>(tcx: TyCtxt<'tcx>, body_mir: &'tcx mir::Body<'tcx>, gen
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub struct Callee<'tcx> {
     pub def_id: hir::DefId,
-    pub generic_args: ty::GenericArgsRef<'tcx>,
+    pub generic_args: ty::GenericArgs<'tcx>,
 }
 
 impl<'tcx> Callee<'tcx> {
-    pub fn new(def_id: hir::DefId, generic_args: ty::GenericArgsRef<'tcx>) -> Self {
+    pub fn new(def_id: hir::DefId, generic_args: ty::GenericArgs<'tcx>) -> Self {
         Self { def_id, generic_args }
     }
 
@@ -431,7 +431,7 @@ impl<'tcx> CallGraph<'tcx> {
     }
 }
 
-pub fn instantiate_generic_args<'tcx, T>(tcx: TyCtxt<'tcx>, foldable: T, generic_args: ty::GenericArgsRef<'tcx>) -> T
+pub fn instantiate_generic_args<'tcx, T>(tcx: TyCtxt<'tcx>, foldable: T, generic_args: ty::GenericArgs<'tcx>) -> T
 where
     T: ty::TypeFoldable<TyCtxt<'tcx>>,
 {
@@ -620,7 +620,7 @@ fn sort_callers_by_span<'tcx>(tcx: TyCtxt<'tcx>, callers: FxHashSet<Callee<'tcx>
 }
 
 /// The calls of the body, including the drop glue it runs and the functions it coerces into pointers or trait objects.
-fn body_calls<'tcx>(tcx: TyCtxt<'tcx>, body_mir: &'tcx mir::Body<'tcx>, generic_args: ty::GenericArgsRef<'tcx>) -> impl Iterator<Item = Call<'tcx>> {
+fn body_calls<'tcx>(tcx: TyCtxt<'tcx>, body_mir: &'tcx mir::Body<'tcx>, generic_args: ty::GenericArgs<'tcx>) -> impl Iterator<Item = Call<'tcx>> {
     mir_callees(tcx, body_mir, generic_args)
         .chain(drop_glue_callees(tcx, body_mir, generic_args))
         .chain(coercion_callees(tcx, body_mir, generic_args))

@@ -1,10 +1,11 @@
+use std::hash::{Hash, Hasher};
 use std::iter;
 
 use mutest_emit::analysis::call_graph::{CallGraph, Callee, EntryPoints, LocalEntryPoint, Target, TargetReachability, Unsafety};
 use mutest_emit::analysis::tests::Test;
 use mutest_emit::codegen::symbols::span_diagnostic_ord;
 use mutest_emit::codegen::mutation::{Mut, MutId, MutationBatch, MutationConflictGraph, UnsafeTargeting};
-use rustc_data_structures::fx::{FxHashMap, FxHashSet};
+use rustc_data_structures::fx::{FxHashMap, FxHashSet, FxHasher};
 use rustc_data_structures::smallvec::{SmallVec, smallvec};
 use rustc_middle::ty::TyCtxt;
 use rustc_span::bug;
@@ -245,7 +246,8 @@ pub fn print_call_graph<'tcx, 'ent, 'trg>(tcx: TyCtxt<'tcx>, entry_points: Entry
 
             let callee_node_id = |callee: &Callee| {
                 if callee.generic_args.is_empty() { return def_node_id(callee.def_id); }
-                format!("def_{}_{}_{}", callee.def_id.krate.index(), callee.def_id.index.index(), &format!("{:p}", callee.generic_args)[2..])
+                let hash = { let mut hasher = FxHasher::default(); callee.generic_args.hash(&mut hasher); hasher.finish() };
+                format!("def_{}_{}_{:x}", callee.def_id.krate.index(), callee.def_id.index.index(), hash)
             };
 
             let escape_label_str = |label: &str| rustc_graphviz::LabelText::LabelStr(std::borrow::Cow::Borrowed(label)).to_dot_string();

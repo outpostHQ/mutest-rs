@@ -46,7 +46,7 @@ impl<'a> Operator<'a> for StructFieldDelete {
         for (i, field) in struct_expr.fields.iter().enumerate() {
             let Some(base_field) = base_def.non_enum_variant().fields.iter().find(|f| f.name == field.ident.name) else { continue; };
             let Some(field_hir) = body_res.hir_expr(&field.expr) else { continue; };
-            let Ok(field_ty) = tcx.try_normalize_erasing_regions(typing_env, base_field.ty(tcx, base_args)) else { continue; };
+            let Ok(field_ty) = tcx.try_normalize_erasing_regions(typing_env, base_field.ty(tcx, *base_args)) else { continue; };
             if field_ty != typeck.expr_ty_adjusted(field_hir) { continue; }
             // NOTE: Taking a non-`Copy` field moves it out of the base, which may still be used afterwards.
             if !ty::impls_trait(tcx, f_hir.owner_id.def_id, field_ty, copy_trait, vec![]) { continue; }

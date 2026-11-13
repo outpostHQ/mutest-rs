@@ -314,7 +314,7 @@ pub mod attr {
     use crate::analysis::hir;
 
     pub fn match_attr_name(attr: &hir::Attribute, tool: Option<Symbol>, name: Symbol) -> bool {
-        let hir::Attribute::Unparsed(attr_item) = attr else { return false; };
+        let (hir::Attribute::Tool(attr_item) | hir::Attribute::DeriveHelper(attr_item)) = attr else { return false; };
         match (tool, &attr_item.path.segments[..]) {
             (None, [path_name]) => *path_name == name,
             (Some(tool), [path_tool, path_name]) => *path_tool == tool && *path_name == name,
@@ -323,7 +323,7 @@ pub mod attr {
     }
 
     pub fn is_word_attr(attr: &hir::Attribute, tool: Option<Symbol>, word: Symbol) -> bool {
-        let hir::Attribute::Unparsed(attr_item) = &attr else { return false; };
+        let (hir::Attribute::Tool(attr_item) | hir::Attribute::DeriveHelper(attr_item)) = &attr else { return false; };
         let hir::attrs::AttrArgs::Empty = &attr_item.args else { return false; };
         match_attr_name(attr, tool, word)
     }

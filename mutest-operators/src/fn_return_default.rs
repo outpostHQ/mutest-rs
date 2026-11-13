@@ -88,7 +88,7 @@ impl<'tcx> Replacements<'tcx> {
                 replacements
             }
             TyKind::Adt(adt_def, args) if tcx.is_diagnostic_item(sym::Vec, adt_def.did()) => {
-                self.vec(ty, *adt_def, args, depth)
+                self.vec(ty, *adt_def, *args, depth)
             }
             // NOTE: `String` is a lang item rather than a diagnostic item.
             TyKind::Adt(adt_def, _) if tcx.lang_items().string() == Some(adt_def.did()) => vec![
@@ -106,7 +106,7 @@ impl<'tcx> Replacements<'tcx> {
             .collect()
     }
 
-    fn vec(&self, vec_ty: Ty<'tcx>, vec_def: ty::AdtDef<'tcx>, args: ty::GenericArgsRef<'tcx>, depth: u32) -> Vec<Replacement> {
+    fn vec(&self, vec_ty: Ty<'tcx>, vec_def: ty::AdtDef<'tcx>, args: ty::GenericArgs<'tcx>, depth: u32) -> Vec<Replacement> {
         // NOTE: `Vec::from([..])` only builds vectors with the default allocator.
         if !self.has_default_allocator(vec_def, args) { return self.default_value(vec_ty); }
 
@@ -120,7 +120,7 @@ impl<'tcx> Replacements<'tcx> {
         replacements
     }
 
-    fn has_default_allocator(&self, vec_def: ty::AdtDef<'tcx>, args: ty::GenericArgsRef<'tcx>) -> bool {
+    fn has_default_allocator(&self, vec_def: ty::AdtDef<'tcx>, args: ty::GenericArgs<'tcx>) -> bool {
         let Some(allocator_param) = self.tcx.generics_of(vec_def.did()).own_params.get(1) else { return false; };
         let ty::GenericParamDefKind::Type { has_default: true, .. } = allocator_param.kind else { return false; };
         let Some(allocator) = args.get(1).and_then(|arg| arg.as_type()) else { return false; };

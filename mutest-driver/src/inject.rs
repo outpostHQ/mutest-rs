@@ -15,7 +15,7 @@ mod rlib_catalog { include!(env!("RLIB_CATALOG")); }
 
 #[path = "../../build_support/dependency_dirs.rs"]
 mod dependency_dirs;
-use dependency_dirs::dependency_dirs;
+use dependency_dirs::{dependency_dirs, find_rlib};
 
 #[cfg(feature = "embed-runtime")]
 fn extract_file(path: &Path, content: &[u8]) {
@@ -132,25 +132,20 @@ pub fn inject_runtime_crate_and_deps(config: &Config, compiler_config: &mut Comp
             force: false,
         });
     } else {
-        let rlib_path = mutest_target_artifacts_dir_path.join("libmutest_runtime_embedded_target_stub.rlib");
-        match fs::exists(&rlib_path) {
-            // NOTE: We let the compiler emit its usual error message upon being unable to read an rlib file path.
-            Ok(true) | Err(_) => {}
+        // NOTE: We let the compiler emit its usual error message upon being unable to read an rlib file path.
+        let rlib_path = find_rlib(&dependency_dirs(&mutest_target_artifacts_dir_path.join("deps")), "libmutest_runtime_embedded_target_stub.rlib").unwrap_or_else(|| {
+            let profile = mutest_host_artifacts_dir_path.file_name().expect("invalid mutest search path");
 
-            Ok(false) => {
-                let profile = mutest_host_artifacts_dir_path.file_name().expect("invalid mutest search path");
-
-                // NOTE: We remove the explicit `--target` argument for the host because if specified, Cargo will place the host artifact in a target triple subdirectory.
-                let (runtime, target_arg) = match target_triple == host_triple {
-                    true => ("mutest-rs embedded runtime for host".to_owned(), String::new()),
-                    false => (format!("cross-compiled mutest-rs embedded runtime for target `{target_triple}`"), format!("--target={target_triple} ")),
-                };
-                let mut diag = early_dcx.early_struct_fatal(format!("cannot find {runtime}"));
-                diag.note(format!("searching in `{}`", mutest_target_artifacts_dir_path.display()));
-                diag.note(format!("consider running `cargo build {target_arg}--profile={} -p mutest-runtime-embedded-target-stub` in the mutest-rs source tree", profile.display()));
-                diag.emit();
-            }
-        }
+            // NOTE: We remove the explicit `--target` argument for the host because if specified, Cargo will place the host artifact in a target triple subdirectory.
+            let (runtime, target_arg) = match target_triple == host_triple {
+                true => ("mutest-rs embedded runtime for host".to_owned(), String::new()),
+                false => (format!("cross-compiled mutest-rs embedded runtime for target `{target_triple}`"), format!("--target={target_triple} ")),
+            };
+            let mut diag = early_dcx.early_struct_fatal(format!("cannot find {runtime}"));
+            diag.note(format!("searching in `{}`", mutest_target_artifacts_dir_path.display()));
+            diag.note(format!("consider running `cargo build {target_arg}--profile={} -p mutest-runtime-embedded-target-stub` in the mutest-rs source tree", profile.display()));
+            diag.emit_fatal()
+        });
         externs.insert("mutest_runtime".to_owned(), ExternEntry {
             location: ExternLocation::ExactPaths(BTreeSet::from([
                 CanonicalizedPath::new(rlib_path),
@@ -227,20 +222,15 @@ pub fn inject_test_crate_shim_if_no_target_std(config: &Config, compiler_config:
         externs.insert(key.clone(), entry.clone());
     }
 
-    let rlib_path = mutest_target_artifacts_dir_path.join("libtest_metadata_shim.rlib");
-    match fs::exists(&rlib_path) {
-        // NOTE: We let the compiler emit its usual error message upon being unable to read an rlib file path.
-        Ok(true) | Err(_) => {}
+    // NOTE: We let the compiler emit its usual error message upon being unable to read an rlib file path.
+    let rlib_path = find_rlib(&dependency_dirs(&mutest_target_artifacts_dir_path.join("deps")), "libtest_metadata_shim.rlib").unwrap_or_else(|| {
+        let profile = mutest_host_artifacts_dir_path.file_name().expect("invalid mutest search path");
 
-        Ok(false) => {
-            let profile = mutest_host_artifacts_dir_path.file_name().expect("invalid mutest search path");
-
-            let mut diag = early_dcx.early_struct_fatal(format!("cannot find cross-compiled libtest metadata shim for target `{target_triple}`"));
-            diag.note(format!("searching in `{}`", mutest_target_artifacts_dir_path.display()));
-            diag.note(format!("consider running `cargo build --target={} --profile={} -p test-metadata-shim` in the mutest-rs source tree", target_triple, profile.display()));
-            diag.emit();
-        }
-    }
+        let mut diag = early_dcx.early_struct_fatal(format!("cannot find cross-compiled libtest metadata shim for target `{target_triple}`"));
+        diag.note(format!("searching in `{}`", mutest_target_artifacts_dir_path.display()));
+        diag.note(format!("consider running `cargo build --target={} --profile={} -p test-metadata-shim` in the mutest-rs source tree", target_triple, profile.display()));
+        diag.emit_fatal()
+    });
     externs.insert("test".to_owned(), ExternEntry {
         location: ExternLocation::ExactPaths(BTreeSet::from([
             CanonicalizedPath::new(rlib_path),

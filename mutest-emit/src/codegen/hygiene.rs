@@ -779,7 +779,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
             return None;
         };
 
-        Some(self.sanitize_generic_args(trait_predicate.trait_ref.def_id, trait_predicate.trait_ref.args, parent_def_id, allow_infer_args, span))
+        Some(self.sanitize_generic_args(trait_predicate.trait_ref.def_id, trait_predicate.trait_ref.args.as_slice(), parent_def_id, allow_infer_args, span))
     }
 
     fn sanitize_qualified_path(&mut self, qself: &mut Option<Box<ast::QSelf>>, path: &mut ast::Path, node_id: ast::NodeId) -> hir::Res<ast::NodeId> {
@@ -876,10 +876,10 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                                 // If either source is available, the inferred generic args
                                 // replace the trait generic args in the original path.
                                 // Elision of all generic arguments is represented by `Some(None)`.
-                                let inferred_generic_args_ast = match self.typeck_for(node_hir_id.owner).map(|typeck| &typeck.node_args(typeck_node_hir_id)[..]) {
+                                let inferred_generic_args_ast = match self.typeck_for(node_hir_id.owner).map(|typeck| typeck.node_args(typeck_node_hir_id)) {
                                     // Inferred generic args for the trait.
-                                    Some(node_args @ [_, ..]) => {
-                                        Some(self.sanitize_generic_args(parent_def_id, node_args, node_hir_id.owner.to_def_id(), true, qself_ty_hir.span))
+                                    Some(node_args) if !node_args.is_empty() => {
+                                        Some(self.sanitize_generic_args(parent_def_id, node_args.as_slice(), node_hir_id.owner.to_def_id(), true, qself_ty_hir.span))
                                     }
 
                                     // Bound params from local trait bounds corresponding to parameter types to the trait subpath.

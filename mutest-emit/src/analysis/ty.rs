@@ -235,7 +235,7 @@ pub mod print {
             Ok(path)
         }
 
-        fn print_def_path(&mut self, def_id: hir::DefId, args: &'tcx [ty::GenericArg<'tcx>]) -> Result<ast::Path, String> {
+        fn print_def_path(&mut self, def_id: hir::DefId, args: &[ty::GenericArg<'tcx>]) -> Result<ast::Path, String> {
             let Ok(def_path) = res::visible_def_path(self.tcx, self.crate_res, res::DefPathRequestKind::Def(def_id), self.scope, None, self.sp) else {
                 return Err(format!("encountered definition `{}` with no visible path", self.tcx.def_path_str(def_id)));
             };
@@ -508,7 +508,7 @@ pub mod print {
                 ty::ConstKind::Alias(_, alias_const) => {
                     match alias_const.kind {
                         ty::AliasConstKind::Projection { def_id } => {
-                            let def_path = self.print_def_path(def_id, alias_const.args)?;
+                            let def_path = self.print_def_path(def_id, alias_const.args.as_slice())?;
 
                             // HACK: `self_ty` is not available on AliasConst, so we get it manually.
                             let self_ty = self.print_ty(alias_const.args.type_at(0))?;
@@ -530,7 +530,7 @@ pub mod print {
                             })
                         }
                         ty::AliasConstKind::InherentImpl { def_id } | ty::AliasConstKind::Free { def_id } => {
-                            let def_path = self.print_def_path(def_id, alias_const.args)?;
+                            let def_path = self.print_def_path(def_id, alias_const.args.as_slice())?;
                             Ok(ast::AnonConst {
                                 id: ast::DUMMY_NODE_ID,
                                 value: Box::new(ast::Expr {
@@ -608,7 +608,7 @@ pub mod print {
                 let dummy_self_ty = Ty::new_fresh(self.tcx, 0);
                 let principal = principal.with_self_ty(self.tcx, dummy_self_ty);
 
-                let args = self.tcx.generics_of(principal.def_id).own_args_no_defaults(self.tcx, principal.args);
+                let args = self.tcx.generics_of(principal.def_id).own_args_no_defaults(self.tcx, principal.args.as_slice());
                 let assoc_constraints = predicates.projection_bounds().map(|bounds| bounds.skip_binder());
                 let path = self.path_generic_args(def_path, args, assoc_constraints)?;
                 Ok(Some(ast::GenericBound::Trait(ast::PolyTraitRef {
@@ -689,7 +689,7 @@ pub mod print {
                 }
 
                 ty::TyKind::Adt(def, args) => {
-                    let def_path = self.print_def_path(def.did(), args)?;
+                    let def_path = self.print_def_path(def.did(), args.as_slice())?;
                     Ok(mk_ty_path_ast(None, def_path))
                 }
                 ty::TyKind::Foreign(def_id) => {
@@ -721,7 +721,7 @@ pub mod print {
                             match self.opaque_ty_handling {
                                 OpaqueTyHandling::Infer => Ok(mk_ty_ast(sp, ast::TyKind::Infer)),
                                 OpaqueTyHandling::Keep => {
-                                    let def_path = self.print_def_path(def_id, alias_ty.args)?;
+                                    let def_path = self.print_def_path(def_id, alias_ty.args.as_slice())?;
                                     Ok(mk_ty_ast(sp, ast::TyKind::ImplTrait(ast::DUMMY_NODE_ID, thin_vec![
                                         ast::GenericBound::Trait(ast::PolyTraitRef {
                                             span: def_path.span,
@@ -742,7 +742,7 @@ pub mod print {
                             self.print_impl_trait_in_trait_ty(ty)
                         }
                         ty::AliasTyKind::Projection { def_id } => {
-                            let def_path = self.print_def_path(def_id, alias_ty.args)?;
+                            let def_path = self.print_def_path(def_id, alias_ty.args.as_slice())?;
 
                             let self_ty = self.print_ty(alias_ty.self_ty())?;
                             let qself = Box::new(ast::QSelf {
@@ -754,7 +754,7 @@ pub mod print {
                             Ok(mk_ty_path_ast(Some(qself), def_path))
                         }
                         ty::AliasTyKind::Inherent { def_id } | ty::AliasTyKind::Free { def_id } => {
-                            let def_path = self.print_def_path(def_id, alias_ty.args)?;
+                            let def_path = self.print_def_path(def_id, alias_ty.args.as_slice())?;
                             Ok(mk_ty_path_ast(None, def_path))
                         }
                     }

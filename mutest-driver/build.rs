@@ -15,7 +15,7 @@ use std::path::{self, Path, PathBuf};
 #[path = "../build_support/dependency_dirs.rs"]
 mod dependency_dirs;
 
-use dependency_dirs::dependency_dirs;
+use dependency_dirs::{dependency_dirs, find_rlib};
 
 fn fetch_rlib_deps(crate_name: &str, rlib_path: &Path, dep_dirs: &[PathBuf]) -> Vec<(String, PathBuf)> {
     use std::collections::{BTreeMap, BTreeSet};
@@ -149,15 +149,14 @@ fn main() {
         None => workspace_out_dir_path.to_owned(),
     };
 
-    let mutest_runtime_rlib_path = workspace_out_dir_path.join("libmutest_runtime.rlib");
     let deps_dir_path = workspace_out_dir_path.join("deps");
     let dep_dirs = dependency_dirs(&deps_dir_path);
 
-    println!("cargo:rerun-if-changed={}", mutest_runtime_rlib_path.display());
-    if !fs::exists(&mutest_runtime_rlib_path).unwrap() {
+    let Some(mutest_runtime_rlib_path) = find_rlib(&dep_dirs, "libmutest_runtime.rlib") else {
         println!("cargo::error=cannot find mutest-runtime rlib file for embedding: the crate must be built explicitly first: run `cargo build --profile={profile} -p mutest-runtime`");
         return;
-    }
+    };
+    println!("cargo:rerun-if-changed={}", mutest_runtime_rlib_path.display());
     if holds_llvm_bitcode(&mutest_runtime_rlib_path) {
         println!("cargo::error=the mutest-runtime rlib holds LLVM bitcode where its object code should be, which only a linker given LLVM's plugin can link into a test binary: rebuild it without LTO, with `cargo build --profile={profile} -p mutest-runtime`");
         return;
@@ -179,7 +178,8 @@ fn main() {
     let rlib_catalog_path = build_script_out_dir_path.join("rlib_catalog.generated.rs");
     let mut rlib_catalog_content = String::new();
     // Embed the `.rlib` file into the final binary.
-    writeln!(&mut rlib_catalog_content, "pub const MUTEST_RUNTIME_RLIB_FILENAME: &str = \"{}\";", mutest_runtime_rlib_path.file_name().unwrap().to_str().unwrap()).unwrap();
+    // NOTE: Named after the crate, not the discovered file: Cargo's build directory gives it a filename carrying its own internal fingerprint hash.
+    writeln!(&mut rlib_catalog_content, "pub const MUTEST_RUNTIME_RLIB_FILENAME: &str = \"libmutest_runtime.rlib\";").unwrap();
     writeln!(&mut rlib_catalog_content, "#[cfg(feature = \"embed-runtime\")] pub const MUTEST_RUNTIME_RLIB_DATA: &[u8] = include_bytes!(r\"{}\");", mutest_runtime_rlib_path.display()).unwrap();
     // Embed the dependency `.rlib` files into the final binary.
     writeln!(&mut rlib_catalog_content, "#[cfg(feature = \"embed-runtime\")] pub const MUTEST_RUNTIME_EXTERN_DEPS_DATA: &[(&str, &[u8])] = &[").unwrap();
