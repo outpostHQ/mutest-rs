@@ -1,2 +1,4 @@
 [alias]
 ui-test = "run -p mutest-tests --"
+[registry]
+global-min-publish-age = "14 days" # a newly-published version cannot carry a supply-chain compromise unnoticed for long

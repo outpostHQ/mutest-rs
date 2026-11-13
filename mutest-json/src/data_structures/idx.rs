@@ -127,11 +127,6 @@ impl<I: Idx, T> IdxVec<I, T> {
 
         &mut self[idx]
     }
-
-    #[inline]
-    pub fn into_iter(self) -> std::vec::IntoIter<T> {
-        self.raw.into_iter()
-    }
 }
 
 impl<I: Idx, T> IdxVec<I, Option<T>> {

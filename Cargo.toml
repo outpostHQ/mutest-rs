@@ -26,6 +26,9 @@ exclude = ["target"]
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(mutest)"] }
 
+[workspace.lints.cargo]
+unused_dependencies = "warn"
+
 [workspace.lints.clippy]
 allow_attributes_without_reason = "warn"
 dbg_macro = "warn"
