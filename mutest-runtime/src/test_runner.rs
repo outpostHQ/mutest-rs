@@ -309,13 +309,7 @@ fn runs_mutation_of_new_mutant(subst: Option<SubstMeta>, entered_with: bool, mut
 /// Whether this thread may go on past a substitution point, where an abandoned test is cancelled by a panic.
 #[inline(always)]
 pub fn is_test_thread_active() -> bool {
-    !any_test_thread_abandoned() || test_thread_goes_on()
-}
-
-/// Whether the test of this thread goes on: the run did not give it up, or it unwinds already,
-/// as a second panic would abort the process.
-fn test_thread_goes_on() -> bool {
-    !test_thread_abandoned() || thread::panicking()
+    !any_test_thread_abandoned() || !test_thread_abandoned() || thread::panicking()
 }
 
 fn run_test_in_process(

@@ -15,7 +15,7 @@ pub(super) fn reference_run(tests: Vec<test::TestDescAndFn>, journal: Option<&Wo
     match journal.and_then(|journal| journal.earlier_profile(tests.iter().map(|test| test.desc.name.as_slice()))) {
         Some(profile) => {
             println!("reusing the reference test run of the crashed worker");
-            tests.into_iter().zip(profile).map(|(test, (exec_time, ignored, unrepeatable))| ProfiledTest { test, result: result_of(ignored), exec_time, unrepeatable, failure_output: Vec::new() }).collect()
+            tests.into_iter().zip(profile).map(|(test, (exec_time, ignored, unrepeatable))| ProfiledTest { test, result: if ignored { TestResult::Ignored } else { TestResult::Ok }, exec_time, unrepeatable, failure_output: Vec::new() }).collect()
         }
         None => profile_passing_tests(tests, journal, isolation),
     }
@@ -93,10 +93,6 @@ fn failure_report(name: &str, result: &TestResult, output: &[u8]) -> String {
     }
     if output.is_empty() { return String::new(); }
     format!("---- {name} stdout ----\n{output}\n")
-}
-
-fn result_of(ignored: bool) -> TestResult {
-    if ignored { TestResult::Ignored } else { TestResult::Ok }
 }
 
 #[cfg(test)]

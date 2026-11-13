@@ -1502,10 +1502,10 @@ impl<'tcx, 'op> ast::mut_visit::MutVisitor for MacroExpansionSanitizer<'tcx, 'op
     }
 
     fn visit_attribute(&mut self, attr: &mut ast::Attribute) {
-        // Some attributes correspond to already expanded derive proc macros, and thus need to be removed.
-        if self.syntax_extensions.iter().any(|syntax_extension| syntax_extension.helper_attrs.iter().any(|&helper_attr| attr.has_name(helper_attr))) {
-            // Disable attribute by overriding it with an empty doc-comment.
-            // This is easier than modifying every visit function to properly remove the attribute nodes.
+        // Derive-helper and compiler-inserted (tokenless) attributes are disabled via an empty doc-comment.
+        if matches!(attr.kind, ast::AttrKind::Generated(_))
+            || self.syntax_extensions.iter().any(|syntax_extension| syntax_extension.helper_attrs.iter().any(|&helper_attr| attr.has_name(helper_attr)))
+        {
             attr.kind = ast::AttrKind::DocComment(ast::token::CommentKind::Line, sym::empty);
             return;
         }

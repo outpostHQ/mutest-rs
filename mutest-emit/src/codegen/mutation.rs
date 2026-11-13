@@ -1053,10 +1053,6 @@ pub fn optimize_batches_simulated_annealing<'trg, 'm>(
         StateChange::MoveMutation { mutation_id: random_mutation.id, old_batch_id: random_batch.id, new_batch_id: new_random_batch.id }
     }
 
-    fn temperature(iterations_expended: f64, max_iterations: usize) -> f64 {
-        max_iterations as f64 * (1_f64 - iterations_expended)
-    }
-
     fn energy<'trg, 'm>(mutation_batches: &[MutationBatch<'trg, 'm>], state_change: Option<StateChange>) -> f64 {
         let mut batch_count = mutation_batches.len();
 
@@ -1078,7 +1074,7 @@ pub fn optimize_batches_simulated_annealing<'trg, 'm>(
     }
 
     for i in 0..max_iterations {
-        let temp = temperature(1_f64 - ((i + 1) as f64 / max_iterations as f64), max_iterations);
+        let temp = max_iterations as f64 * (1_f64 - (1_f64 - ((i + 1) as f64 / max_iterations as f64)));
 
         let curr_energy = energy(mutation_batches, None);
 
