@@ -816,6 +816,7 @@ pub mod print {
 
                 ty::TyKind::Placeholder(_) => Err("encountered placeholder type".to_owned()),
                 ty::TyKind::Error(_) => Err("encountered type error".to_owned()),
+                ty::TyKind::View(..) => Err("encountered view type".to_owned()),
             }
         }
     }

@@ -751,6 +751,9 @@ fn run_test(path: &Path, aux_dir_path: &Path, root_dir: &Path, opts: &Opts, resu
     // Disable color output, and name the standard library's spans `/rustc/<hash>/…` also with `rust-src` installed.
     cmd.args(["--color=never", "-Ztranslate-remapped-path-to-local-path=no"]);
 
+    // The parallel frontend may reorder independent diagnostics, so pin it to one thread here.
+    cmd.args(["-Zunstable-options", "--jobs-frontend=1"]);
+
     let rustc_flags = raw_test_directives.iter().filter_map(|d| d.strip_prefix("rustc-flags:").map(str::trim)).flat_map(parse_args);
     cmd.args(rustc_flags);
 
