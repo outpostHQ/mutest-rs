@@ -1,0 +1,10 @@
+tests -(2)-> [tainted] called_from_unsafe_block_in_async_closure at tests/ui/call_graph/unsafety/mark_calls_from_unsafe_blocks_in_async_closures_as_unsafe.rs:7:1: 7:47 (#0)
+  (2) [tainted] test
+
+tests -(0)-> [unsafe] async_closure at tests/ui/call_graph/unsafety/mark_calls_from_unsafe_blocks_in_async_closures_as_unsafe.rs:9:1: 9:50 (#0)
+  (0) test
+
+tests -(0)-> call_once_and_poll at tests/ui/call_graph/unsafety/mark_calls_from_unsafe_blocks_in_async_closures_as_unsafe.rs:13:1: 13:45 (#0)
+  (0) test
+
+targets: 3 total; 1 safe; 2 unsafe (1 tainted)

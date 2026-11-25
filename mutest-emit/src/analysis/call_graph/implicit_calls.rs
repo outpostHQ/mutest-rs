@@ -35,7 +35,7 @@ fn drop_glue_calls<'tcx>(tcx: TyCtxt<'tcx>, dropped_ty: ty::Ty<'tcx>, span: Span
         })
 }
 
-fn def_safety(tcx: TyCtxt<'_>, def_id: hir::DefId) -> hir::Safety {
+pub(super) fn def_safety(tcx: TyCtxt<'_>, def_id: hir::DefId) -> hir::Safety {
     match tcx.def_kind(def_id) {
         hir::DefKind::Closure => hir::Safety::Safe,
         _ => tcx.fn_sig(def_id).skip_binder().safety(),

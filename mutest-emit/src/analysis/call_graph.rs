@@ -307,15 +307,20 @@ pub struct Call<'tcx> {
 }
 
 // Based on `rustc_mir_transform::inline::cycle::mir_inliner_callees`.
+/// The definition whose signature and HIR belong to the body. The by-move body of the coroutine of an async closure has neither;
+/// it is a copy of the body of the coroutine, which is its type. Its parent, the closure, does not hold the unsafe blocks of the coroutine.
+fn hir_def_of_body(tcx: TyCtxt<'_>, body_def_id: hir::DefId) -> hir::DefId {
+    if tcx.def_kind(body_def_id) != hir::DefKind::SyntheticCoroutineBody { return body_def_id; }
+    let &ty::Coroutine(coroutine_def_id, _) = tcx.type_of(body_def_id).skip_binder().kind() else { unreachable!() };
+    coroutine_def_id
+}
+
 pub fn mir_callees<'tcx>(tcx: TyCtxt<'tcx>, body_mir: &'tcx mir::Body<'tcx>, generic_args: ty::GenericArgs<'tcx>) -> impl Iterator<Item = Call<'tcx>> {
     let instance = ty::Instance { def: body_mir.source.instance, args: generic_args };
     let typing_env = ty::TypingEnv::fully_monomorphized();
 
-    let body_def_id = body_mir.source.instance.def_id();
-    let body_safety = match tcx.def_kind(body_def_id) {
-        hir::DefKind::Closure => hir::Safety::Safe,
-        _ => tcx.fn_sig(body_def_id).skip_binder().safety(),
-    };
+    let body_def_id = hir_def_of_body(tcx, body_mir.source.instance.def_id());
+    let body_safety = implicit_calls::def_safety(tcx, body_def_id);
 
     let body_hir = body_def_id.as_local()
         .and_then(|local_def_id| tcx.hir_node_by_def_id(local_def_id).body_id())
