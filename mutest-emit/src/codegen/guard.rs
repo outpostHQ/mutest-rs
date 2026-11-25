@@ -7,7 +7,7 @@ use crate::codegen::ast;
 use crate::codegen::ast::mut_visit::MutVisitor;
 use crate::codegen::ast::visit::Visitor;
 use crate::codegen::cancellation;
-use crate::codegen::mutation::MutId;
+use crate::codegen::mutation::{MutId, Subst};
 use crate::codegen::symbols::{Ident, Span, Symbol, path, sym};
 
 /// What a body holds that a second copy of the body would change the meaning of.
@@ -28,6 +28,17 @@ impl<'ast> Visitor<'ast> for BodyShape {
     fn visit_item(&mut self, item: &'ast ast::Item) {
         self.items |= !matches!(item.kind, ast::ItemKind::Use(..) | ast::ItemKind::ExternCrate(..));
     }
+}
+
+/// Whether the substitute holds an item other than an import, which its copy of the original code would hold a second time.
+pub fn holds_item(subst: &Subst) -> bool {
+    let mut shape = BodyShape::default();
+    match subst {
+        Subst::AstExpr(expr) => shape.visit_expr(expr),
+        Subst::AstStmt(stmt) => shape.visit_stmt(stmt),
+        Subst::AstLocal(_, _, _, expr, _) => shape.visit_expr(expr),
+    }
+    shape.items
 }
 
 struct OpaqueTyFinder(bool);

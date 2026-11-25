@@ -18,6 +18,7 @@ use crate::analysis::res;
 use crate::codegen::ast;
 use crate::codegen::ast::visit::Visitor;
 use crate::codegen::expansion::TcxExpansionExt;
+use crate::codegen::guard;
 use crate::codegen::symbols::{DUMMY_SP, Ident, Span, Symbol, sym};
 use crate::codegen::symbols::hygiene::AstPass;
 use crate::codegen::tool_attr;
@@ -206,10 +207,8 @@ impl<'a, T: Operator<'a>> OperatorBoxed<'a> for T {
 
     fn try_apply_boxed(&self, mcx: &MutCtxt) -> BoxedMutations<Self::Mutation> {
         self.try_apply(mcx).0.into_iter()
-            .map(|(mutation, substs)| {
-                let mutation: Box<dyn Mutation + 'a> = Box::new(mutation);
-                (mutation, substs)
-            })
+            .filter(|(_, substs)| !substs.iter().any(|subst| guard::holds_item(&subst.substitute)))
+            .map(|(mutation, substs)| (Box::new(mutation) as Box<dyn Mutation + 'a>, substs))
             .collect()
     }
 }
