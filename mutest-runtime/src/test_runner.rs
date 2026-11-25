@@ -1088,12 +1088,11 @@ mod abandon_tests {
 pub(crate) mod scratch {
     use std::{fs, path::{Path, PathBuf}, process, sync::atomic::{self, AtomicU64}};
 
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-
     /// A new folder under `test-scratch`, which the test removes when it ends, also when it fails.
     pub(crate) struct Scratch(pub(crate) PathBuf);
     impl Scratch {
         pub(crate) fn new(name: &str) -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
             let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../test-scratch");
             let root = base.join(format!("{name}-{}-{}", process::id(), NEXT.fetch_add(1, atomic::Ordering::Relaxed)));
             // On Linux, a test that exited or was killed left its folder, which has the id of its process; that id can run again.
