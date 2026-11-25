@@ -2,6 +2,7 @@
 #![feature(decl_macro)]
 #![feature(iter_array_chunks)]
 #![feature(thread_id_value)]
+#![feature(thread_spawn_hook)]
 
 #![feature(test)]
 #![feature(internal_output_capture)]

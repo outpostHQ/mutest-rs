@@ -1,7 +1,7 @@
-[bool_expr_negate] negate boolean expression in needs_cancellation at tests/ui/evaluation/cancel_timed_out_test_if_reenters_subst.rs:32:12: 32:16
+[bool_expr_negate] negate boolean expression in needs_cancellation at tests/ui/evaluation/cancel_timed_out_test_if_reenters_subst.rs:38:12: 38:16
   <-(0)- test1
 
-[bool_expr_negate] negate boolean expression in trigger_second_mutation at tests/ui/evaluation/cancel_timed_out_test_if_reenters_subst.rs:54:8: 54:13
+[bool_expr_negate] negate boolean expression in trigger_second_mutation at tests/ui/evaluation/cancel_timed_out_test_if_reenters_subst.rs:60:8: 60:13
   <-(0)- test2
 
 2 mutations; 2 safe; 0 unsafe (0 tainted)
@@ -11,25 +11,25 @@
 profiling reference test run
 
 applying mutation:
-- 1: [bool_expr_negate] negate boolean expression at tests/ui/evaluation/cancel_timed_out_test_if_reenters_subst.rs:32:12: 32:16
+- 1: [bool_expr_negate] negate boolean expression at tests/ui/evaluation/cancel_timed_out_test_if_reenters_subst.rs:38:12: 38:16
 
 1: ran 1 out of 1 test (1 lingering)
 
 applying mutation:
-- 2: [bool_expr_negate] negate boolean expression at tests/ui/evaluation/cancel_timed_out_test_if_reenters_subst.rs:54:8: 54:13
+- 2: [bool_expr_negate] negate boolean expression at tests/ui/evaluation/cancel_timed_out_test_if_reenters_subst.rs:60:8: 60:13
 
 2: ran 1 out of 1 test
 
 warning: [bool_expr_negate] mutation was not detected
-  --> tests/ui/evaluation/cancel_timed_out_test_if_reenters_subst.rs:54:8
+  --> tests/ui/evaluation/cancel_timed_out_test_if_reenters_subst.rs:60:8
    |
-54 |     if false {
+60 |     if false {
    |        ^^^^^ negate boolean expression
    |
    = note: expression replaced with: `!false`
 
 confirming timeout of mutation alone:
-- 1: [bool_expr_negate] negate boolean expression at tests/ui/evaluation/cancel_timed_out_test_if_reenters_subst.rs:32:12: 32:16
+- 1: [bool_expr_negate] negate boolean expression at tests/ui/evaluation/cancel_timed_out_test_if_reenters_subst.rs:38:12: 38:16
 
 1: ran 1 out of 1 test (1 lingering)
 

@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::env;
 use std::fmt;
 use std::io;
+use std::mem::ManuallyDrop;
 use std::num::NonZeroUsize;
 use std::panic;
 use std::process::{self, Command};
@@ -218,18 +219,31 @@ pub enum ControlMsg {
 }
 
 thread_local! {
-    /// The signal of the in-process test this thread runs, or null when it runs none.
-    static TEST_THREAD_ACTIVE: Cell<*const AtomicBool> = const { Cell::new(ptr::null()) };
+    /// The signal of the in-process test this thread runs or was started by, or null when there is none.
+    static TEST_THREAD_ACTIVE: Cell<*const ActiveSignal> = const { Cell::new(ptr::null()) };
+    /// The signal that this thread got from the thread that started it.
+    static INHERITED_SIGNAL: Cell<Option<TestThreadSignal>> = const { Cell::new(None) };
 }
 
-/// The in-process tests the run gave up whose threads still run; while there are none, no thread reads its signal.
-static ABANDONED_TEST_THREADS: AtomicUsize = AtomicUsize::new(0);
+/// The abandoned signals that some thread still holds; while there are none, no thread reads its signal.
+static ABANDONED_SIGNALS: AtomicUsize = AtomicUsize::new(0);
 
-/// Gives this thread the signal of its in-process test, until dropped.
-struct TestThreadSignal(Arc<AtomicBool>);
+/// The signal of an in-process test, cleared when the run gives the test up. The test thread and each thread
+/// that it starts hold it, so its count stays until the last of them ends.
+#[derive(Debug)]
+pub struct ActiveSignal(AtomicBool);
+
+impl ActiveSignal { fn new() -> Arc<Self> { Arc::new(Self(AtomicBool::new(true))) } }
+
+impl Drop for ActiveSignal {
+    fn drop(&mut self) { if !*self.0.get_mut() { ABANDONED_SIGNALS.fetch_sub(1, atomic::Ordering::SeqCst); } }
+}
+
+/// Gives this thread a signal, until dropped.
+struct TestThreadSignal(Arc<ActiveSignal>);
 
 impl TestThreadSignal {
-    fn set(active_signal: Arc<AtomicBool>) -> Self {
+    fn set(active_signal: Arc<ActiveSignal>) -> Self {
         TEST_THREAD_ACTIVE.set(Arc::as_ptr(&active_signal));
         Self(active_signal)
     }
@@ -237,33 +251,51 @@ impl TestThreadSignal {
 
 impl Drop for TestThreadSignal {
     fn drop(&mut self) {
-        TEST_THREAD_ACTIVE.set(ptr::null());
-        if !self.0.swap(false, atomic::Ordering::SeqCst) {
-            ABANDONED_TEST_THREADS.fetch_sub(1, atomic::Ordering::SeqCst);
-        }
+        let active_signal = TEST_THREAD_ACTIVE.replace(ptr::null());
+        debug_assert!(ptr::eq(active_signal, Arc::as_ptr(&self.0)), "a thread gave up a signal that it did not hold");
     }
 }
 
-/// Clears the signal of a test that has not ended yet, and counts its thread as abandoned until the test ends.
-/// The count goes up first: a test that ends between the two steps must not take it below the abandoned threads.
-fn abandon_signal(active_signal: &AtomicBool) {
-    ABANDONED_TEST_THREADS.fetch_add(1, atomic::Ordering::SeqCst);
-    if !active_signal.swap(false, atomic::Ordering::SeqCst) {
-        ABANDONED_TEST_THREADS.fetch_sub(1, atomic::Ordering::SeqCst);
+/// Calls `f` with the signal of this thread, if it has one.
+fn with_test_thread_signal<R>(f: impl FnOnce(Option<&Arc<ActiveSignal>>) -> R) -> R {
+    let active_signal = TEST_THREAD_ACTIVE.get();
+    // SAFETY: The `TestThreadSignal` of this thread holds the signal, and clears the pointer before it drops it.
+    f((!active_signal.is_null()).then(|| ManuallyDrop::new(unsafe { Arc::from_raw(active_signal) })).as_deref())
+}
+
+/// Gives each thread that a thread starts its signal and output capture, as libtest does for the capture.
+/// Registered on the main thread before it starts any other, as threads inherit the hooks of their parent.
+pub(crate) fn inherit_test_thread_state() {
+    thread::add_spawn_hook(|_| {
+        let output_capture = io::set_output_capture(None);
+        io::set_output_capture(output_capture.clone());
+        let active_signal = with_test_thread_signal(|active_signal| active_signal.cloned());
+        move || {
+            io::set_output_capture(output_capture);
+            if let Some(active_signal) = active_signal { INHERITED_SIGNAL.set(Some(TestThreadSignal::set(active_signal))); }
+        }
+    });
+}
+
+/// Clears the signal of a test and counts it as abandoned while some thread holds it.
+/// The count goes up first, and comes back down if the signal was abandoned before.
+fn abandon_signal(active_signal: &ActiveSignal) {
+    ABANDONED_SIGNALS.fetch_add(1, atomic::Ordering::SeqCst);
+    if !active_signal.0.swap(false, atomic::Ordering::SeqCst) {
+        ABANDONED_SIGNALS.fetch_sub(1, atomic::Ordering::SeqCst);
     }
 }
 
 /// Whether the run gave up the test of this thread, after its timeout or after the run stopped early.
 /// Callers check `any_test_thread_abandoned` first, as only then can it be true.
 fn test_thread_abandoned() -> bool {
-    // SAFETY: The `TestThreadSignal` of this thread owns the signal, and clears the pointer before it drops it.
-    unsafe { TEST_THREAD_ACTIVE.get().as_ref() }.is_some_and(|active_signal| !active_signal.load(atomic::Ordering::SeqCst))
+    with_test_thread_signal(|active_signal| active_signal.is_some_and(|active_signal| !active_signal.0.load(atomic::Ordering::SeqCst)))
 }
 
-/// Whether the run gave up a test whose thread still runs. Inlined even in unoptimized builds, as every substitution point calls it.
+/// Whether the run gave up a test that some thread still runs. Inlined even in unoptimized builds, as every substitution point calls it.
 #[inline(always)]
 fn any_test_thread_abandoned() -> bool {
-    ABANDONED_TEST_THREADS.load(atomic::Ordering::Relaxed) != 0
+    ABANDONED_SIGNALS.load(atomic::Ordering::Relaxed) != 0
 }
 
 /// The substitution of the active mutant at the location, or none for a test the run gave up, which an unwinding abandoned test reaches past `is_test_thread_active`.
@@ -320,7 +352,7 @@ fn run_test_in_process(
     test_fn: Box<dyn FnOnce() -> Result<(), String> + Send>,
     monitor_ch: mpsc::Sender<MonitorMessage>,
     test_timeout: Option<Duration>,
-    active_signal: Option<Arc<AtomicBool>>,
+    active_signal: Option<Arc<ActiveSignal>>,
     no_capture: bool,
 ) {
     let io_buffer = Arc::new(Mutex::new(Vec::new()));
@@ -420,7 +452,7 @@ fn run_test(
     control_ch: Option<mpsc::Receiver<ControlMsg>>,
     monitor_ch: mpsc::Sender<MonitorMessage>,
     test_run_strategy: TestRunStrategy,
-    active_signal: Option<Arc<AtomicBool>>,
+    active_signal: Option<Arc<ActiveSignal>>,
     no_capture: bool,
 ) -> (Option<ThreadHandle>, mpsc::Sender<()>) {
     progress::start(id, &test, matches!(&test_run_strategy, TestRunStrategy::InIsolatedChildProcess(_)));
@@ -449,7 +481,7 @@ fn run_test(
         control_ch: Option<mpsc::Receiver<ControlMsg>>,
         monitor_ch: mpsc::Sender<MonitorMessage>,
         test_timeout: Option<Duration>,
-        active_signal: Option<Arc<AtomicBool>>,
+        active_signal: Option<Arc<ActiveSignal>>,
         no_capture: bool,
         start: mpsc::Receiver<()>,
     ) -> Option<ThreadHandle> {
@@ -539,7 +571,7 @@ pub struct RunningTest {
     pub start_time: Instant,
     pub control_tx: mpsc::Sender<ControlMsg>,
     pub join_handle: Option<ThreadHandle>,
-    pub active_signal: Option<Arc<AtomicBool>>,
+    pub active_signal: Option<Arc<ActiveSignal>>,
 }
 
 #[derive(Debug)]
@@ -838,7 +870,7 @@ where
 
             let (control_tx, control_rx) = mpsc::channel::<ControlMsg>();
             let active_signal = match &self.strategy {
-                TestRunStrategy::InProcess(_) => Some(Arc::new(AtomicBool::new(true))),
+                TestRunStrategy::InProcess(_) => Some(ActiveSignal::new()),
                 TestRunStrategy::InIsolatedChildProcess(_) => None,
             };
             // NOTE: `_start` drops at the end of this iteration, after the start of the test is reported.
@@ -895,9 +927,13 @@ where
 #[cfg(test)]
 mod abandon_tests {
     use super::*;
+    use std::sync::PoisonError;
     use crate::{EntryPoints, MutationMeta, MutationSafety, NO_MUTATION};
 
     static RELEASE: AtomicBool = AtomicBool::new(false);
+
+    /// Held by each test that abandons a signal, as the count of abandoned signals is global.
+    static SIGNALS: Mutex<()> = Mutex::new(());
 
     fn named_test(name: &'static str, test_fn: fn() -> Result<(), String>) -> Test {
         Test {
@@ -913,6 +949,7 @@ mod abandon_tests {
 
     #[test]
     fn a_run_stopped_early_abandons_the_tests_it_leaves_running() {
+        let _signals = SIGNALS.lock().unwrap_or_else(PoisonError::into_inner);
         let blocks = || {
             while !RELEASE.load(atomic::Ordering::SeqCst) { thread::sleep(Duration::from_millis(1)); }
             Ok(())
@@ -921,8 +958,9 @@ mod abandon_tests {
             Ok(match event { TestEvent::Result(_) => Flow::Stop, _ => Flow::Continue })
         }, TestRunStrategy::InProcess(None), false, 2).unwrap();
         RELEASE.store(true, atomic::Ordering::SeqCst);
-        let [lingering] = &lingering[..] else { panic!("the blocked test must linger") };
-        assert!(!lingering.active_signal.as_ref().unwrap().load(atomic::Ordering::SeqCst));
+        let Ok([lingering]) = <[_; 1]>::try_from(lingering) else { panic!("the blocked test must linger") };
+        assert!(!lingering.active_signal.as_ref().unwrap().0.load(atomic::Ordering::SeqCst));
+        lingering.join_handle.unwrap().join().unwrap();
     }
 
     static START_REPORTED: AtomicBool = AtomicBool::new(false);
@@ -954,9 +992,10 @@ mod abandon_tests {
                 let _ = self.0.send((is_test_thread_active(), test_thread_abandoned()));
             }
         }
+        let _signals = SIGNALS.lock().unwrap_or_else(PoisonError::into_inner);
         let (tx, rx) = mpsc::channel();
         let joined = thread::spawn(move || {
-            let active_signal = TestThreadSignal::set(Arc::new(AtomicBool::new(true)));
+            let active_signal = TestThreadSignal::set(ActiveSignal::new());
             abandon_signal(&active_signal.0);
             let probe = Probe(tx);
             probe.0.send((is_test_thread_active(), test_thread_abandoned())).unwrap();
@@ -964,6 +1003,35 @@ mod abandon_tests {
         }).join();
         assert!(joined.is_err());
         assert_eq!(rx.iter().collect::<Vec<_>>(), [(false, true), (true, true)]);
+    }
+
+    #[test]
+    fn a_thread_that_an_abandoned_test_started_is_cancelled_after_the_test_ends() {
+        let _signals = SIGNALS.lock().unwrap_or_else(PoisonError::into_inner);
+        inherit_test_thread_state();
+        let (tx, rx) = mpsc::channel();
+        let (go_tx, go_rx) = mpsc::channel();
+        let (abandoned_tx, abandoned_rx) = mpsc::channel();
+        let active_signal = ActiveSignal::new();
+        let test_signal = active_signal.clone();
+        let test = thread::spawn(move || {
+            let _active_signal = TestThreadSignal::set(test_signal);
+            let grandchild = thread::spawn(move || thread::spawn(move || {
+                tx.send(is_test_thread_active()).unwrap();
+                go_rx.recv().unwrap();
+                tx.send(is_test_thread_active()).unwrap();
+            })).join().unwrap();
+            abandoned_rx.recv().unwrap();
+            grandchild
+        });
+        assert_eq!(rx.recv(), Ok(true));
+        abandon_signal(&active_signal);
+        drop(active_signal);
+        abandoned_tx.send(()).unwrap();
+        let grandchild = test.join().unwrap();
+        go_tx.send(()).unwrap();
+        assert_eq!(rx.recv(), Ok(false));
+        grandchild.join().unwrap();
     }
 
     const fn mutation(id: u32) -> MutationMeta {
@@ -989,6 +1057,7 @@ mod abandon_tests {
 
     #[test]
     fn an_abandoned_test_is_cancelled_where_the_slot_differs_from_what_it_entered_the_body_with() {
+        let _signals = SIGNALS.lock().unwrap_or_else(PoisonError::into_inner);
         struct Probe(mpsc::Sender<[[bool; 2]; 3]>);
         impl Drop for Probe {
             fn drop(&mut self) {
@@ -998,7 +1067,7 @@ mod abandon_tests {
         let abandoned = |cancelled_at: Option<(usize, u32)>| {
             let (tx, rx) = mpsc::channel();
             let goes_on = thread::spawn(move || {
-                let active_signal = TestThreadSignal::set(Arc::new(AtomicBool::new(true)));
+                let active_signal = TestThreadSignal::set(ActiveSignal::new());
                 abandon_signal(&active_signal.0);
                 let _probe = Probe(tx);
                 if let Some((entered, mutation_id)) = cancelled_at { GUARD.runs_mutation_at(ENTERED[entered], 0, mutation_id); }

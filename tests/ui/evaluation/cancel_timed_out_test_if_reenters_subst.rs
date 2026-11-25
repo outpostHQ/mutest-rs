@@ -22,7 +22,13 @@ use std::sync::atomic::{self, AtomicBool};
 
 static FIRST_MUTATION_NOT_CANCELLED_AFTER_REENTRY: AtomicBool = AtomicBool::new(false);
 
-fn needs_cancellation() {
+fn needs_cancellation(in_new_thread: Option<()>) {
+    // NOTE: The loop runs in a thread that the test starts, which the run must cancel with its test.
+    //       A boxed job keeps the spawn out of the call graph, so that the mutations are not unsafe.
+    if let Some(()) = in_new_thread {
+        return std::thread::spawn(Box::new(|| needs_cancellation(None)) as Box<dyn FnOnce() + Send>).join().unwrap();
+    }
+
     #[mutest::ignore]
     FIRST_MUTATION_NOT_CANCELLED_AFTER_REENTRY.store(false, atomic::Ordering::SeqCst);
 
@@ -45,7 +51,7 @@ fn needs_cancellation() {
 
 #[test]
 fn test1() {
-    needs_cancellation();
+    needs_cancellation(Some(()));
 }
 
 fn trigger_second_mutation() {

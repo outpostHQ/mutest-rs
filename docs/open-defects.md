@@ -4,4 +4,4 @@ Step 6 of `.claude/rules/bug-free-loop.md`: one row for each open defect; a fixe
 
 | Defect | Evidence | Found by |
 | --- | --- | --- |
-| A thread that a test spawns has no abandon signal, so after its test times out it can read the substitutions of a later, conflicting mutant. | `mutest-runtime/src/test_runner.rs:222`, `mutest-runtime/src/test_runner.rs:258`, `mutest-runtime/src/harness.rs:715` | `proofs/tla/MutantScheduling.tla` review |
+| A job runs with the signal of the thread that runs it, not of the test that gave it. A job that a test gives to a thread that it did not start (a pool made before the test, a `Builder::no_hooks` thread) is not cancelled after the test is abandoned; a pool that an abandoned test made and kept in a `static` cancels the jobs of later tests. | `mutest-runtime/src/test_runner.rs:262`, `mutest-runtime/src/test_runner.rs:337` | review of the thread signal fix |

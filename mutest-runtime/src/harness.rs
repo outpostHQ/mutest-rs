@@ -1195,7 +1195,7 @@ fn runs_as_libtest() -> bool {
 }
 
 pub fn mutest_main_static(test_suite: TestSuite<'_>, meta_mutant: &'static MetaMutant<impl SubstMap + Sync>) {
-    test_runner::dispatch_subprocess_owner();
+    test_runner::inherit_test_thread_state(); test_runner::dispatch_subprocess_owner();
     let TestSuite::Tests(tests, external_tests_extra) = test_suite;
     if let Ok(test_name) = env::var(test_runner::TEST_SUBPROCESS_INVOCATION) {
         let (runner_pid, list) = (env::var_os(test_runner::TEST_RUNNER_PID_VAR), env::var_os(test_runner::TESTS_OF_CHILD_VAR));
