@@ -244,6 +244,12 @@ macro m() {
         }
     }
 
+    // TEST: `super` import of a name that is a module import and a function.
+    mod test_super_import_of_mod_import_and_fn_of_one_name {
+        pub mod escape {}
+        mod inner { use super::escape::{self}; fn escape() {} mod within { use super::escape; } }
+    }
+
     // TEST: Several imports of one module, by its path and by the name of another import.
     mod test_several_imports_of_one_mod {
         use nested_mod as first_alias;

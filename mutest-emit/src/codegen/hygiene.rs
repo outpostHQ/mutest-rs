@@ -1235,17 +1235,10 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
                     ((_, UseKind::Glob), (_, UseKind::Glob)) => false,
 
                     ((path, UseKind::Single { ident, namespace, .. }), (next_path, UseKind::Single{ ident: next_ident, namespace: next_namespace, .. })) => {
-                        #[inline]
-                        fn matching_paths(path: &ast::Path, next_path: &ast::Path) -> bool {
-                            path.segments.len() == next_path.segments.len()
-                                && iter::zip(&path.segments, &next_path.segments).all(|(segment, next_segment)| segment.ident.name == next_segment.ident.name)
-                        }
-
-                        // NOTE: If we encounter the same name relating to two different namespaces,
-                        //       then the paths must be different, otherwise
-                        //       the two imports will refer to the same names in the same namespaces.
+                        let matching_paths = path.segments.iter().map(|segment| segment.ident.name).eq(next_path.segments.iter().map(|segment| segment.ident.name));
+                        // NOTE: A path imports its name in every namespace, so one name and path in two namespaces is one import.
                         //       Underscore imports introduce no name, so they only collide if their paths match.
-                        ident == next_ident && ((namespace == next_namespace && ident.name != kw::Underscore) || matching_paths(path, next_path))
+                        ident == next_ident && ((namespace == next_namespace && ident.name != kw::Underscore) || matching_paths)
                     }
 
                     _ => false,
