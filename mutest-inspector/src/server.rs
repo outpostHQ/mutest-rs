@@ -16,7 +16,7 @@ use mutest_json::mutations::{MutationId, TargetId};
 
 use crate::call_graph::{TraceSpec, entry_point_mono_call_traces, reduce_mono_call_traces};
 use crate::config::{self, Options};
-use crate::ctxt::{TargetSpec, WorkspaceCtxt};
+use crate::ctxt::{TargetCtxt, TargetSpec, WorkspaceCtxt};
 use crate::evaluation::{TestMutationResult, MutationDetection};
 use crate::html::source_code_line_content;
 use crate::html::base::{Tab, base_html, topbar_html};
@@ -90,6 +90,22 @@ pub(crate) async fn run(opts: &Options, state: ServerState) {
     }
 
     axum::serve(listener, router).await.unwrap();
+}
+
+/// The page up to its main content, whose sidebar stays empty.
+fn page_start_html(wcx: &WorkspaceCtxt, package: &str, target: &TargetSpec, tcx: &TargetCtxt, title: &str, active_tab: Option<Tab>) -> String {
+    let mut body = String::new();
+    base_html(&mut body, title).unwrap();
+    write!(body, "<body>").unwrap();
+    topbar_html(&mut body, wcx, package, target, tcx, active_tab).unwrap();
+    write!(body, "<div class=\"page-layout\"><div></div><main class=\"main-content\">").unwrap();
+    body
+}
+
+/// The response with the page that `body` begins, closed after its main content.
+fn page_end(mut body: String) -> (StatusCode, Html<String>) {
+    write!(body, "</main></div></body></html>").unwrap();
+    (StatusCode::OK, Html(body))
 }
 
 async fn handle_unknown() -> impl IntoResponse {
@@ -188,11 +204,7 @@ async fn handle_source_request(State(state): State<Arc<ServerState>>, Path(path_
 
     let Some(path) = path else {
         // NOTE: Empty main content for root source page.
-        write!(body, "</main").unwrap();
-        write!(body, "</div>").unwrap();
-        write!(body, "</body>").unwrap();
-        write!(body, "</html>").unwrap();
-        return (StatusCode::OK, Html(body));
+        return page_end(body);
     };
 
     let Some(source_file_html) = wcx.source_file_html(&path) else {
@@ -393,14 +405,7 @@ async fn handle_source_request(State(state): State<Arc<ServerState>>, Path(path_
     }
     write!(body, "</table>").unwrap();
 
-    write!(body, "</main").unwrap();
-
-    write!(body, "</div>").unwrap();
-
-    write!(body, "</body>").unwrap();
-    write!(body, "</html>").unwrap();
-
-    (StatusCode::OK, Html(body))
+    page_end(body)
 }
 
 async fn handle_mutations_request(State(state): State<Arc<ServerState>>, Path((package, target)): Path<(String, TargetSpec)>) -> (StatusCode, Html<String>) {
@@ -413,19 +418,7 @@ async fn handle_mutations_request(State(state): State<Arc<ServerState>>, Path((p
 
     let evaluation_info = tcx.evaluation_info();
 
-    let mut body = String::new();
-
-    base_html(&mut body, "mutations").unwrap();
-    write!(body, "<body>").unwrap();
-
-    topbar_html(&mut body, wcx, &package, &target, tcx, Some(Tab::Mutations)).unwrap();
-
-    write!(body, "<div class=\"page-layout\">").unwrap();
-
-    // NOTE: No sidebar, emit placeholder element.
-    write!(body, "<div></div>").unwrap();
-
-    write!(body, "<main class=\"main-content\">").unwrap();
+    let mut body = page_start_html(wcx, &package, &target, tcx, "mutations", Some(Tab::Mutations));
 
     let total_mutations_count = tcx.mutations_count();
     let mut undetected_mutations_count = 0;
@@ -497,14 +490,7 @@ async fn handle_mutations_request(State(state): State<Arc<ServerState>>, Path((p
     }
     write!(body, "</tbody></table>").unwrap();
 
-    write!(body, "</main>").unwrap();
-
-    write!(body, "</div>").unwrap();
-
-    write!(body, "</body>").unwrap();
-    write!(body, "</html>").unwrap();
-
-    (StatusCode::OK, Html(body))
+    page_end(body)
 }
 
 async fn handle_mutation_request(State(state): State<Arc<ServerState>>, Path((package, target, mutation_id)): Path<(String, TargetSpec, MutationId)>) -> (StatusCode, Html<String>) {
@@ -532,19 +518,7 @@ async fn handle_mutation_request(State(state): State<Arc<ServerState>>, Path((pa
     let call_graph = tcx.call_graph();
     let evaluation_info = tcx.evaluation_info();
 
-    let mut body = String::new();
-
-    base_html(&mut body, &format!("mutation {}: {}", mutation_id.0, mutation.display_name)).unwrap();
-    write!(body, "<body>").unwrap();
-
-    topbar_html(&mut body, wcx, &package, &target, tcx, None).unwrap();
-
-    write!(body, "<div class=\"page-layout\">").unwrap();
-
-    // NOTE: No sidebar, emit placeholder element.
-    write!(body, "<div></div>").unwrap();
-
-    write!(body, "<main class=\"main-content\">").unwrap();
+    let mut body = page_start_html(wcx, &package, &target, tcx, &format!("mutation {}: {}", mutation_id.0, mutation.display_name), None);
 
     let mutation_detection_html = match evaluation_info {
         Some(evaluation_info) => evaluation_info.mutation_detections[mutation_id].badge_html(),
@@ -716,14 +690,7 @@ async fn handle_mutation_request(State(state): State<Arc<ServerState>>, Path((pa
     write!(body, "</table>").unwrap();
     write!(body, "</section>").unwrap();
 
-    write!(body, "</main>").unwrap();
-
-    write!(body, "</div>").unwrap();
-
-    write!(body, "</body>").unwrap();
-    write!(body, "</html>").unwrap();
-
-    (StatusCode::OK, Html(body))
+    page_end(body)
 }
 
 async fn handle_trace_request(State(state): State<Arc<ServerState>>, Path((package, target, trace_spec)): Path<(String, TargetSpec, String)>) -> (StatusCode, Html<String>) {
@@ -747,8 +714,6 @@ async fn handle_trace_request(State(state): State<Arc<ServerState>>, Path((packa
     let call_graph = tcx.call_graph();
     let evaluation_info = tcx.evaluation_info();
 
-    let mut body = String::new();
-
     let mut title = String::new();
     write!(title, "trace ").unwrap();
     match trace_spec.callee_def_ids.len() {
@@ -756,17 +721,7 @@ async fn handle_trace_request(State(state): State<Arc<ServerState>>, Path((packa
         count => write!(title, "{} calls", count).unwrap(),
     }
     write!(title, " deep from `{}` to `{}` with mutation {}", entry_point_def.def_path, target_def.def_path, trace_spec.mutation_id.0).unwrap();
-    base_html(&mut body, &title).unwrap();
-    write!(body, "<body>").unwrap();
-
-    topbar_html(&mut body, wcx, &package, &target, tcx, None).unwrap();
-
-    write!(body, "<div class=\"page-layout\">").unwrap();
-
-    // NOTE: No sidebar, emit placeholder element.
-    write!(body, "<div></div>").unwrap();
-
-    write!(body, "<main class=\"main-content\">").unwrap();
+    let mut body = page_start_html(wcx, &package, &target, tcx, &title, None);
 
     write!(body, "<header>").unwrap();
     write!(body, "<h1>").unwrap();
@@ -967,14 +922,7 @@ async fn handle_trace_request(State(state): State<Arc<ServerState>>, Path((packa
         write!(body, "</section>").unwrap();
     }
 
-    write!(body, "</main>").unwrap();
-
-    write!(body, "</div>").unwrap();
-
-    write!(body, "</body>").unwrap();
-    write!(body, "</html>").unwrap();
-
-    (StatusCode::OK, Html(body))
+    page_end(body)
 }
 
 async fn handle_tests_request(State(state): State<Arc<ServerState>>, Path((package, target)): Path<(String, TargetSpec)>) -> (StatusCode, Html<String>) {
@@ -989,19 +937,7 @@ async fn handle_tests_request(State(state): State<Arc<ServerState>>, Path((packa
 
     let evaluation_info = tcx.evaluation_info();
 
-    let mut body = String::new();
-
-    base_html(&mut body, "tests").unwrap();
-    write!(body, "<body>").unwrap();
-
-    topbar_html(&mut body, wcx, &package, &target, tcx, Some(Tab::Tests)).unwrap();
-
-    write!(body, "<div class=\"page-layout\">").unwrap();
-
-    // NOTE: No sidebar, emit placeholder element.
-    write!(body, "<div></div>").unwrap();
-
-    write!(body, "<main class=\"main-content\">").unwrap();
+    let mut body = page_start_html(wcx, &package, &target, tcx, "tests", Some(Tab::Tests));
 
     write!(body, "<table class=\"page-table\">").unwrap();
     write!(body, "<thead><tr><th>test</th><th class=\"right\">reachable mutations</th><th class=\"right\">ran</th><th class=\"right\">coverage</th><th class=\"right\">undetected</th><th class=\"right\">detected</th><th class=\"right\">timed out</th><th class=\"right\">crashed</th></tr></thead>").unwrap();
@@ -1067,14 +1003,7 @@ async fn handle_tests_request(State(state): State<Arc<ServerState>>, Path((packa
     }
     write!(body, "</tbody></table>").unwrap();
 
-    write!(body, "</main>").unwrap();
-
-    write!(body, "</div>").unwrap();
-
-    write!(body, "</body>").unwrap();
-    write!(body, "</html>").unwrap();
-
-    (StatusCode::OK, Html(body))
+    page_end(body)
 }
 
 async fn handle_test_request(State(state): State<Arc<ServerState>>, Path((package, target, test_name)): Path<(String, TargetSpec, String)>) -> (StatusCode, Html<String>) {
@@ -1094,19 +1023,7 @@ async fn handle_test_request(State(state): State<Arc<ServerState>>, Path((packag
 
     let evaluation_info = tcx.evaluation_info();
 
-    let mut body = String::new();
-
-    base_html(&mut body, &format!("test `{}`", def.def_path)).unwrap();
-    write!(body, "<body>").unwrap();
-
-    topbar_html(&mut body, wcx, &package, &target, tcx, None).unwrap();
-
-    write!(body, "<div class=\"page-layout\">").unwrap();
-
-    // NOTE: No sidebar, emit placeholder element.
-    write!(body, "<div></div>").unwrap();
-
-    write!(body, "<main class=\"main-content\">").unwrap();
+    let mut body = page_start_html(wcx, &package, &target, tcx, &format!("test `{}`", def.def_path), None);
 
     write!(body, "<header> ").unwrap();
     write!(body, "<h1>test <span class=\"inline-code\">{}</span></h1>", def.def_path_html).unwrap();
@@ -1214,12 +1131,5 @@ async fn handle_test_request(State(state): State<Arc<ServerState>>, Path((packag
     write!(body, "</table>").unwrap();
     write!(body, "</section>").unwrap();
 
-    write!(body, "</main>").unwrap();
-
-    write!(body, "</div>").unwrap();
-
-    write!(body, "</body>").unwrap();
-    write!(body, "</html>").unwrap();
-
-    (StatusCode::OK, Html(body))
+    page_end(body)
 }
