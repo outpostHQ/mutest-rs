@@ -123,7 +123,6 @@ pub struct CallGraphInfo {
 
     /// Statistics about the call graph.
     pub stats: CallGraphStats,
-    /// Call graph.
     pub call_graph: CallGraph,
 
     /// Definitions referred to by the call graph.

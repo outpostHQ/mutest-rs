@@ -174,7 +174,6 @@ pub struct EvaluationInfo {
     /// Format version header.
     pub format_version: u32,
 
-    /// Mutation runs.
     pub mutation_runs: SmallVec<[MutationRun; 1]>,
 
     /// Analysis of flakiness in test--mutation detections.

@@ -25,7 +25,6 @@ pub struct TestStartEvent {
     pub time: Nanos,
     /// Active mutation being evaluated.
     pub mutation_id: MutationId,
-    /// Test name.
     pub test_name: String,
     /// Opaque ID of the thread the test is allocated to.
     pub thread_id: NonZeroU64,
@@ -57,12 +56,10 @@ pub struct TestResultEvent {
     pub time: Nanos,
     /// Active mutation being evaluated.
     pub mutation_id: MutationId,
-    /// Test name.
     pub test_name: String,
     /// Execution time of the test.
     /// This is [`None`] if the test was ignored and never ran.
     pub test_exec_time: Option<Nanos>,
-    /// Test result.
     pub test_result: TestResult,
 }
 

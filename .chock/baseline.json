@@ -7,9 +7,9 @@
     "assertions": {},
     "bigfiles": {
       "mutest-emit/src/analysis/ast_lowering.rs": 2758,
-      "mutest-emit/src/codegen/hygiene.rs": 1947,
-      "mutest-emit/src/codegen/mutation.rs": 1088,
-      "mutest-inspector/src/server.rs": 1226,
+      "mutest-emit/src/codegen/hygiene.rs": 1946,
+      "mutest-emit/src/codegen/mutation.rs": 1087,
+      "mutest-inspector/src/server.rs": 1136,
       "mutest-runtime/src/harness.rs": 1250
     },
     "binsize": {
@@ -149,7 +149,7 @@
       "mutest-emit/src/analysis/ast_lowering.rs#walk_pat": 29,
       "mutest-emit/src/analysis/ast_lowering.rs#walk_qpath": 18,
       "mutest-emit/src/analysis/ast_lowering.rs#walk_ty": 24,
-      "mutest-emit/src/analysis/call_graph.rs#mir_callees": 21,
+      "mutest-emit/src/analysis/call_graph.rs#mir_callees": 20,
       "mutest-emit/src/analysis/call_graph.rs#reachable_fns": 51,
       "mutest-emit/src/analysis/res.rs#absolute_def_paths": 75,
       "mutest-emit/src/analysis/res.rs#visible_def_path": 35,
@@ -536,7 +536,7 @@
       "mutest-emit/src/codegen/tool_attr.rs": 6,
       "mutest-inspector/src/html/mutations.rs": 15,
       "mutest-inspector/src/main.rs": 2,
-      "mutest-inspector/src/server.rs": 85,
+      "mutest-inspector/src/server.rs": 37,
       "mutest-inspector/src/source_file.rs": 26,
       "mutest-inspector/src/syntax_highlight.rs": 12,
       "mutest-operators/src/bool_expr_negate.rs": 4,
@@ -554,7 +554,7 @@
       "tests/ui/mutation/ops/relational_op_invert/invert_relational_checks.rs": 5
     },
     "lines": {
-      "total": 58303
+      "total": 58280
     },
     "links": {
       "proofs/tla/MutantScheduling.tla#mutest-runtime/src/test_runner.rs::run_test_in_process": 1,
