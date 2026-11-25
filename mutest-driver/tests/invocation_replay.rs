@@ -48,6 +48,20 @@ impl Fixture {
             .unwrap()
     }
 
+    /// The driver, building `source` as the integration tests of the library that `compile_library` built.
+    fn compile_integration(&self, source: &str, envs: &[(&str, &str)]) -> Output {
+        fs::write(self.source.join("integration.rs"), source).unwrap();
+        fs::create_dir_all(self.output.join("metadata")).unwrap();
+        self.driver(&self.source)
+            .args(["integration.rs", "--test", "--crate-name", "integration", "--edition=2024", "--extern"])
+            .arg(format!("fixture={}", self.output.join("libfixture.rlib").display()))
+            .arg("-L").arg(format!("dependency={}", self.output.display()))
+            .arg("--out-dir").arg(&self.output)
+            .env("MUTEST_ENCODED_ARGS", format!("--crate-kind=integration-tests\u{1f}--emit=all\u{1f}--metadata-out-root-dir={}", self.output.join("metadata").display()))
+            .env("MUTEST_TARGET_DIR_ROOT", self.output.join("mutest"))
+            .envs(envs.iter().copied()).output().unwrap()
+    }
+
     /// Cargo, building tests of `workspace` with the driver as the compiler of its members, without running them.
     fn cargo_test(&self, workspace: &Path, selection: &[&str], rustflags: &str) -> Command {
         let mut cargo = Command::new("cargo");
@@ -177,20 +191,7 @@ fn a_mutant_crate_is_compiled_again_with_its_recorded_environment() {
     let fixture = Fixture::new();
     let source = "pub fn answer() -> u8 { 42 }\npub fn required() -> &'static str { env!(\"REQUIRED\") }\npub fn absent() -> Option<&'static str> { option_env!(\"ABSENT\") }\n";
     assert_success(&fixture.compile_library(source, "metadata,link"));
-    fs::write(fixture.source.join("integration.rs"), "#[test] fn direct() { assert_eq!(fixture::answer(), 42); assert_eq!(fixture::required(), \"required-value\"); assert_eq!(fixture::absent(), None); }").unwrap();
-    fs::create_dir_all(fixture.output.join("metadata")).unwrap();
-
-    let output = fixture.driver(&fixture.source)
-        .args(["integration.rs", "--test", "--crate-name", "integration", "--edition=2024", "--extern"])
-        .arg(format!("fixture={}", fixture.output.join("libfixture.rlib").display()))
-        .arg("-L").arg(format!("dependency={}", fixture.output.display()))
-        .arg("--out-dir").arg(&fixture.output)
-        .env("MUTEST_ENCODED_ARGS", format!("--crate-kind=integration-tests\u{1f}--emit=all\u{1f}--metadata-out-root-dir={}", fixture.output.join("metadata").display()))
-        .env("MUTEST_TARGET_DIR_ROOT", fixture.output.join("mutest"))
-        .env("REQUIRED", "ambient-value")
-        .env("ABSENT", "ambient-presence")
-        .output()
-        .unwrap();
+    let output = fixture.compile_integration("#[test] fn direct() { assert_eq!(fixture::answer(), 42); assert_eq!(fixture::required(), \"required-value\"); assert_eq!(fixture::absent(), None); }", &[("REQUIRED", "ambient-value"), ("ABSENT", "ambient-presence")]);
     assert_success(&output);
 
     let output = Command::new(fixture.output.join("integration")).env_clear().env("TMPDIR", &fixture.output).output().unwrap();
@@ -202,6 +203,14 @@ fn a_mutant_crate_is_compiled_again_with_its_recorded_environment() {
     // NOTE: `option_env!` expands to a constant, so returning `None` changes nothing.
     let undetected = stdout.split("mutation was not detected").skip(1).collect::<Vec<_>>();
     assert!(matches!(&undetected[..], [warning] if warning.contains("return `None` without evaluating the function body")), "{stdout}");
+}
+
+/// `Sheet` has only an opaque (`def_site`) mark, so the library and its test both write its renamed name.
+#[test]
+fn a_test_names_an_opaque_item_of_a_mutant_crate_as_the_crate_does() {
+    let fixture = Fixture::new();
+    assert_success(&fixture.compile_library("#![feature(decl_macro)]\nmacro define($name:ident) { pub struct Sheet; impl Sheet { pub const NEED: u8 = 1; } pub macro $name() { Sheet::NEED } }\ndefine!(need);\npub fn add(a: u8, b: u8) -> u8 { a + b }\n", "metadata,link"));
+    assert_success(&fixture.compile_integration("#[test] fn cut() { assert_eq!(fixture::add(fixture::need!(), 1), 2); }", &[]));
 }
 
 #[test]

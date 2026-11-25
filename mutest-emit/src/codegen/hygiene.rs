@@ -84,27 +84,17 @@ enum IdentResKind {
 }
 
 fn sanitize_ident_if_from_expansion(ident: &mut Ident, ident_res_kind: IdentResKind) {
-    // `crate`, `self`, `super` and `Self` are keywords that cannot be raw identifiers, see
+    // `crate`, `self`, `super`, `Self` and `_` cannot be raw identifiers, and `_` cannot be used in paths, see
     // https://doc.rust-lang.org/reference/identifiers.html.
-    if ident.name == kw::Crate { return; }
-    if ident.name == kw::Super { return; }
-    if ident.name == kw::SelfLower || ident.name == kw::SelfUpper { return; }
-    // `_` is an ident but cannot be a raw identifier and cannot be used in paths.
-    if ident.name == kw::Underscore || ident.name == kw::UnderscoreLifetime { return; }
+    if matches!(ident.name, kw::Crate | kw::Super | kw::SelfLower | kw::SelfUpper | kw::Underscore | kw::UnderscoreLifetime) { return; }
 
     let syntax_ctxt = ident.span.ctxt();
 
     let res_ctxt_mark = syntax_ctxt.marks().into_iter().rev().find(|&(_, transparency)| match transparency {
-        // Transparent expansions (e.g. the call-site spans of procedural macros) are not hygienic: rustc resolves
-        // their identifiers at call-site, so their names stay as they are, as other crates name them so too.
+        // Transparent expansions (e.g. the call-site spans of procedural macros) resolve at call-site (i.e. not hygienic).
         Transparency::Transparent => false,
-        // Some identifiers produced by semi-transparent expansions (e.g. macro_rules macros)
-        // may be resolved at call-site, rather than at definition-site, meaning that
-        // they are not actually hygienic.
-        // Local variables and labels get resolved at definition-site (i.e. hygienic),
-        // everything else at call-site (i.e. not hygienic).
-        // NOTE: `$crate` also gets resolved at definition-site but is handled
-        //       before our sanitization step.
+        // Semi-transparent expansions (e.g. macro_rules macros) resolve only locals and labels (and `$crate`, which is
+        // handled before this step) at definition-site (i.e. hygienic), everything else at call-site (i.e. not hygienic).
         Transparency::SemiOpaque => matches!(ident_res_kind, IdentResKind::Local | IdentResKind::Label),
         Transparency::Opaque => true,
     });
@@ -122,9 +112,9 @@ fn sanitize_ident_if_from_expansion(ident: &mut Ident, ident_res_kind: IdentResK
         span_bug!(ident.span, "encountered ident starting with `__rustc_expn`: the ident might have been sanitized twice");
     }
 
-    ident.name = Symbol::intern(&format!("{prefix}__rustc_expn_{expn_crate_id}_{expn_local_id}_{bare_ident}",
+    ident.name = Symbol::intern(&format!("{prefix}__rustc_expn_{expn_crate_id:x}_{expn_local_id}_{bare_ident}",
         prefix = is_label.then(|| "'").unwrap_or(""),
-        expn_crate_id = res_ctxt_expn_id.krate.index(),
+        expn_crate_id = res_ctxt_expn_id.expn_hash().stable_crate_id(),
         expn_local_id = res_ctxt_expn_id.local_id.index(),
     ));
 }
