@@ -221,7 +221,8 @@ fn normalize_retained_journal_paths(stderr: &str) -> String {
 
 #[test]
 fn test_normalize_retained_journal_paths() {
-    let journal = env::temp_dir().join(format!("mutest-journal-{}-test", process::id()));
+    let journal = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../test-scratch/mutest-journal-{}-test", process::id()));
+    fs::create_dir_all(journal.parent().unwrap()).unwrap();
     fs::write(&journal, "").unwrap();
     let stderr = format!("mutation analysis incomplete\nincomplete analysis journal retained at {}\nother warning\n", journal.display());
 

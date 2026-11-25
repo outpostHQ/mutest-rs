@@ -91,14 +91,20 @@ fn wait_until(mut done: impl FnMut() -> bool) {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use super::{belongs_to_run, build_failed, build_label, record_failure, wait_until};
 
+    /// A file of this test process in the `test-scratch` folder of the workspace.
+    fn scratch_file(name: &str) -> PathBuf {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../test-scratch");
+        fs::create_dir_all(&dir).unwrap();
+        dir.join(format!("{name}-{}", std::process::id()))
+    }
+
     #[test]
     fn a_driver_sees_the_failure_that_another_driver_of_the_same_build_recorded() {
-        let marker_path =
-            std::env::temp_dir().join(format!("mutest-build-failure-{}", std::process::id()));
+        let marker_path = scratch_file("mutest-build-failure");
         let _ = fs::remove_file(&marker_path);
 
         assert!(!build_failed(&marker_path));
@@ -121,10 +127,7 @@ mod tests {
 
     #[test]
     fn a_build_whose_drivers_all_succeeded_leaves_no_failure_behind() {
-        let marker_path = std::env::temp_dir().join(format!(
-            "mutest-build-failure-unrecorded-{}",
-            std::process::id()
-        ));
+        let marker_path = scratch_file("mutest-build-failure-unrecorded");
         let _ = fs::remove_file(&marker_path);
 
         assert!(!build_failed(&marker_path));
@@ -132,8 +135,7 @@ mod tests {
 
     #[test]
     fn every_failed_build_of_a_run_is_named_on_its_own_line() {
-        let marker_path =
-            std::env::temp_dir().join(format!("mutest-build-failure-named-{}", std::process::id()));
+        let marker_path = scratch_file("mutest-build-failure-named");
         let _ = fs::remove_file(&marker_path);
 
         record_failure(

@@ -565,7 +565,9 @@ fn driver_stamp(driver: &Path) -> String {
 
 #[test]
 fn a_rebuilt_driver_has_another_stamp() {
-    let driver = env::temp_dir().join(format!("mutest-driver-stamp-{}", process::id()));
+    let scratch = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../test-scratch");
+    fs::create_dir_all(&scratch).unwrap();
+    let driver = scratch.join(format!("mutest-driver-stamp-{}", process::id()));
     fs::write(&driver, "old").unwrap();
     let old = driver_stamp(&driver);
     fs::write(&driver, "rebuilt").unwrap();
@@ -608,8 +610,7 @@ fn progress_environment(directory: Option<&OsStr>, nonce: Option<&OsStr>) -> Res
 #[test]
 fn required_progress_needs_an_absolute_directory_and_a_lowercase_hex_nonce() {
     let nonce = OsStr::new("0123456789abcdef0123456789abcdef");
-    let absolute = env::temp_dir();
-    let absolute = Some(absolute.as_os_str());
+    let absolute = Some(OsStr::new(env!("CARGO_MANIFEST_DIR")));
 
     assert!(progress_environment(absolute, Some(nonce)).is_ok());
     for (directory, nonce) in [(None, None), (absolute, None),

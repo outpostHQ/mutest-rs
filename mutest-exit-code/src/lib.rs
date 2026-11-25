@@ -121,7 +121,8 @@ mod tests {
 
     #[test]
     fn what_a_harness_records_is_read_back() {
-        let log = std::env::temp_dir().join(format!("mutest-exit-code-log-{}", std::process::id()));
+        let log = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../test-scratch/mutest-exit-code-log-{}", std::process::id()));
+        std::fs::create_dir_all(log.parent().unwrap()).unwrap();
         let _ = std::fs::remove_file(&log);
 
         record_start(&log, 10).unwrap();
