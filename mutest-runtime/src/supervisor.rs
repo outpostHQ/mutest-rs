@@ -1014,7 +1014,7 @@ mod tests {
 
         use super::super::{self as supervisor, SUPERVISOR_PID_VAR};
         use crate::{harness, journal};
-        use crate::test_runner::tests::Scratch;
+        use crate::test_runner::scratch::Scratch;
 
         const ENTRY: &str = "supervisor::tests::regressions::runtime_fixture_entry";
         const SCENARIO: &str = "MUTEST_REGRESSION_SCENARIO";

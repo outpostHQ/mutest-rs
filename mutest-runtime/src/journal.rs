@@ -526,15 +526,12 @@ mod tests {
 
     #[test]
     fn a_journal_skips_a_name_that_is_taken_and_leaves_that_file_alone() {
-        use std::fs;
-
-        let scratch = crate::test_runner::tests::Scratch::new("journal-taken");
-        let dir = &scratch.0;
-        fs::write(dir.join("taken"), "kept").unwrap();
+        let dir = &crate::test_runner::scratch::Scratch::new("journal-taken").0;
+        std::fs::write(dir.join("taken"), "kept").unwrap();
 
         let journal = Journal::create_in(&dir, ["taken".to_owned(), "free".to_owned()]).unwrap();
 
-        assert_eq!(fs::read_to_string(dir.join("taken")).unwrap(), "kept");
+        assert_eq!(std::fs::read_to_string(dir.join("taken")).unwrap(), "kept");
         assert_eq!(journal.path, dir.join("free"));
     }
 

@@ -124,7 +124,7 @@ mod tests {
 
     use super::*;
     use super::super::{TEST_SUBPROCESS_INVOCATION, dispatch_subprocess_owner, run_tests_with_concurrency};
-    use super::super::tests::{Scratch, fixture_fn};
+    use super::super::{scratch::Scratch, tests::fixture_fn};
 
     const ENTRY: &str = "test_runner::mutation_child::tests::mutation_child_fixture";
 

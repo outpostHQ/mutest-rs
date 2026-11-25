@@ -1084,12 +1084,9 @@ mod abandon_tests {
     }
 }
 
-#[cfg(all(test, target_os = "linux"))]
-pub(crate) mod tests {
-    use super::*;
-    use std::fs;
-    use std::path::{Path, PathBuf};
-    use std::sync::atomic::AtomicU64;
+#[cfg(test)]
+pub(crate) mod scratch {
+    use std::{fs, path::{Path, PathBuf}, process, sync::atomic::{self, AtomicU64}};
 
     static NEXT: AtomicU64 = AtomicU64::new(0);
 
@@ -1099,8 +1096,8 @@ pub(crate) mod tests {
         pub(crate) fn new(name: &str) -> Self {
             let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../test-scratch");
             let root = base.join(format!("{name}-{}-{}", process::id(), NEXT.fetch_add(1, atomic::Ordering::Relaxed)));
-            // A test that exited or was killed left its folder, which has the id of its process; that id can run again.
-            for entry in fs::read_dir(&base).into_iter().flatten().flatten() {
+            // On Linux, a test that exited or was killed left its folder, which has the id of its process; that id can run again.
+            for entry in fs::read_dir(&base).into_iter().flatten().flatten().filter(|_| cfg!(target_os = "linux")) {
                 let pid = entry.file_name().to_str().and_then(|name| name.rsplit('-').nth(1)?.parse::<u32>().ok());
                 if pid.is_some_and(|pid| !Path::new(&format!("/proc/{pid}")).exists()) { let _ = fs::remove_dir_all(entry.path()); }
             }
@@ -1109,9 +1106,15 @@ pub(crate) mod tests {
             Self(root)
         }
     }
-    impl Drop for Scratch {
-        fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); }
-    }
+    impl Drop for Scratch { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); } }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) mod tests {
+    use super::*;
+    use super::scratch::Scratch;
+    use std::fs;
+    use std::path::{Path, PathBuf};
 
     /// A failing test removes its folder, and a new folder removes the folders of ended processes only.
     #[test]
