@@ -121,11 +121,10 @@ fn run_on_own_thread(name: String, f: fn() -> Result<(), String>) -> Result<(), 
 mod tests {
     use std::env;
     use std::path::Path;
-    use std::sync::atomic;
 
     use super::*;
     use super::super::{TEST_SUBPROCESS_INVOCATION, dispatch_subprocess_owner, run_tests_with_concurrency};
-    use super::super::tests::fixture_fn;
+    use super::super::tests::{Scratch, fixture_fn};
 
     const ENTRY: &str = "test_runner::mutation_child::tests::mutation_child_fixture";
 
@@ -156,11 +155,9 @@ mod tests {
     type CmdHook = Arc<dyn Fn(&mut Command) + Send + Sync>;
 
     /// A new folder that the fixture children count their starts in, and the command hook that starts them.
-    pub(super) fn fixture_children() -> (PathBuf, CmdHook) {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../test-scratch")
-            .join(format!("mutation-child-{}-{}", process::id(), NEXT_LIST.fetch_add(1, atomic::Ordering::Relaxed)));
-        fs::create_dir_all(&root).unwrap();
-        let child_root = root.clone();
+    pub(super) fn fixture_children() -> (Scratch, CmdHook) {
+        let root = Scratch::new("mutation-child");
+        let child_root = root.0.clone();
         (root, Arc::new(move |command| { command.args(["--ignored", "--exact", ENTRY, "--test-threads=1", "--nocapture"]).env("MUTEST_MUTATION_CHILD", &child_root); }))
     }
 
@@ -176,8 +173,7 @@ mod tests {
             Ok(on_result(test.desc.name.as_slice(), queue))
         }, strategy, false, 1).unwrap();
         assert!(lingering.is_empty());
-        let starts = fs::read_to_string(root.join("starts")).unwrap().lines().count();
-        fs::remove_dir_all(&root).unwrap();
+        let starts = fs::read_to_string(root.0.join("starts")).unwrap().lines().count();
         (results, remaining.len(), starts)
     }
 

@@ -375,21 +375,13 @@ pub(super) fn end(test: &CompletedTest, complete: bool) {
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
+    use super::super::tests::Scratch;
     use serde_json::Value;
     use std::fs;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static NEXT: AtomicU64 = AtomicU64::new(0);
 
-    fn fixture() -> (PathBuf, Writer) {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../test-scratch")
-            .join(format!(
-                "progress-{}-{}",
-                process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed)
-            ));
-        fs::create_dir_all(&root).unwrap();
-        let writer = create(&root, "0123456789abcdef0123456789abcdef".to_owned()).unwrap();
+    fn fixture() -> (Scratch, Writer) {
+        let root = Scratch::new("progress");
+        let writer = create(&root.0, "0123456789abcdef0123456789abcdef".to_owned()).unwrap();
         (root, writer)
     }
 
@@ -422,7 +414,7 @@ mod tests {
         writer.end_test(pending, &TestResult::TimedOut, false).unwrap();
         assert!(writer.finish(true, 0).is_err());
         writer.finish(false, 101).unwrap();
-        let path = fs::read_dir(&root).unwrap().next().unwrap().unwrap().path();
+        let path = fs::read_dir(&root.0).unwrap().next().unwrap().unwrap().path();
         let records = fs::read_to_string(path)
             .unwrap()
             .lines()
@@ -444,14 +436,12 @@ mod tests {
         assert_eq!(records[7]["execution_timeout_ms"], Value::Null);
         assert_eq!(records.last().unwrap()["status"], "incomplete");
         assert_eq!(records.last().unwrap()["exit_code"], 101);
-        drop(writer);
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn a_record_or_file_over_its_limit_fails_the_writer() {
         for case in ["record", "file"] {
-            let (root, mut writer) = fixture();
+            let (_root, mut writer) = fixture();
             match case {
                 "record" => assert!(writer.append(json::Object::new().field("oversized", &"x".repeat(RECORD_LIMIT))).is_err()),
                 _ => {
@@ -461,8 +451,6 @@ mod tests {
             }
             assert!(writer.ready().is_err());
             assert!(writer.finish(true, 0).is_err());
-            drop(writer);
-            fs::remove_dir_all(root).unwrap();
         }
     }
 }

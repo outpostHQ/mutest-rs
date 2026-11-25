@@ -1014,6 +1014,7 @@ mod tests {
 
         use super::super::{self as supervisor, SUPERVISOR_PID_VAR};
         use crate::{harness, journal};
+        use crate::test_runner::tests::Scratch;
 
         const ENTRY: &str = "supervisor::tests::regressions::runtime_fixture_entry";
         const SCENARIO: &str = "MUTEST_REGRESSION_SCENARIO";
@@ -1024,21 +1025,14 @@ mod tests {
             root: PathBuf,
             child: Child,
             _turn: MutexGuard<'static, ()>,
+            _scratch: Scratch,
         }
 
         impl Fixture {
             fn start(scenario: &str) -> Self {
                 let turn = supervisor::sys::tests::STARTING_PROCESSES.lock().unwrap_or_else(|error| error.into_inner());
-                let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../test-scratch/runtime-regressions");
-                fs::create_dir_all(&base).unwrap();
-                let root = (0..1000)
-                    .map(|n| base.join(format!("{}-{scenario}-{n}", std::process::id())))
-                    .find(|path| match fs::create_dir(path) {
-                        Ok(()) => true,
-                        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => false,
-                        Err(error) => panic!("cannot create fixture directory: {error}"),
-                    })
-                    .expect("fixture names exhausted");
+                let scratch = Scratch::new(&format!("runtime-regression-{scenario}"));
+                let root = scratch.0.clone();
                 fs::create_dir(root.join("tmp")).unwrap();
                 let output = fs::File::create(root.join("output")).unwrap();
                 let mut command = Command::new(env::current_exe().unwrap());
@@ -1074,7 +1068,7 @@ mod tests {
                     });
                 }
                 let child = command.spawn().unwrap();
-                Self { root, child, _turn: turn }
+                Self { root, child, _turn: turn, _scratch: scratch }
             }
 
             fn admit_worker(&mut self) {
@@ -1120,9 +1114,6 @@ mod tests {
             fn drop(&mut self) {
                 let _ = self.child.kill();
                 let _ = self.child.wait();
-                if !thread::panicking() {
-                    let _ = fs::remove_dir_all(&self.root);
-                }
             }
         }
 

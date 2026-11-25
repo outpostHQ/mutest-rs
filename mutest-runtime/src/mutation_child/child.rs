@@ -144,13 +144,11 @@ mod tests {
     /// as the result of the next test.
     #[test]
     fn a_child_that_exited_after_a_pass_gives_its_exit_to_the_next_test() {
-        let (root, cmd_hook) = fixture_children();
+        let (_root, cmd_hook) = fixture_children();
         let names = [test::StaticTestName("pass-0"), test::StaticTestName("fail")];
         let mut child = Child::spawn(cmd_hook, &[(test::TestId(0), &names[0]), (test::TestId(1), &names[1])], false).unwrap();
         while !child.done { child.wait(subprocess::POLL_INTERVAL); }
         let results = [(); 2].map(|()| { let (result, _, _, alive) = child.next_result(None, Instant::now()); (result, alive) });
-        drop(child);
-        fs::remove_dir_all(&root).unwrap();
         assert_eq!(results, [(TestResult::Ok, true), (TestResult::Failed, false)]);
     }
 }

@@ -1024,9 +1024,38 @@ pub(crate) mod tests {
 
     static NEXT: AtomicU64 = AtomicU64::new(0);
 
-    struct Scratch(PathBuf);
+    /// A new folder under `test-scratch`, which the test removes when it ends, also when it fails.
+    pub(crate) struct Scratch(pub(crate) PathBuf);
+    impl Scratch {
+        pub(crate) fn new(name: &str) -> Self {
+            let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../test-scratch");
+            let root = base.join(format!("{name}-{}-{}", process::id(), NEXT.fetch_add(1, atomic::Ordering::Relaxed)));
+            // A test that exited or was killed left its folder, which has the id of its process; that id can run again.
+            for entry in fs::read_dir(&base).into_iter().flatten().flatten() {
+                let pid = entry.file_name().to_str().and_then(|name| name.rsplit('-').nth(1)?.parse::<u32>().ok());
+                if pid.is_some_and(|pid| !Path::new(&format!("/proc/{pid}")).exists()) { let _ = fs::remove_dir_all(entry.path()); }
+            }
+            let _ = fs::remove_dir_all(&root);
+            fs::create_dir_all(&root).unwrap();
+            Self(root)
+        }
+    }
     impl Drop for Scratch {
         fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); }
+    }
+
+    /// A failing test removes its folder, and a new folder removes the folders of ended processes only.
+    #[test]
+    fn no_scratch_folder_outlives_its_test() {
+        let mut ended = Command::new("true").spawn().unwrap();
+        ended.wait().unwrap();
+        let own = Scratch::new("own");
+        let left = own.0.with_file_name(format!("left-{}-0", ended.id()));
+        fs::create_dir(&left).unwrap();
+        let mut root = PathBuf::new();
+        let result = panic::catch_unwind(panic::AssertUnwindSafe(|| { let scratch = Scratch::new("failing"); root = scratch.0.clone(); panic!("fails") }));
+        assert!(result.is_err() && root.is_absolute() && !root.exists());
+        assert!(!left.exists() && own.0.exists());
     }
 
     /// The body of a fixture test that a child process runs; a crash or a hang ends the child before it writes coverage.
@@ -1077,10 +1106,7 @@ pub(crate) mod tests {
 
     #[test]
     fn serial_isolated_success_timeout_crash_and_cancellation_reap_children() {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../test-scratch").join(format!(
-            "serial-scheduler-{}-{}", process::id(), NEXT.fetch_add(1, atomic::Ordering::Relaxed)));
-        fs::create_dir_all(&root).unwrap();
-        let scratch = Scratch(root);
+        let scratch = Scratch::new("serial-scheduler");
         for (case, cancel, timeout, expected) in [
             ("success", false, Some(Duration::from_secs(5)), Some(TestResult::Ok)),
             ("timeout", false, Some(Duration::from_secs(2)), Some(TestResult::TimedOut)),
@@ -1383,10 +1409,7 @@ pub(crate) mod tests {
 
     #[test]
     fn isolated_lifecycle_is_bounded_and_reaps_detached_pipe_holders() {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../test-scratch").join(format!(
-            "isolated-lifecycle-{}-{}", process::id(), NEXT.fetch_add(1, atomic::Ordering::Relaxed)));
-        fs::create_dir_all(&root).unwrap();
-        let scratch = Scratch(root);
+        let scratch = Scratch::new("isolated-lifecycle");
         for scenario in ["timeout-serial", "exit-serial", "flood-serial", "cancel-serial", "callback-error-serial",
                          "timeout", "exit", "flood", "cancel", "callback-error", "out-of-order", "cancel-unlimited-serial", "cancel-unlimited",
                          "failure-setup", "failure-cleanup", "failure-panic", "failure-completion", "failure-owner-exit", "orphan-reap"] {
