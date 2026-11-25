@@ -35,8 +35,18 @@ fn short_words_before_a_long_one(words: &[String]) -> usize {
     count
 }
 
+struct Node(Option<Box<Node>>);
+
+fn walk(mut node: &mut Node, steps: usize) {
+    for _ in 0..steps {
+        // A `continue` would keep the borrow of `node.0` alive round the loop, as only the reassignment ends it.
+        node = match node.0.as_deref_mut() { Some(next) => next, None => break };
+    }
+}
+
 #[test]
 fn test() {
+    walk(&mut Node(Some(Box::new(Node(None)))), 3);
     assert_eq!(fields("a {b} c {d}"), ["b", "d"]);
     assert_eq!(short_words_before_a_long_one(&["ab".to_owned(), "abcd".to_owned()]), 1);
 }

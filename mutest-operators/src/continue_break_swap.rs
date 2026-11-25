@@ -13,36 +13,26 @@ pub struct ContinueBreakSwapMutation {
     pub replacement_expr: ast::ExprKind,
 }
 
+/// The words that name the `break` or `continue`, with its label.
+fn display_expr(expr: &ast::ExprKind) -> String {
+    match expr {
+        ast::ExprKind::Break(Some(label), _) => format!("break with label `{}`", label.ident),
+        ast::ExprKind::Break(None, _) => "break".to_owned(),
+        ast::ExprKind::Continue(Some(label)) => format!("continue with label `{}`", label.ident),
+        ast::ExprKind::Continue(None) => "continue".to_owned(),
+        _ => unreachable!(),
+    }
+}
+
 impl Mutation for ContinueBreakSwapMutation {
     fn op_name(&self) -> &str { CONTINUE_BREAK_SWAP }
 
     fn display_name(&self) -> String {
-        let display_expr = |expr: &ast::ExprKind| match expr {
-            ast::ExprKind::Break(Some(label), _) => format!("break with label `{}`", label.ident),
-            ast::ExprKind::Break(None, _) => "break".to_owned(),
-            ast::ExprKind::Continue(Some(label)) => format!("continue with label `{}`", label.ident),
-            ast::ExprKind::Continue(None) => "continue".to_owned(),
-            _ => unreachable!(),
-        };
-
-        format!("swap {original_expr} for {replacement_expr}",
-            original_expr = display_expr(&self.original_expr),
-            replacement_expr = display_expr(&self.replacement_expr),
-        )
+        format!("swap {} for {}", display_expr(&self.original_expr), display_expr(&self.replacement_expr))
     }
 
     fn span_label(&self) -> String {
-        let display_expr = |expr: &ast::ExprKind| match expr {
-            ast::ExprKind::Break(Some(label), _) => format!("break with label `{}`", label.ident),
-            ast::ExprKind::Break(None, _) => "break".to_owned(),
-            ast::ExprKind::Continue(Some(label)) => format!("continue with label `{}`", label.ident),
-            ast::ExprKind::Continue(None) => "continue".to_owned(),
-            _ => unreachable!(),
-        };
-
-        format!("swap for {replacement_expr}",
-            replacement_expr = display_expr(&self.replacement_expr),
-        )
+        format!("swap for {}", display_expr(&self.replacement_expr))
     }
 }
 
@@ -60,33 +50,42 @@ fn loop_may_become_unit<'tcx>(tcx: TyCtxt<'tcx>, typeck: &ty::TypeckResults<'tcx
     typeck.expr_ty_adjusted(block_expr) == tcx.types.unit
 }
 
-/// Whether the loop moves a value declared outside of it, which a `continue` would move again.
-fn loop_moves_outer_value<'tcx>(tcx: TyCtxt<'tcx>, typeck: &'tcx ty::TypeckResults<'tcx>, body_owner: hir::LocalDefId, body_id: hir::BodyId, loop_hir: &'tcx hir::Expr<'tcx>) -> bool {
+/// Whether the loop moves a value declared outside of it, which a `continue` would move again, or
+/// reassigns a mutable reference declared outside of it, whose reborrows only the reassignment ends.
+fn continue_fails_borrowck<'tcx>(tcx: TyCtxt<'tcx>, typeck: &'tcx ty::TypeckResults<'tcx>, body_owner: hir::LocalDefId, body_id: hir::BodyId, loop_hir: &'tcx hir::Expr<'tcx>) -> bool {
     use rustc_hir_typeck::expr_use_visitor::{Delegate, ExprUseVisitor, PlaceBase, PlaceWithHirId};
     use rustc_lint::LateContext;
     use rustc_middle::mir::FakeReadCause;
 
-    struct OuterMoveFinder<'tcx> {
+    struct OuterUseFinder<'tcx> {
         tcx: TyCtxt<'tcx>,
         loop_hir_id: hir::HirId,
         found: bool,
     }
 
-    impl<'tcx> Delegate<'tcx> for OuterMoveFinder<'tcx> {
-        fn consume(&mut self, place_with_id: &PlaceWithHirId<'tcx>, _diag_expr_id: hir::HirId) {
-            let declared_at = match place_with_id.place.base {
+    impl<'tcx> OuterUseFinder<'tcx> {
+        fn declared_outside_loop(&self, base: PlaceBase) -> bool {
+            let declared_at = match base {
                 PlaceBase::Local(hir_id) => hir_id,
                 PlaceBase::Upvar(upvar_id) => upvar_id.var_path.hir_id,
-                PlaceBase::Rvalue | PlaceBase::StaticItem => return,
+                PlaceBase::Rvalue | PlaceBase::StaticItem => return false,
             };
-            if !self.tcx.hir_parent_id_iter(declared_at).any(|hir_id| hir_id == self.loop_hir_id) {
-                self.found = true;
-            }
+            !self.tcx.hir_parent_id_iter(declared_at).any(|hir_id| hir_id == self.loop_hir_id)
+        }
+    }
+
+    impl<'tcx> Delegate<'tcx> for OuterUseFinder<'tcx> {
+        fn consume(&mut self, place_with_id: &PlaceWithHirId<'tcx>, _diag_expr_id: hir::HirId) {
+            self.found |= self.declared_outside_loop(place_with_id.place.base);
         }
 
         fn use_cloned(&mut self, _place_with_id: &PlaceWithHirId<'tcx>, _diag_expr_id: hir::HirId) {}
         fn borrow(&mut self, _place_with_id: &PlaceWithHirId<'tcx>, _diag_expr_id: hir::HirId, _bk: ty::BorrowKind) {}
-        fn mutate(&mut self, _assignee_place: &PlaceWithHirId<'tcx>, _diag_expr_id: hir::HirId) {}
+        fn mutate(&mut self, assignee_place: &PlaceWithHirId<'tcx>, _diag_expr_id: hir::HirId) {
+            // NOTE: The borrow checker keeps a reborrow through a mutable reference alive round the loop, unless the reference is reassigned.
+            let mut_ref = assignee_place.place.ty().walk().any(|arg| arg.as_type().is_some_and(|ty| ty.ref_mutability() == Some(hir::Mutability::Mut)));
+            self.found |= mut_ref && assignee_place.place.projections.is_empty() && self.declared_outside_loop(assignee_place.place.base);
+        }
         fn fake_read(&mut self, _place_with_id: &PlaceWithHirId<'tcx>, _cause: FakeReadCause, _diag_expr_id: hir::HirId) {}
     }
 
@@ -101,7 +100,7 @@ fn loop_moves_outer_value<'tcx>(tcx: TyCtxt<'tcx>, typeck: &'tcx ty::TypeckResul
         generics: None,
         only_module: false,
     };
-    let mut finder = OuterMoveFinder { tcx, loop_hir_id: loop_hir.hir_id, found: false };
+    let mut finder = OuterUseFinder { tcx, loop_hir_id: loop_hir.hir_id, found: false };
     let Ok(()) = ExprUseVisitor::for_clippy(&cx, body_owner, &mut finder).walk_expr(loop_hir);
     finder.found
 }
@@ -141,7 +140,7 @@ impl<'a> Operator<'a> for ContinueBreakSwap {
         let compiles = match &expr.kind {
             // NOTE: A `loop` without a `break` has type `!`, which becomes `()` once a `continue` is swapped for one.
             ast::ExprKind::Continue(_) if target_ty == tcx.types.never => loop_may_become_unit(tcx, typeck, target_hir),
-            ast::ExprKind::Break(..) if loop_moves_outer_value(tcx, typeck, f_hir.owner_id.def_id, body_hir.id(), target_hir) => false,
+            ast::ExprKind::Break(..) if continue_fails_borrowck(tcx, typeck, f_hir.owner_id.def_id, body_hir.id(), target_hir) => false,
             _ => target_ty == tcx.types.unit || target_ty == tcx.types.never,
         };
         if !compiles { return Mutations::none(); }
