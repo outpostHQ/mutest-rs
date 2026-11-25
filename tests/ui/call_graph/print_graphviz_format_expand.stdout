@@ -17,11 +17,11 @@ strict digraph {
     def_0_7 [label="test"];
   }
   { rank=same; 0;
-    def_2_11891_a70d6960691fc4de [label="std::option::Option::<u8>::map::<u8, fn(u8) -> u8 {by_fn_item}>", shape=plaintext, fontcolor=lightgray];
+    def_core_a70d6960691fc4de [label="std::option::Option::<u8>::map::<u8, fn(u8) -> u8 {by_fn_item}>", shape=plaintext, fontcolor=lightgray];
   }
-  def_0_7 -> def_2_11891_a70d6960691fc4de:w [color=lightgray];
+  def_0_7 -> def_core_a70d6960691fc4de:w [color=lightgray];
   { rank=same; 1;
     def_0_3 [label="by_fn_item"];
   }
-  def_2_11891_a70d6960691fc4de -> def_0_3:w [color=lightgray];
+  def_core_a70d6960691fc4de -> def_0_3:w [color=lightgray];
 }

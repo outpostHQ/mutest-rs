@@ -6,20 +6,21 @@ use rustc_data_structures::fx::{FxHashMap, FxHashSet, FxHasher};
 use rustc_data_structures::smallvec::{SmallVec, smallvec};
 use rustc_middle::ty::TyCtxt;
 use rustc_span::bug;
-use rustc_span::def_id::DefId;
+use rustc_span::def_id::LocalDefId;
 
 use crate::config;
 
-fn call_graph_node_def_id(def_id: DefId) -> String {
-    format!("def_{}_{}", def_id.krate.index(), def_id.index.index())
+fn call_graph_local_node_id(local_def_id: LocalDefId) -> String {
+    format!("def_0_{}", local_def_id.local_def_index.index())
 }
 
-/// `GenericArgsRef` hashes its interned pointer, which differs between runs, so disambiguate
-/// generic args by their printed form to keep this id stable for checked-in `.stdout` fixtures.
+/// Generic args and the items of other crates add a hash of their printed form to the id, as other crates' def
+/// indices differ by target, and `GenericArgsRef` hashes its interned pointer, which differs between runs.
 fn call_graph_node_id<'tcx>(tcx: TyCtxt<'tcx>, callee: &Callee<'tcx>) -> String {
-    if callee.generic_args.is_empty() { return call_graph_node_def_id(callee.def_id); }
+    if let Some(local_def_id) = callee.def_id.as_local().filter(|_| callee.generic_args.is_empty()) { return call_graph_local_node_id(local_def_id); }
+    let site = callee.def_id.as_local().map_or_else(|| format!("def_{}", tcx.crate_name(callee.def_id.krate)), call_graph_local_node_id);
     let hash = { let mut hasher = FxHasher::default(); callee.display_str(tcx).hash(&mut hasher); hasher.finish() };
-    format!("def_{}_{}_{:x}", callee.def_id.krate.index(), callee.def_id.index.index(), hash)
+    format!("{site}_{hash:x}")
 }
 
 fn escape_graphviz_label(label: &str) -> String {
@@ -48,10 +49,7 @@ pub(super) fn print_call_graph_graphviz<'tcx, 'ent>(tcx: TyCtxt<'tcx>, entry_poi
     println!("  node [shape=ellipse];");
 
     println!("  subgraph cluster_tests {{");
-    println!("    label=\"{}\";", match entry_points {
-        EntryPoints::Tests(_) => "tests (entry points)",
-        EntryPoints::External => unreachable!(),
-    });
+    println!("    label=\"tests (entry points)\";");
     println!("    rank=same");
     println!("    style=filled;");
     println!("    color=lightgray;");
@@ -63,7 +61,7 @@ pub(super) fn print_call_graph_graphviz<'tcx, 'ent>(tcx: TyCtxt<'tcx>, entry_poi
         if !super::matches_entry_point_filters(&entry_point_path_str, entry_point_filters) { continue; }
 
         // TODO: Use different styling for ignored test, or use strikethrough.
-        println!("    {} [label=\"{}\"];", call_graph_node_def_id(entry_point.local_def_id.to_def_id()), entry_point_path_str);
+        println!("    {} [label=\"{}\"];", call_graph_local_node_id(entry_point.local_def_id), entry_point_path_str);
     }
 
     println!("  }}");
@@ -109,25 +107,25 @@ fn print_call_graph_graphviz_root_calls<'tcx>(ctx: &CallGraphGraphvizCtx<'_, 'tc
     for (root_def_id, calls) in &call_graph.root_calls {
         for call in calls {
             if !ctx.entry_point_filters.is_empty() && !ctx.filtered_nodes.contains(&Callee::new(root_def_id.to_def_id(), ctx.tcx.mk_args(&[]))) { continue; }
-            print_call_graph_graphviz_root_call_edge(ctx.tcx, ctx.non_local_call_view, collapsed_call_paths, root_def_id.to_def_id(), call);
+            print_call_graph_graphviz_root_call_edge(ctx.tcx, ctx.non_local_call_view, collapsed_call_paths, *root_def_id, call);
         }
     }
 }
 
-fn print_call_graph_graphviz_root_call_edge<'tcx>(tcx: TyCtxt<'tcx>, non_local_call_view: config::CallGraphNonLocalCallView, collapsed_call_paths: &mut CollapsedCallPaths<'tcx>, root_def_id: DefId, call: &InstanceCall<'tcx>) {
+fn print_call_graph_graphviz_root_call_edge<'tcx>(tcx: TyCtxt<'tcx>, non_local_call_view: config::CallGraphNonLocalCallView, collapsed_call_paths: &mut CollapsedCallPaths<'tcx>, root_def_id: LocalDefId, call: &InstanceCall<'tcx>) {
     if !call.callee.def_id.is_local() {
         match non_local_call_view {
             config::CallGraphNonLocalCallView::Collapse => {
-                collapsed_call_paths.entry(call.callee).or_default().push(smallvec![Callee::new(root_def_id, tcx.mk_args(&[])), call.callee]);
+                collapsed_call_paths.entry(call.callee).or_default().push(smallvec![Callee::new(root_def_id.to_def_id(), tcx.mk_args(&[])), call.callee]);
             }
             config::CallGraphNonLocalCallView::Expand => {
-                println!("  {} -> {}:w [color=lightgray];", call_graph_node_def_id(root_def_id), call_graph_node_id(tcx, &call.callee));
+                println!("  {} -> {}:w [color=lightgray];", call_graph_local_node_id(root_def_id), call_graph_node_id(tcx, &call.callee));
             }
         }
         return;
     }
 
-    println!("  {} -> {}:w;", call_graph_node_def_id(root_def_id), call_graph_node_id(tcx, &call.callee));
+    println!("  {} -> {}:w;", call_graph_local_node_id(root_def_id), call_graph_node_id(tcx, &call.callee));
 }
 
 fn print_call_graph_graphviz_nested_calls<'tcx>(ctx: &CallGraphGraphvizCtx<'_, 'tcx>, call_graph: &CallGraph<'tcx>, defined_callees: &mut FxHashSet<Callee<'tcx>>, collapsed_call_paths: &mut CollapsedCallPaths<'tcx>) {
@@ -192,9 +190,8 @@ fn print_call_graph_graphviz_nested_call_edge<'tcx>(tcx: TyCtxt<'tcx>, non_local
 
 fn print_call_graph_graphviz_collapsed_nested_call_edge<'tcx>(tcx: TyCtxt<'tcx>, collapsed_call_paths: &mut CollapsedCallPaths<'tcx>, caller: Callee<'tcx>, call: &InstanceCall<'tcx>) {
     match (caller.def_id.is_local(), call.callee.def_id.is_local()) {
-        (true, true) => unreachable!(),
-        // Local definition calls into non-local definition.
-        (true, false) => {
+        // Local definition calls into non-local definition; local calls into local definitions print earlier.
+        (true, _) => {
             // Record new collapsed non-local call path.
             collapsed_call_paths.entry(call.callee).or_default().push(smallvec![caller, call.callee]);
         }

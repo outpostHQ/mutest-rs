@@ -18,8 +18,8 @@ impl Drop for Square {
     fn drop(&mut self) {}
 }
 
-fn area_of(shape: &dyn Shape) -> u8 {
-    shape.area()
+fn area_of(shape: &dyn Shape) -> Option<u8> {
+    Some(shape.area()).map(by_fn_item)
 }
 
 #[test]

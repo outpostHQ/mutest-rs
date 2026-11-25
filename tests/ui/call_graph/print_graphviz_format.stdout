@@ -30,5 +30,6 @@ strict digraph {
   }
   def_0_12 -> def_0_5_5d147d58a6c8109b:w;
   def_0_16 -> def_0_3:w [label="indirect", color=lightgray, labeltooltip="test\n-> std::option::Option::<u8>::map::<u8, fn(u8) -> u8 {by_fn_item}>\n-> by_fn_item"];
+  def_0_12 -> def_0_3:w [label="indirect", color=lightgray, labeltooltip="area_of\n-> std::option::Option::<u8>::map::<u8, fn(u8) -> u8 {by_fn_item}>\n-> by_fn_item"];
   def_0_16 -> def_0_11:w [label="indirect", color=lightgray, labeltooltip="test\n-> std::boxed::Box::<Square>::new\n-> <Square as std::ops::Drop>::drop"];
 }
