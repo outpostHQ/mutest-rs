@@ -1036,11 +1036,10 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
             // If the whole import path (besides any glob suffix) points to a module, then the resolution is much simpler,
             // and we can simply sanitize the whole path in one go.
             hir::Res::Def(hir::DefKind::Mod, def_id) => 'arm: {
-                // NOTE: Module re-exports (e.g. `pub use alloc::vec` in `std`) point to the underlying module, but
-                //       we want to refer to the re-export by path in case the import this resolution comes from
-                //       is diverging and points to an identically named item in the re-export's scope.
-                // Such a module is dealt with like an item: by the name it has in the module that the path names.
-                // Otherwise, two imports of one module could each resolve through the name of the other.
+                // NOTE: A module that the path names by its name in another module is imported like an item, by that name:
+                //       a module re-export (e.g. `pub use alloc::vec` in `std`) keeps its name for a diverging import,
+                //       two imports of one module do not resolve through the name of each other,
+                //       and the import has one path in every namespace.
                 if self.import_path_names_mod_child(scope, path, res) {
                     break 'arm;
                 }

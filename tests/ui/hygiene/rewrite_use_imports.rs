@@ -244,9 +244,9 @@ macro m() {
         }
     }
 
-    // TEST: `super` import of a name that is a module import and a function.
-    mod test_super_import_of_mod_import_and_fn_of_one_name {
-        pub mod escape {}
+    // TEST: `super` imports of a name that is a module or a module import, and a function.
+    mod test_super_import_of_mod_and_fn_of_one_name {
+        pub mod escape { use super::escape; } fn escape() {}
         mod inner { use super::escape::{self}; fn escape() {} mod within { use super::escape; } }
     }
 

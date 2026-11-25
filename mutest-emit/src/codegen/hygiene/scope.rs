@@ -44,8 +44,8 @@ pub(super) fn self_use_tree_kind(rename: Option<Ident>) -> ast::UseTreeKind {
 }
 
 impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
-    /// Whether the import path names a module as a child of another module: through that module, or
-    /// by the name of an import in the module that a bare name, `self`, `super`, `crate` or `$crate` names.
+    /// Whether the import path names a module by its name in another module: the module that the path names,
+    /// or, for a bare name, `self`, `super`, `crate` or `$crate`, a module that has the name.
     pub(super) fn import_path_names_mod_child(&self, scope: hir::HirId, path: &ast::Path, res: hir::Res<ast::NodeId>) -> bool {
         let [parent_path_segments @ .., mod_path_segment] = &path.segments[..] else { return false; };
         if mod_path_segment.ident.is_path_segment_keyword() { return false; }
@@ -53,8 +53,7 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
             Some(parent) if !matches!(parent.ident.name, kw::SelfLower | kw::Super | kw::Crate | kw::DollarCrate) => matches!(self.def_res.node_res(parent.id), Some(hir::Res::Def(hir::DefKind::Mod, _))),
             // These path roots have no resolution, so the module that they name is searched for the name.
             _ => self.import_path_mod_scopes(self.tcx.parent_module(scope).to_mod_id(), parent_path_segments, res.def_id(), path.span).into_iter()
-                .find_map(|mod_scope| res::lookup_mod_child(self.tcx, mod_scope.to_def_id(), res.expect_non_local(), mod_path_segment.ident.name))
-                .is_some_and(|mod_child| !mod_child.reexport_chain.is_empty()),
+                .any(|mod_scope| res::lookup_mod_child(self.tcx, mod_scope.to_def_id(), res.expect_non_local(), mod_path_segment.ident.name).is_some()),
         }
     }
 
