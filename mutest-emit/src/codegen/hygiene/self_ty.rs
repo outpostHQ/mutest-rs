@@ -61,11 +61,16 @@ impl<'tcx, 'op> MacroExpansionSanitizer<'tcx, 'op> {
             alias_path.segments.push(ast::PathSegment { ident: Ident::new(item_segment.ident.name, DUMMY_SP), ..item_segment.clone() });
             *path = alias_path;
         } else {
-            let variant_args = self.enum_args_of_variant_path(qself, path, qself_ty, node_hir_id, span);
-            let None = self.sanitize_path(path, res, None) else { span_bug!(path.span, "produced unexpected type-relative path for non-assoc path") };
-            if let Some(variant_segment) = path.segments.last_mut() && variant_args.is_some() { variant_segment.args = variant_args; }
+            self.sanitize_resolved_non_assoc_path(qself, path, res, qself_ty, node_hir_id, span);
         }
         *qself = None;
+    }
+
+    /// Sanitizes the type-relative path through the path of the item itself, with the enum args that the self type gives a variant.
+    fn sanitize_resolved_non_assoc_path(&mut self, qself: &Option<Box<ast::QSelf>>, path: &mut ast::Path, res: hir::Res<ast::NodeId>, qself_ty: Ty<'tcx>, node_hir_id: hir::HirId, span: Span) {
+        let variant_args = self.enum_args_of_variant_path(qself, path, qself_ty, node_hir_id, span);
+        let None = self.sanitize_path(path, res, None) else { span_bug!(path.span, "produced unexpected type-relative path for non-assoc path") };
+        if let Some(variant_segment) = path.segments.last_mut() && variant_args.is_some() { variant_segment.args = variant_args; }
     }
 
     /// The sanitized path to the type alias that the type-relative path names its self type by (e.g. `dep::Alias` in

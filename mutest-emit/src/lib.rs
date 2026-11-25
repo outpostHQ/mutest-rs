@@ -1,6 +1,5 @@
 #![feature(associated_type_defaults)]
 #![feature(decl_macro)]
-#![feature(f16)]
 #![feature(iter_collect_into)]
 #![feature(iter_intersperse)]
 #![feature(iterator_try_collect)]
