@@ -44,8 +44,13 @@ impl Writer {
         result
     }
 
+    /// The time of the next record, on a clock that starts at the header, which a reader requires at time zero.
+    fn clock_ms(&mut self) -> u64 {
+        if self.sequence == 0 { self.start = Instant::now(); 0 } else { u64::try_from(self.start.elapsed().as_millis()).unwrap_or(u64::MAX) }
+    }
+
     fn write_record(&mut self, event: json::Object) -> io::Result<()> {
-        let elapsed = u64::try_from(self.start.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let elapsed = self.clock_ms();
         let event = event
             .field("schema", "mutest-progress")
             .field("version", &1)
@@ -388,12 +393,8 @@ mod tests {
     #[test]
     fn disabled_and_invalid_configuration_do_not_open_paths() {
         assert_eq!(configuration(None, None).unwrap(), None);
-        for (directory, nonce) in [
-            (Some(PathBuf::from("/missing")), None),
-            (None, Some("a".repeat(32))),
-            (Some(PathBuf::from("relative")), Some("a".repeat(32))),
-            (Some(PathBuf::from("/missing")), Some("A".repeat(32))),
-        ] {
+        for (directory, nonce) in [(Some(PathBuf::from("/missing")), None), (None, Some("a".repeat(32))),
+            (Some(PathBuf::from("relative")), Some("a".repeat(32))), (Some(PathBuf::from("/missing")), Some("A".repeat(32)))] {
             assert!(configuration(directory, nonce).is_err());
         }
     }
@@ -415,22 +416,13 @@ mod tests {
         assert!(writer.finish(true, 0).is_err());
         writer.finish(false, 101).unwrap();
         let path = fs::read_dir(&root.0).unwrap().next().unwrap().unwrap().path();
-        let records = fs::read_to_string(path)
-            .unwrap()
-            .lines()
-            .map(|line| serde_json::from_str::<Value>(line).unwrap())
-            .collect::<Vec<_>>();
+        let records = fs::read_to_string(path).unwrap().lines().map(|line| serde_json::from_str::<Value>(line).unwrap()).collect::<Vec<_>>();
         assert_eq!((records[0]["record_limit_bytes"].as_u64(), records[0]["file_limit_bytes"].as_u64()), (Some(16384), Some(1 << 30)));
         for (sequence, record) in records.iter().enumerate() {
             assert_eq!(record["seq"], sequence as u64);
             assert_eq!(record["nonce"], "0123456789abcdef0123456789abcdef");
         }
-        assert!(
-            records
-                .windows(2)
-                .all(|records| records[0]["elapsed_ms"].as_u64()
-                    <= records[1]["elapsed_ms"].as_u64())
-        );
+        assert!(records.windows(2).all(|pair| pair[0]["elapsed_ms"].as_u64() <= pair[1]["elapsed_ms"].as_u64()));
         assert_eq!(records[2]["execution_timeout_ms"], 1);
         assert_eq!(records[4]["invocation_id"], second);
         assert_eq!(records[7]["execution_timeout_ms"], Value::Null);
@@ -439,15 +431,21 @@ mod tests {
     }
 
     #[test]
+    fn the_header_is_at_time_zero_however_late_it_is_written() {
+        let (root, mut writer) = fixture();
+        (writer.sequence, writer.start) = (0, writer.start - std::time::Duration::from_millis(5));
+        writer.append(json::Object::new()).unwrap();
+        let header = fs::read_to_string(fs::read_dir(&root.0).unwrap().next().unwrap().unwrap().path()).unwrap();
+        assert!(header.ends_with("\"seq\":0,\"elapsed_ms\":0}\n"));
+    }
+
+    #[test]
     fn a_record_or_file_over_its_limit_fails_the_writer() {
         for case in ["record", "file"] {
             let (_root, mut writer) = fixture();
             match case {
                 "record" => assert!(writer.append(json::Object::new().field("oversized", &"x".repeat(RECORD_LIMIT))).is_err()),
-                _ => {
-                    writer.bytes = FILE_LIMIT;
-                    assert!(writer.set_phase("reference").is_err());
-                }
+                _ => { writer.bytes = FILE_LIMIT; assert!(writer.set_phase("reference").is_err()); }
             }
             assert!(writer.ready().is_err());
             assert!(writer.finish(true, 0).is_err());
