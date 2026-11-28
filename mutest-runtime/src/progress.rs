@@ -51,13 +51,8 @@ impl Writer {
 
     fn write_record(&mut self, event: json::Object) -> io::Result<()> {
         let elapsed = self.clock_ms();
-        let event = event
-            .field("schema", "mutest-progress")
-            .field("version", &1)
-            .field("nonce", &self.nonce)
-            .field("instance_id", &self.harness)
-            .field("seq", &self.sequence)
-            .field("elapsed_ms", &elapsed);
+        let event = event.field("schema", "mutest-progress").field("version", &1).field("nonce", &self.nonce)
+            .field("instance_id", &self.harness).field("seq", &self.sequence).field("elapsed_ms", &elapsed);
         let mut record = event.into_vec()?;
         record.push(b'\n');
         if record.len() > RECORD_LIMIT {
